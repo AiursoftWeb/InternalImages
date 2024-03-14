@@ -5,7 +5,7 @@ RUN apt install -y ttyd sudo wget curl iputils-ping net-tools vim tmux
 
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo
-RUN echo "demo ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/$USER
+RUN echo "demo ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
 
 # Restore demo's home
 RUN mkdir /home/demo
