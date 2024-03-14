@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/ubuntu
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 
 RUN apt update
 RUN apt install -y ttyd sudo wget curl iputils-ping net-tools vim tmux systemd apt-transport-https ca-certificates software-properties-common w3m git python3 python-is-python3 python3-pip
