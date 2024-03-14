@@ -15,5 +15,5 @@ RUN chmod -R 755 /home/demo
 RUN cp -a /etc/skel/. /home/demo
 
 EXPOSE 7681
-ENTRYPOINT ["sh", "-c", "sudo -u demo /usr/bin/ttyd -w /home/demo/ -t bash"]
+ENTRYPOINT ["sh", "-c", "sudo -u demo /usr/bin/ttyd -w /home/demo/ bash"]
 HEALTHCHECK --interval=5s --timeout=3s --retries=3 CMD curl -f http://localhost:7681 || exit 1
