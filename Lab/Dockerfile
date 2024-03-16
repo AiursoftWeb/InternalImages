@@ -10,8 +10,6 @@ tree dotnet8 aria2 iperf3 ffmpeg \
 unzip zip openssh-server openssh-client \
 build-essential
 
-RUN echo lab > /etc/hostname
-
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo
 RUN echo "demo ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
