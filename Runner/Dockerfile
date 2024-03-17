@@ -10,4 +10,4 @@ RUN apt install -y gitlab-runner dotnet8 nodejs libgdiplus build-essential
 
 COPY . /app
 WORKDIR /app
-ENTRYPOINT [ "/app/entry.sh" ]
+ENTRYPOINT [ "/bin/bash", "-c", "/app/entry.sh" ]
