@@ -13,6 +13,7 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh
 ENV CHANNEL=stable
 RUN sh get-docker.sh
 RUN usermod -aG docker root
+RUN usermod -aG docker gitlab-runner
 RUN rm get-docker.sh
 
 COPY . /app
