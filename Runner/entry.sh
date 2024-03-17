@@ -5,12 +5,7 @@ gitlab-runner register \
     --non-interactive \
     --url "https://gitlab.aiursoft.cn/" \
     --request-concurrency 3 \
-    --token $token \
-    --executor "shell" \
-    --description "aiursoft-runner-docker" \
-    --tag-list "ubuntu,shared,runner,docker" \
-    --run-untagged="true" \
-    --locked="false"
+    --token $token
 
 fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
 gitlab-runner start
