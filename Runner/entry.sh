@@ -14,5 +14,4 @@ gitlab-runner register \
 
 fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
 gitlab-runner start
-gitlab-runner verify
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
