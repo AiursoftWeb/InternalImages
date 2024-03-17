@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/ubuntu
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 
 # GitLab Runner.
 RUN apt update
