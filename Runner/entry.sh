@@ -4,7 +4,7 @@ token=$(cat /run/secrets/gitlab-runner-token)
 gitlab-runner register \
     --non-interactive \
     --url "https://gitlab.aiursoft.cn/" \
-    --token $token
+    --token $token --executor "shell"
 
 gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
