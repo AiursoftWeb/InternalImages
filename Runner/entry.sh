@@ -5,7 +5,7 @@ gitlab-runner register \
     --non-interactive \
     --url "https://gitlab.aiursoft.cn/" \
     --request-concurrency 3 \
-    --registration-token $token \
+    --token $token \
     --executor "shell" \
     --description "aiursoft-runner-docker" \
     --tag-list "ubuntu,shared,runner,docker" \
