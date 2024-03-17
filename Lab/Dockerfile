@@ -8,7 +8,7 @@ software-properties-common w3m git \
 python3 python-is-python3 python3-pip \
 tree dotnet8 aria2 iperf3 ffmpeg \
 unzip zip openssh-server openssh-client \
-build-essential
+build-essential bc
 
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo
