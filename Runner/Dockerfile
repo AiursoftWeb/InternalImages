@@ -16,6 +16,10 @@ RUN usermod -aG docker root
 RUN usermod -aG docker gitlab-runner
 RUN rm get-docker.sh
 
+# Install .NET Tools
+RUN sudo -u gitlab-runner dotnet tool install JetBrains.ReSharper.GlobalTools --global || echo "JB already installed."
+RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool --global || echo "ReportGenerator already installed."
+
 COPY . /app
 WORKDIR /app
 RUN chmod +x /app/entry.sh
