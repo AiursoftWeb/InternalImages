@@ -8,6 +8,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 RUN apt update
 RUN apt install -y gitlab-runner dotnet8 nodejs libgdiplus build-essential
 
+# Install Docker
+RUN curl -fsSL https://get.docker.com -o get-docker.sh
+ENV CHANNEL=stable
+RUN sh get-docker.sh
+RUN usermod -aG docker root
+RUN rm get-docker.sh
+
 COPY . /app
 WORKDIR /app
 RUN chmod +x /app/entry.sh
