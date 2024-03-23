@@ -23,6 +23,12 @@ RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool 
 # Install Node Tools
 RUN sudo npm install typescript ts-node npm -g
 
+# Hack inode
+RUN echo fs.inotify.max_user_instances=524288 | tee -a /etc/sysctl.conf
+RUN echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf
+RUN echo fs.inotify.max_queued_events=524288 | tee -a /etc/sysctl.conf
+RUN sysctl -p
+
 COPY . /app
 WORKDIR /app
 RUN chmod +x /app/entry.sh
