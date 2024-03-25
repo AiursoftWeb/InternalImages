@@ -4,6 +4,7 @@ stages:
 deploy_docker:
   stage: deploy
   script:
+    - docker builder prune -f
     - docker build ./Ubuntu -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
     - docker build ./Lab -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:latest

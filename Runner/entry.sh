@@ -1,4 +1,5 @@
 token=$(cat /run/secrets/gitlab-runner-token)
+echo "Registering runner with token $token"
 
 # One runner can run 3 tasks at the same time
 gitlab-runner register \
