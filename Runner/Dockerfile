@@ -17,8 +17,8 @@ RUN usermod -aG docker gitlab-runner
 RUN rm get-docker.sh
 
 # Install .NET Tools
-RUN sudo -u gitlab-runner dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json || echo "JB already installed."
-RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json || echo "ReportGenerator already installed."
+RUN sudo -u gitlab-runner dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo "JB already installed."
+RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo "ReportGenerator already installed."
 
 # Install Node Tools
 RUN sudo npm install typescript ts-node npm -g
