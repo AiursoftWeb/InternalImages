@@ -33,6 +33,7 @@ RUN echo "clean http://archive.ubuntu.com/ubuntu/" >> /etc/apt/mirror.list
 VOLUME /var/spool/apt-mirror
 
 # Register a crontab job to run apt-mirror every 6 hours
-RUN echo "0 */6 * * * /usr/bin/apt-mirror" > /etc/cron.d/apt-mirror
+RUN crontab -l | { cat; echo "0 */6 * * * /usr/bin/apt-mirror"; } | crontab -
+
 # Run this job at the beginning with verbose output
-ENTRYPOINT ["sh", "-c", "cron -f"]
+ENTRYPOINT ["cron", "-f", "-L 15"]
