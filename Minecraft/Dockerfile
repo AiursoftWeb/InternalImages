@@ -8,7 +8,7 @@ ARG VERSION
 WORKDIR /app
 
 RUN apt update
-RUN apt install -y curl wget jq
+RUN apt install -y curl wget jq unzip
 
 RUN mkdir -p /app/plugins && \
     mkdir -p /app/world && \
@@ -31,6 +31,8 @@ RUN buildId=$(curl "https://api.papermc.io/v2/projects/paper/versions/${VERSION}
     echo "Downloading new Paper MC binary $url" && \
     wget -O /app/papermc.jar $url
 
+# Plugins
+# ================
 # Geyser-Spigot
 RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
 
@@ -55,8 +57,45 @@ RUN wget -O /app/plugins/NoEndermanGrief.jar "https://dev.bukkit.org/projects/no
 COPY ./NoBoom-1.2.jar /app/plugins/NoBoom.jar
 
 # Datapacks
+# ================
 RUN mkdir /datapacks
 RUN touch /datapacks/README.md
+
+# DungeonNowLoading
+COPY ./dungeon-now-loading-18.2-v1.19.4.zip /tmp/dnl.zip
+RUN unzip /tmp/dnl.zip -d /datapacks/dnl
+
+# BlazeandCave's Advancements Pack
+RUN wget -O /tmp/bap.zip "https://mediafilez.forgecdn.net/files/4366/827/BlazeandCave%27s Advancements Pack 1.15.3.zip"
+RUN unzip /tmp/bap.zip -d /datapacks/bap
+
+# Keepin
+#RUN wget -O /tmp/kpin.zip "https://www.planetminecraft.com/data-pack/keepin-keep-inventory-but-lose-all-xp-upon-death/download/file/15192932/"
+#RUN unzip /tmp/kpin.zip -d /datapacks/kpin
+
+# Incendium
+RUN wget -O /tmp/inc.zip -L "https://www.stardustlabs.net/s/Incendium_1193_v516.zip"
+RUN unzip /tmp/inc.zip -d /datapacks/inc
+
+# Nullscape
+RUN wget -O /tmp/nsp.zip -L "https://www.stardustlabs.net/s/Nullscape_1193_v122.zip"
+RUN unzip /tmp/nsp.zip -d /datapacks/nsp
+
+# Terralith
+RUN wget -O /tmp/tra.zip -L "https://www.stardustlabs.net/s/Terralith_1193_v2312.zip"
+RUN unzip /tmp/tra.zip -d /datapacks/tra
+
+# Structuroy
+RUN wget -O /tmp/sty.zip -L "https://www.stardustlabs.net/s/Structory_1193_v131a.zip"
+RUN unzip /tmp/sty.zip -d /datapacks/sty
+
+# Ships out of the ocean
+#RUN wget -O /tmp/soo.zip -L "https://www.planetminecraft.com/data-pack/ships-out-on-the-oceans/download/file/13598682/"
+#RUN unzip /tmp/soo.zip -d /datapacks/soo
+
+# Tree capitator
+#RUN wget -O /tmp/tcr.zip -L "https://www.planetminecraft.com/data-pack/treecapitator-datapack-1-13/download/file/16542907/"
+#RUN unzip /tmp/tcr.zip -d /datapacks/tcr
 
 #============================
 #       Final image
@@ -78,5 +117,5 @@ EXPOSE 25565
 EXPOSE 19132/udp
 EXPOSE 8123
 
-ENTRYPOINT [ "sh", "-c", "cp -rv /datapacks/* /app/world/datapacks && java -XX:+UseG1GC -Xms6G -Xmx13G -jar /app/papermc.jar --nojline --nogui" ]
+ENTRYPOINT [ "sh", "-c", "cp -r /datapacks/* /app/world/datapacks && java -XX:+UseG1GC -Xms6G -Xmx13G -jar /app/papermc.jar --nojline --nogui" ]
 #ENTRYPOINT [ "/usr/bin/java", "-XX:+UseG1GC", "-Xms6G", "-Xmx13G", "-jar", "/app/papermc.jar", "--nojline", "--nogui" ]
