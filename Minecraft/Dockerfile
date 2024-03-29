@@ -1,7 +1,10 @@
+ARG VERSION="1.19.3"
+
 #============================
 #       Builder image
 #============================
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu as minecraft-builder
+ARG VERSION
 WORKDIR /app
 
 RUN apt update
@@ -9,6 +12,7 @@ RUN apt install -y curl wget jq
 
 RUN mkdir -p /app/plugins && \
     mkdir -p /app/world && \
+    mkdir -p /app/world/datapacks && \
     mkdir -p /app/world_nether && \
     mkdir -p /app/world_the_end && \
     mkdir -p /app/logs
@@ -21,8 +25,9 @@ COPY ./bukkit.yml /app/bukkit.yml
 COPY ./server.properties /app/server.properties
 COPY ./ops.json /app/ops.json
 
-RUN buildId=$(curl 'https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds' | jq -r '.builds[-1].build') && \
-    url=https://api.papermc.io/v2/projects/paper/versions/1.19.3/builds/$buildId/downloads/paper-1.19.3-$buildId.jar && \
+# Download Paper MC
+RUN buildId=$(curl "https://api.papermc.io/v2/projects/paper/versions/${VERSION}/builds" | jq -r '.builds[-1].build') && \
+    url=https://api.papermc.io/v2/projects/paper/versions/${VERSION}/builds/$buildId/downloads/paper-${VERSION}-$buildId.jar && \
     echo "Downloading new Paper MC binary $url" && \
     wget -O /app/papermc.jar $url
 
@@ -49,6 +54,10 @@ RUN wget -O /app/plugins/NoEndermanGrief.jar "https://dev.bukkit.org/projects/no
 # NoBoom
 COPY ./NoBoom-1.2.jar /app/plugins/NoBoom.jar
 
+# Datapacks
+RUN mkdir /datapacks
+RUN touch /datapacks/README.md
+
 #============================
 #       Final image
 #============================
@@ -56,6 +65,7 @@ FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 WORKDIR /app
 
 COPY --from=minecraft-builder /app /app
+COPY --from=minecraft-builder /datapacks /datapacks
 
 RUN apt update
 RUN apt install -y openjdk-17-jre-headless
@@ -68,4 +78,5 @@ EXPOSE 25565
 EXPOSE 19132/udp
 EXPOSE 8123
 
-ENTRYPOINT [ "/usr/bin/java", "-XX:+UseG1GC", "-Xms6G", "-Xmx13G", "-jar", "/app/papermc.jar", "--nojline", "--nogui" ]
+ENTRYPOINT [ "sh", "-c", "cp -rv /datapacks/* /app/world/datapacks && java -XX:+UseG1GC -Xms6G -Xmx13G -jar /app/papermc.jar --nojline --nogui" ]
+#ENTRYPOINT [ "/usr/bin/java", "-XX:+UseG1GC", "-Xms6G", "-Xmx13G", "-jar", "/app/papermc.jar", "--nojline", "--nogui" ]
