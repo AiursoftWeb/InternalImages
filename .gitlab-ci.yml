@@ -15,4 +15,6 @@ deploy_docker:
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:latest
     - docker build ./Kiwix -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:latest
+    - docker build ./Minecraft -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
     
