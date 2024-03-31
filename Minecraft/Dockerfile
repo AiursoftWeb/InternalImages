@@ -85,7 +85,7 @@ RUN unzip /tmp/nsp.zip -d /datapacks/nullscape
 RUN wget -O /tmp/tra.zip -L "https://www.stardustlabs.net/s/Terralith_1193_v2312.zip"
 RUN unzip /tmp/tra.zip -d /datapacks/terralith
 
-# Structuroy
+# Structory_1193_v131a
 RUN wget -O /tmp/sty.zip -L "https://www.stardustlabs.net/s/Structory_1193_v131a.zip"
 RUN unzip /tmp/sty.zip -d /datapacks/structory
 
@@ -121,8 +121,8 @@ EXPOSE 25565
 EXPOSE 19132/udp
 EXPOSE 8123
 
-#ENTRYPOINT [ "sh", "-c", "tmux new -s mc -c /app/ -d /usr/bin/java -XX:+UseG1GC -Xms6G -Xmx13G -jar /app/papermc.jar --nojline --nogui && sleep 60 && bash /app/init-commands.sh" ]
-ENTRYPOINT [ "sh", "-c", "tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms6G -Xmx13G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log > /var/log/mc/mc.log 2>&1' \
+ENTRYPOINT [ "sh", "-c", \
+ "tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
  & tail -f /var/log/mc/mc.log \
  & sleep 60 && bash /app/init-commands.sh \
  & wait" ]
