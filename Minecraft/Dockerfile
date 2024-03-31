@@ -115,6 +115,7 @@ RUN touch /var/log/mc/mc.log
 VOLUME /app/world
 VOLUME /app/world_nether
 VOLUME /app/world_the_end
+VOLUME /app/plugins/dynmap
 VOLUME /var/log/mc
 
 EXPOSE 25565
@@ -122,7 +123,8 @@ EXPOSE 19132/udp
 EXPOSE 8123
 
 ENTRYPOINT [ "sh", "-c", \
- "tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
+ "cp -r /datapacks/* /app/world/datapacks/ && \
+ tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
  & tail -f /var/log/mc/mc.log \
  & sleep 60 && bash /app/init-commands.sh \
  & wait" ]
