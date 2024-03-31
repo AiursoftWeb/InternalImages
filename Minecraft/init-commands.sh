@@ -6,9 +6,9 @@ sleep 1
 tmux send-keys -t mc "execute as @a at @a run attribute @s minecraft:generic.max_health base set 40" Enter
 sleep 1
 
-tmux send-keys -t mc "say 正在重置世界宽度为14000……" Enter
+tmux send-keys -t mc "say 正在重置世界宽度为28000……" Enter
 sleep 1
-tmux send-keys -t mc "worldborder set 14000" Enter
+tmux send-keys -t mc "worldborder set 28000" Enter
 sleep 1
 
 tmux send-keys -t mc "say 正在重置中心点……" Enter
