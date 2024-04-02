@@ -1,0 +1,34 @@
+{
+    "log":{
+        "access": "/var/log/xray/access.log",
+        "error": "/var/log/xray/error.log",
+        "loglevel": "warning"
+    },
+    "inbounds": [
+        {
+            "listen": "0.0.0.0",
+            "port": 10000,
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "1eb6e917-774b-4a84-aff6-b058577c60a5"
+                    }
+                ],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "ws",
+                "wsSettings": {
+                    "path": "/admin"
+                }
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "settings": {}
+        }
+    ]
+}
