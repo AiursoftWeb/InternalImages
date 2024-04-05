@@ -8,10 +8,10 @@ fi
 
 echo "Registering runner with token $token"
 
-# One runner can run 3 tasks at the same time
+# One runner can run 1 tasks at the same time
 gitlab-runner register \
     --non-interactive \
-    --url "https://gitlab.aiursoft.cn/" \
+    --url "http://gitlab/" \
     --token $token --executor "shell"
 
 gitlab-runner start
