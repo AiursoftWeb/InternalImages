@@ -1,3 +1,5 @@
+#!/bin/bash
+
 mirror_docker()
 {
     containerName=$1
