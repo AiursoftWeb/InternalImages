@@ -16,7 +16,7 @@ RUN mkdir -p /mnt/data
 VOLUME /mnt/data
 
 # Register a crontab job to run apt-mirror every day
-RUN crontab -l | { cat; echo "0 0 * * * /entry.sh"; } | crontab -
+RUN crontab -l | { cat; echo "0 6 * * * /entry.sh"; } | crontab -
 
 # Run this job at the beginning with verbose output
 ENTRYPOINT ["cron", "-f", "-L 15"]
