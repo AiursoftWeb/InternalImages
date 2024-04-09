@@ -14,8 +14,8 @@ RUN rm get-docker.sh
 COPY entry.sh /entry.sh
 RUN chmod +x /entry.sh
 
-# Register a crontab job to run entry every day
-RUN crontab -l | { cat; echo "0 0 * * * /entry.sh"; } | crontab -
+# Register a crontab job to run entry every day 3:00
+RUN crontab -l | { cat; echo "0 3 * * * /entry.sh"; } | crontab -
 
 # Run this job at the beginning with verbose output
 ENTRYPOINT ["cron", "-f", "-L 15"]
