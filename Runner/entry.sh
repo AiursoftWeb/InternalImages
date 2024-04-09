@@ -5,7 +5,7 @@ set -e
 gitlab_endpoint=${GITLAB_ENDPOINT:-http://gitlab}
 
 echo "Checking if GitLab server $gitlab_endpoint is reachable"
-if ! curl -s $gitlab_endpoint/ping; then
+if ! curl -s $gitlab_endpoint; then
     echo "GitLab server is not reachable. Exiting..."
     exit 1
 fi
