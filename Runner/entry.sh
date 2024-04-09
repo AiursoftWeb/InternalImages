@@ -1,3 +1,5 @@
+#!/bin/bash
+set -e
 token=$(cat /run/secrets/gitlab-runner-token)
 
 # If token is empty, exit
