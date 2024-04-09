@@ -4,11 +4,11 @@ set -e
 # Load from environment variables
 gitlab_endpoint=${GITLAB_ENDPOINT:-http://gitlab}
 
-echo "Ensure gitlab server $gitlab_endpoint is reachable"
-while ! curl -s $gitlab_endpoint/ping; do
-    echo "Waiting for gitlab server..."
-    sleep 2
-done
+echo "Checking if GitLab server $gitlab_endpoint is reachable"
+if ! curl -s $gitlab_endpoint/ping; then
+    echo "GitLab server is not reachable. Exiting..."
+    exit 1
+fi
 
 echo "Reading token from /run/secrets/gitlab-runner-token"
 token=$(cat /run/secrets/gitlab-runner-token)
