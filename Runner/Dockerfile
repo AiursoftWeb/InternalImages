@@ -32,4 +32,5 @@ RUN sysctl -p
 COPY . /app
 WORKDIR /app
 RUN chmod +x /app/entry.sh
+
 ENTRYPOINT [ "/bin/bash", "-c", "/app/entry.sh" ]
