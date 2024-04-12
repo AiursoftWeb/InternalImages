@@ -38,3 +38,6 @@ for url in "${user_urls[@]}"; do
     tmux new -d -s "$user_id" "youtube-dl -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' --add-metadata --embed-thumbnail --sleep-interval 2 --max-sleep-interval 10 -i -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url"
     sleep 1
 done
+
+# Delete all .webp files because it may cause jellyfin to crash
+find /mnt/data/youtube/ -type f -name "*.webp" -delete
