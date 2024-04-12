@@ -41,3 +41,4 @@ done
 
 # Delete all .webp files because it may cause jellyfin to crash
 find /mnt/data/youtube/ -type f -name "*.webp" -delete
+find /mnt/data/youtube/ -type f -name "*.svg" -delete
