@@ -25,6 +25,7 @@ user_urls=(
     "https://www.youtube.com/@3blue1brown/videos"
     "https://www.youtube.com/@FView-CN/videos"
     "https://www.youtube.com/@manshi_math/videos"
+    "https://www.youtube.com/@mediastorm6801/videos"
     #"https://www.youtube.com/@YAGP/videos"
 )
 
