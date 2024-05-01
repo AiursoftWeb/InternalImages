@@ -16,7 +16,7 @@ user_urls=(
     "https://www.youtube.com/@geekerwan1024/videos"
     "https://www.youtube.com/@wbclg/videos"
     "https://www.youtube.com/@user-darkcarrot/videos"
-    "https://www.youtube.com/@AkilaZhang/videos"
+    #"https://www.youtube.com/@AkilaZhang/videos"
     "https://www.youtube.com/@dacongmovie/videos"
     "https://www.youtube.com/@chesspage1real/videos"
     "https://www.youtube.com/@BossPrating/videos"
@@ -25,7 +25,7 @@ user_urls=(
     "https://www.youtube.com/@3blue1brown/videos"
     "https://www.youtube.com/@FView-CN/videos"
     "https://www.youtube.com/@manshi_math/videos"
-    "https://www.youtube.com/@mediastorm6801/videos"
+    #"https://www.youtube.com/@mediastorm6801/videos"
     #"https://www.youtube.com/@YAGP/videos"
 )
 
