@@ -27,4 +27,6 @@ deploy_docker:
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:latest
     - docker build ./Youtubedl -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:latest
+    - docker build ./Nvidia -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:latest
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:latest
     
