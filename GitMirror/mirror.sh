@@ -1,32 +1,40 @@
 #!/bin/bash
 
-clone_git_repositories() {
-    local repos=("$@")
+clone_or_update_repo() {
+    local repo=$1
+    local destination_path=$2
+    local repo_name=$(echo "$repo" | jq -r .name)
+    local repo_url=$(echo "$repo" | jq -r .http_url_to_repo)
+    local repo_path="${destination_path}/${repo_name}"
+
+    if [ ! -d "$repo_path" ]; then
+        echo -e "\033[0;32mCloning $repo_name to $repo_path...\033[0m"
+        git clone "$repo_url" "$repo_path"
+        echo -e "\033[0;32mCloned $repo_name to $repo_path\033[0m"
+    else
+        echo -e "\033[0;32mUpdating $repo_name at $repo_path...\033[0m"
+        cd "$repo_path"
+        mainBranch=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+        git clean -fdx
+        git reset --hard HEAD
+        git fetch
+        git reset --hard "origin/$mainBranch"
+        echo -e "\033[0;32mUpdated $repo_name at $repo_path on branch $mainBranch\033[0m"
+        cd - > /dev/null
+    fi
+}
+
+clone_or_update_repositories() {
+    local repos=("${!1}")
     local destination_path=$2
 
     for repo in "${repos[@]}"; do
-        local repo_name=$(echo "$repo" | jq -r .name)
-        local repo_url=$(echo "$repo" | jq -r .http_url_to_repo)
-        local repo_path="${destination_path}/${repo_name}"
-
-        if [ ! -d "$repo_path" ]; then
-            git clone "$repo_url" "$repo_path"
-            echo "Cloned $repo_name to $repo_path"
-        else
-            echo "$repo_name already exists at $repo_path, skipping."
-        fi
+        clone_or_update_repo "$repo" "$destination_path"
     done
 }
 
 reset_git_repos() {
-    echo "Deleting items..."
-    rm -rf "$HOME/Source/Repos/Aiursoft"
-    rm -rf "$HOME/Source/Repos/Anduin"
-    echo "Items deleted!"
-
-    sleep 1
-
-    echo -e "\033[0;32mCloning all repos...\033[0m"
+    echo -e "\033[0;32mCloning or updating all repos...\033[0m"
 
     local gitlab_base_url="https://gitlab.aiursoft.cn"
     local api_url="${gitlab_base_url}/api/v4"
@@ -73,18 +81,18 @@ reset_git_repos() {
         exit 1
     fi
 
-    IFS=$'\n' read -rd '' -a repos_aiursoft_array <<<"$repos_aiursoft"
-    IFS=$'\n' read -rd '' -a repos_anduin_array <<<"$repos_anduin"
+    repos_aiursoft_array=()
+    while IFS= read -r line; do
+        repos_aiursoft_array+=("$line")
+    done <<< "$repos_aiursoft"
 
-    clone_git_repositories "${repos_aiursoft_array[@]}" "$destination_path_aiursoft"
-    clone_git_repositories "${repos_anduin_array[@]}" "$destination_path_anduin"
+    repos_anduin_array=()
+    while IFS= read -r line; do
+        repos_anduin_array+=("$line")
+    done <<< "$repos_anduin"
 
-    pin_repos
-}
-
-# This function should be defined to perform whatever pinning is needed.
-pin_repos() {
-    echo "Pinning repositories... (Implement this function as needed)"
+    clone_or_update_repositories repos_aiursoft_array[@] "$destination_path_aiursoft"
+    clone_or_update_repositories repos_anduin_array[@] "$destination_path_anduin"
 }
 
 reset_git_repos
