@@ -24,6 +24,7 @@ clone_or_update_repo() {
     fi
 
     add_github_remote "$repo_name" "$repo_path"
+    push_to_github "$repo_name" "$repo_path"
 }
 
 add_github_remote() {
@@ -54,6 +55,18 @@ add_github_remote() {
         echo -e "\033[0;32mAdded github remote for $repo_name\033[0m"
     fi
 
+    cd - > /dev/null
+}
+
+push_to_github() {
+    echo -e "\033[0;32mPushing $1 to github...\033[0m"
+    local repo_name=$1
+    local repo_path=$2
+
+    cd "$repo_path"
+    git push github --all --force
+    git push github --tags --force
+    echo -e "\033[0;32mPushed $repo_name to github\033[0m"
     cd - > /dev/null
 }
 
