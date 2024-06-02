@@ -22,6 +22,39 @@ clone_or_update_repo() {
         echo -e "\033[0;32mUpdated $repo_name at $repo_path on branch $mainBranch\033[0m"
         cd - > /dev/null
     fi
+
+    add_github_remote "$repo_name" "$repo_path"
+}
+
+add_github_remote() {
+    echo -e "\033[0;32mAdding github remote for $1...\033[0m"
+    local repo_name=$1
+    local repo_path=$2
+
+    cd "$repo_path"
+    gitlab_base_url="https://gitlab.aiursoft.cn"
+    github_base_url="https://github.com"
+
+    if [[ "$repo_url" == *"/aiursoft/"* ]]; then
+        github_url="${github_base_url}/aiursoftweb/${repo_name}.git"
+    elif [[ "$repo_url" == *"/anduin/"* ]]; then
+        github_url="${github_base_url}/anduin2017/${repo_name}.git"
+    else
+        echo "Unknown repository path: $repo_path"
+        return
+    fi
+
+    github_remote_url="https://anduin2017:${GITHUB_PAT}@${github_url#https://}"
+
+    if git remote | grep -q "github"; then
+        git remote set-url github "$github_remote_url"
+        echo -e "\033[0;32mUpdated github remote for $repo_name\033[0m"
+    else
+        git remote add github "$github_remote_url"
+        echo -e "\033[0;32mAdded github remote for $repo_name\033[0m"
+    fi
+
+    cd - > /dev/null
 }
 
 clone_or_update_repositories() {
@@ -95,4 +128,6 @@ reset_git_repos() {
     clone_or_update_repositories repos_anduin_array[@] "$destination_path_anduin"
 }
 
+echo "Please enter your GitHub PAT:"
+read -s GITHUB_PAT
 reset_git_repos
