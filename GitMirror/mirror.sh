@@ -87,8 +87,8 @@ reset_git_repos() {
     local group_name="Aiursoft"
     local user_name="Anduin"
 
-    local destination_path_aiursoft="$HOME/Source/Repos/Aiursoft"
-    local destination_path_anduin="$HOME/Source/Repos/Anduin"
+    local destination_path_aiursoft="/opt/Source/Repos/Aiursoft"
+    local destination_path_anduin="/opt/Source/Repos/Anduin"
 
     mkdir -p "$destination_path_aiursoft"
     mkdir -p "$destination_path_anduin"
@@ -141,6 +141,15 @@ reset_git_repos() {
     clone_or_update_repositories repos_anduin_array[@] "$destination_path_anduin"
 }
 
-echo "Please enter your GitHub PAT:"
-read -s GITHUB_PAT
+echo "Reading token from /run/secrets/github-token"
+token=$(cat /run/secrets/github-token)
+
+# If token is empty, exit
+if [ -z "$token" ]; then
+    echo "No token provided."
+    exit 1
+fi
+
+GITHUB_PAT=$token
+
 reset_git_repos
