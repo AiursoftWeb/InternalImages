@@ -17,7 +17,7 @@ mirror_docker()
 
 mirror_docker "alpine"
 mirror_docker "andyzhangx/samba:win-fix"
-mirror_docker "anduin2019/howtocook"
+mirror_docker "ghcr.io/anduin2017/how-to-cook:latest"
 mirror_docker "artalk/artalk-go"
 mirror_docker "bitwardenrs/server"
 mirror_docker "busybox"
