@@ -7,6 +7,9 @@ ARG X11Forwarding=false
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+#=======================
+# Phase 1 : Configure the system to be able to remote desktop
+#=======================
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get install -y tzdata && \
     echo "Etc/UTC" > /etc/timezone && \
@@ -39,10 +42,16 @@ RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PASS"); \
         sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config || \
         :;
 RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers.d/$USER
+
 WORKDIR /home/$USER
 RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/install.sh && \
     chmod +x install.sh
+
+#=======================
+# Phase 2 : Switch to the user and install software and configurations
+#=======================
 USER $USER
+WORKDIR /home/$USER
 RUN bash -c ./install.sh
 
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
