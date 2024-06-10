@@ -43,7 +43,7 @@ WORKDIR /home/$USER
 RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/install.sh && \
     chmod +x install.sh
 USER $USER
-RUN sudo bash install.sh
+RUN bash -c ./install.sh
 
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \
