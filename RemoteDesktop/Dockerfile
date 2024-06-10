@@ -52,12 +52,7 @@ RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/i
 #=======================
 USER $USER
 WORKDIR /home/$USER
-
-RUN sudo rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
-    sudo service dbus restart >/dev/null 2>&1; \
-    sudo /usr/lib/systemd/systemd-logind >/dev/null 2>&1 & \
-    [ -f /usr/sbin/sshd ] && /usr/sbin/sshd; \
-    IN_CONTAINER=TRUE bash -c ./install.sh
+RUN IN_CONTAINER=TRUE bash -c ./install.sh
 
 USER root
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
@@ -65,4 +60,4 @@ CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     /usr/lib/systemd/systemd-logind >/dev/null 2>&1 & \
     [ -f /usr/sbin/sshd ] && /usr/sbin/sshd; \
     xrdp-sesman --config /etc/xrdp/sesman.ini; \
-    xrdp --nodaemon --config /etc/xrdp/xrdp.ini;
+    xrdp --nodaemon --config /etc/xrdp/xrdp.ini
