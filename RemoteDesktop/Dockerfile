@@ -54,6 +54,7 @@ USER $USER
 WORKDIR /home/$USER
 RUN IN_CONTAINER=TRUE bash -c ./install.sh
 
+USER root
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \
     /usr/lib/systemd/systemd-logind >/dev/null 2>&1 & \
