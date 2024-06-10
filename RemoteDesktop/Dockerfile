@@ -12,12 +12,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     echo "Etc/UTC" > /etc/timezone && \
     ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
+
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
         apt-get install -y ubuntu-desktop-minimal dbus-x11 xrdp sudo; \
     [ $X11Forwarding = 'true' ] && apt-get install -y openssh-server; \
     apt-get autoremove --purge; \
     apt-get clean; \
     rm /run/reboot-required*
+
 RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PASS"); \
     usermod -aG sudo $USER; \
     adduser xrdp ssl-cert; \
@@ -36,7 +38,12 @@ RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PASS"); \
     [ $X11Forwarding = 'true' ] && \
         sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config || \
         :;
-#RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/install.sh && chmod +x install.sh && IN_CONTAINER=TRUE ./install.sh
+RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers.d/$USER
+WORKDIR /home/$USER
+RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/install.sh && \
+    chmod +x install.sh
+USER $USER
+RUN sudo bash install.sh
 
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \
