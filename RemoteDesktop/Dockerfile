@@ -52,7 +52,7 @@ RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/i
 #=======================
 USER $USER
 WORKDIR /home/$USER
-RUN bash -c ./install.sh
+RUN IN_CONTAINER=TRUE bash -c ./install.sh
 
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \
