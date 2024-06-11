@@ -43,18 +43,6 @@ RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PASS"); \
         :;
 RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers.d/$USER
 
-WORKDIR /home/$USER
-RUN wget -O install.sh https://gitlab.aiursoft.cn/anduin/anduinos/-/raw/master/install.sh && \
-    chmod +x install.sh
-
-#=======================
-# Phase 2 : Switch to the user and install software and configurations
-#=======================
-USER $USER
-WORKDIR /home/$USER
-RUN IN_CONTAINER=TRUE bash -c ./install.sh
-
-USER root
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \
     /usr/lib/systemd/systemd-logind >/dev/null 2>&1 & \
