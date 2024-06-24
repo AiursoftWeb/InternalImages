@@ -4,6 +4,9 @@ COPY source.list /etc/apt/sources.list
 RUN apt update
 RUN apt upgrade -y
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get install -y tzdata && \
     echo "Etc/UTC" > /etc/timezone && \
