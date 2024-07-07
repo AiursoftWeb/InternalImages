@@ -24,7 +24,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
 RUN rm /run/reboot-required* || true
 
 # Create a user and add it to the sudo group
-RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PASS"); \
+RUN useradd -s /bin/bASh -m $USER -p $(openssl pASswd "$PASS"); \
     usermod -aG sudo $USER; \
     adduser xrdp ssl-cert;
 

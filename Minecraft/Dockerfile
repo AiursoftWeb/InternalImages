@@ -3,7 +3,7 @@ ARG VERSION="1.19.3"
 #============================
 #       Builder image
 #============================
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu as minecraft-builder
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu AS minecraft-builder
 ARG VERSION
 WORKDIR /app
 
@@ -40,11 +40,11 @@ RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/pro
 RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
 
 # ViaBackwards
-RUN viabUrl=$(curl https://api.github.com/repos/ViaVersion/ViaBackwards/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
+RUN viabUrl=$(curl https://api.github.com/repos/ViaVersion/ViaBackwards/releASes/latest | jq -r '(.ASsets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
     wget -O /app/plugins/ViaBackwards.jar $viabUrl
 
 # ViaVersion
-RUN viavUrl=$(curl https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
+RUN viavUrl=$(curl https://api.github.com/repos/ViaVersion/ViaVersion/releASes/latest | jq -r '(.ASsets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
     wget -O /app/plugins/ViaVersion.jar $viavUrl
 
 # Dynmap
@@ -126,5 +126,5 @@ ENTRYPOINT [ "sh", "-c", \
  "cp -r /datapacks/* /app/world/datapacks/ && \
  tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
  & tail -f /var/log/mc/mc.log \
- & sleep 60 && bash /app/init-commands.sh \
+ & sleep 60 && bASh /app/init-commands.sh \
  & wait" ]
