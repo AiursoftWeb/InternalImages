@@ -4,16 +4,16 @@ RUN apt update
 RUN apt install -y apt-mirror git unzip wget cron
 
 # Install a patched version of apt-mirror
-RUN wget https://github.com/Stifler6996/apt-mirror/archive/refs/heads/mASter.zip
-RUN unzip mASter.zip
-RUN mv ./apt-mirror-mASter/apt-mirror /usr/bin/apt-mirror
-RUN rm -rf ./apt-mirror-mASter
+RUN wget https://github.com/Stifler6996/apt-mirror/archive/refs/heads/master.zip
+RUN unzip master.zip
+RUN mv ./apt-mirror-master/apt-mirror /usr/bin/apt-mirror
+RUN rm -rf ./apt-mirror-master
 RUN chown root:root /usr/bin/apt-mirror
 RUN chmod 755 /usr/bin/apt-mirror
 
 # Set the configuration file for apt-mirror
 RUN mkdir -p /etc/apt
-RUN echo "set bASe_path /var/spool/apt-mirror" > /etc/apt/mirror.list
+RUN echo "set base_path /var/spool/apt-mirror" > /etc/apt/mirror.list
 RUN echo "set nthreads 20" >> /etc/apt/mirror.list
 RUN echo "set _tilde 0" >> /etc/apt/mirror.list
 

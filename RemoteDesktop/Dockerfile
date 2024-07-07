@@ -1,7 +1,7 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu:latest
 EXPOSE 3389/tcp
 ARG USER=test
-ARG PASS=1234
+ARG PasS=1234
 ARG X11Forwarding=false
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -24,7 +24,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
 RUN rm /run/reboot-required* || true
 
 # Create a user and add it to the sudo group
-RUN useradd -s /bin/bASh -m $USER -p $(openssl pASswd "$PASS"); \
+RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PasS"); \
     usermod -aG sudo $USER; \
     adduser xrdp ssl-cert;
 
@@ -46,7 +46,7 @@ RUN [ $X11Forwarding = 'true' ] && \
         sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config || :;
 
 # Adding the user to the sudoers file
-RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers.d/$USER
+RUN echo "$USER ALL=(ALL) NOPasSWD:ALL" | tee -a /etc/sudoers.d/$USER
 
 CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
     service dbus restart >/dev/null 2>&1; \

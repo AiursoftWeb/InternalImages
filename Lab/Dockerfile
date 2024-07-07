@@ -10,9 +10,9 @@ tree dotnet8 aria2 iperf3 ffmpeg \
 unzip zip openssh-server openssh-client \
 build-essential bc jq dnsutils
 
-RUN useradd -p $(openssl pASswd -1 demo) demo
+RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo
-RUN echo "demo ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
+RUN echo "demo ALL=(ALL) NOPasSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
 
 # Restore demo's home
 RUN mkdir /home/demo
@@ -21,5 +21,5 @@ RUN chown -R demo:demo /home/demo
 RUN chmod -R 755 /home/demo
 
 EXPOSE 7681
-ENTRYPOINT ["sh", "-c", "sudo -u demo /usr/bin/ttyd -w /home/demo/ bASh"]
+ENTRYPOINT ["sh", "-c", "sudo -u demo /usr/bin/ttyd -w /home/demo/ bash"]
 HEALTHCHECK --interval=5s --timeout=3s --retries=3 CMD curl -f http://localhost:7681 || exit 1
