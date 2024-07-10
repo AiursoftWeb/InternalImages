@@ -3,7 +3,7 @@ ARG VERSION="1.19.3"
 #============================
 #       Builder image
 #============================
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu as minecraft-builder
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu AS minecraft-builder
 ARG VERSION
 WORKDIR /app
 

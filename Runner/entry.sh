@@ -19,10 +19,11 @@ if [ -z "$token" ]; then
     exit 1
 fi
 
-echo "Registering runner with token $token"
+echo "Registering runner with token $token with name $HOSTNAME"
 
 # One runner can run 1 tasks at the same time
 gitlab-runner register \
+    --name $HOSTNAME \
     --non-interactive \
     --url "$gitlab_endpoint" \
     --token $token --executor "shell"

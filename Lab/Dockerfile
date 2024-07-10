@@ -12,7 +12,7 @@ build-essential bc jq dnsutils
 
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo
-RUN echo "demo ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
+RUN echo "demo ALL=(ALL) NOPasSWD:ALL" | sudo tee -a /etc/sudoers.d/demo
 
 # Restore demo's home
 RUN mkdir /home/demo
