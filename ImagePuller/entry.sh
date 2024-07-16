@@ -126,6 +126,7 @@ mirror_docker "ubuntu:20.04"
 mirror_docker "ubuntu:22.04"
 mirror_docker "ubuntu:24.04"
 mirror_docker "vminnovations/typescript-sdk:16-latest"
+mirror_docker "verdaccio"
 mirror_docker "wordpress:php8.3-fpm-alpine"
 
 echo "All images are pulled and pushed to the mirror."
