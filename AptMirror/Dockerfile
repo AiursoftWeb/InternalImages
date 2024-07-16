@@ -44,14 +44,17 @@ RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ jammy-security main 
 
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
+RUN echo "deb-amd64 http://ppa.launchpad.net/saiarcot895/chromium-beta/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/saiarcot895/chromium-beta/ubuntu noble main" >> /etc/apt/mirror.list
 
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
+RUN echo "deb-amd64 http://ppa.launchpad.net/saiarcot895/chromium-beta/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
-
+RUN echo "deb-i386 http://ppa.launchpad.net/saiarcot895/chromium-beta/ubuntu jammy main" >> /etc/apt/mirror.list
 
 RUN echo "clean http://archive.ubuntu.com/ubuntu/" >> /etc/apt/mirror.list
 
