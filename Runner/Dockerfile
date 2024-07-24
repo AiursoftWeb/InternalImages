@@ -29,6 +29,9 @@ RUN echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf
 RUN echo fs.inotify.max_queued_events=524288 | tee -a /etc/sysctl.conf
 RUN sysctl -p
 
+# Allow sudo
+RUN usermod -a -G sudo gitlab-runner
+
 COPY . /app
 WORKDIR /app
 RUN chmod +x /app/entry.sh
