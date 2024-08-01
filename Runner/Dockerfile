@@ -21,7 +21,7 @@ RUN sudo -u gitlab-runner dotnet tool install JetBrains.ReSharper.GlobalTools --
 RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo "ReportGenerator already installed."
 
 # Install Node Tools
-RUN sudo npm install typescript ts-node npm yarn -g
+RUN sudo npm install typescript ts-node npm yarn -g --loglevel verbose
 
 # Hack inode
 RUN echo fs.inotify.max_user_instances=524288 | tee -a /etc/sysctl.conf
