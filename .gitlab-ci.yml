@@ -48,14 +48,6 @@ deploy_minecraft:
     - docker build ./Minecraft -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
 
-deploy_frpc:
-  stage: deploy
-  needs: 
-    - deploy_ubuntu
-  script:
-    - docker build ./Frpc -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/frpc:latest
-    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/frpc:latest
-
 deploy_gateway:
   stage: deploy
   needs: 
