@@ -138,4 +138,4 @@ echo "Upgrading nextcloud..."
 containerID=$(docker ps | grep "nextcloud:stable" | awk '{print $1}')
 docker exec --user www-data $containerID php occ upgrade
 docker exec $containerID apt-get update
-docker exec $containerID apt-get install -y ffmpeg avconv
+docker exec $containerID apt-get install -y ffmpeg
