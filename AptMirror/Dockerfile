@@ -58,6 +58,8 @@ RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >
 
 RUN echo "clean http://archive.ubuntu.com/ubuntu/" >> /etc/apt/mirror.list
 
+RUN touch /var/spool/apt-mirror/var/postmirror.sh && chmod +x /var/spool/apt-mirror/var/postmirror.sh
+
 VOLUME /var/spool/apt-mirror
 
 # Register a crontab job to run apt-mirror every day
