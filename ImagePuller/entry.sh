@@ -137,7 +137,7 @@ sleep 100 # Wait for new images to be pulled
 echo "Upgrading nextcloud..."
 containerID=$(docker ps | grep "nextcloud:stable" | awk '{print $1}')
 docker exec --user www-data $containerID php occ upgrade
-docker exec --user www-data $containerID php occ occ maintenance:repair --include-expensive
+docker exec --user www-data $containerID php occ maintenance:repair --include-expensive
 docker exec --user www-data $containerID php occ db:add-missing-indices
 docker exec $containerID apt-get update
 docker exec $containerID apt-get install -y ffmpeg
