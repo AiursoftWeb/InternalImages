@@ -4,9 +4,9 @@ RUN apt update
 RUN apt install -y apt-mirror git unzip wget cron
 
 # Install a patched version of apt-mirror
-RUN wget https://gist.aiursoft.cn/anduin/57a393ed8ed343c9bc8a9ae7a30f61e5/raw/HEAD/apt-mirror -O apt-mirror
-RUN chown root:root apt-mirror && chmod 755 apt-mirror
-RUN mv ./apt-mirror-master/apt-mirror /usr/bin/apt-mirror
+RUN wget https://gist.aiursoft.cn/anduin/57a393ed8ed343c9bc8a9ae7a30f61e5/raw/HEAD/apt-mirror -O ./apt-mirror
+RUN chown root:root ./apt-mirror && chmod 755 ./apt-mirror
+RUN mv ./apt-mirror /usr/bin/apt-mirror
 RUN rm -rf ./apt-mirror-master
 RUN chown root:root /usr/bin/apt-mirror
 RUN chmod 755 /usr/bin/apt-mirror
