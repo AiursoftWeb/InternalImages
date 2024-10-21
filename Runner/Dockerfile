@@ -23,6 +23,9 @@ RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool 
 # Install Node Tools
 RUN sudo npm install typescript ts-node npm yarn -g --loglevel verbose
 
+# Create /data folder because a lot of apps need it to temp store data.
+RUN mkdir /data && chmod 777 /data
+
 # Hack inode
 RUN echo fs.inotify.max_user_instances=524288 | tee -a /etc/sysctl.conf
 RUN echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf
