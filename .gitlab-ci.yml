@@ -4,6 +4,10 @@ stages:
 deploy_ubuntu:
   stage: deploy
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace."
+        exit 1
+      fi
     - docker builder prune -f
     - docker build ./Ubuntu -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
