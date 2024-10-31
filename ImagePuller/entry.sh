@@ -131,6 +131,8 @@ mirror_docker "vminnovations/typescript-sdk:16-latest"
 mirror_docker "verdaccio/verdaccio"
 mirror_docker "wordpress:php8.3-fpm-alpine"
 mirror_docker "bytemark/webdav"
+mirror_docker "jgraph/drawio:24.7.17"
+
 
 echo "All images are pulled and pushed to the mirror."
 echo "Sleeping for 100 seconds to wait for new containers to be started."
