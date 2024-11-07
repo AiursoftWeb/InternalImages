@@ -16,6 +16,7 @@ user_urls=(
     "https://www.youtube.com/@geekerwan1024/videos"
     "https://www.youtube.com/@wbclg/videos"
     "https://www.youtube.com/@user-darkcarrot/videos"
+    "https://www.youtube.com/@xiao_lin_shuo/videos"
     #"https://www.youtube.com/@AkilaZhang/videos"
     #"https://www.youtube.com/@dacongmovie/videos"
     "https://www.youtube.com/@chesspage1real/videos"
@@ -43,6 +44,7 @@ for url in "${user_urls[@]}"; do
 youtube-dl \
     -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' \
     --download-archive '/mnt/data/youtube/$user_id.txt' \
+    --cookies '/mnt/data/youtube/cookies.txt' \
     --write-description \
     --write-info-json \
     --write-annotations \
@@ -54,10 +56,10 @@ youtube-dl \
     --add-metadata \
     --embed-subs \
     --embed-thumbnail \
-    --sleep-interval 50 \
-    --max-sleep-interval 100 \
+    --sleep-interval 500 \
+    --max-sleep-interval 1000 \
     -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url"
-    sleep 800
+    sleep 5800
 done
 
 # Delete all .webp files because it may cause jellyfin to crash
