@@ -31,8 +31,7 @@ gitlab-runner register \
     --replace
 
 # Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
-#   [runners.custom_build_dir] -> enabled = true
-sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\nenabled = true/g' /etc/gitlab-runner/config.toml
+sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\n    enabled = true/g' /etc/gitlab-runner/config.toml
 
-gitlab-runner start
+#gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
