@@ -1,4 +1,0 @@
-[[runners]]
-  pre_clone_script = "rm -f /builds/*/*/.git/shallow.lock"
-  [runners.custom_build_dir]
-    enabled = true

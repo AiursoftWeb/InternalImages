@@ -26,10 +26,13 @@ gitlab-runner register \
     --name $HOSTNAME \
     --non-interactive \
     --url "$gitlab_endpoint" \
-    --token $token --executor "shell"
+    --token $token \
+    --executor "shell" \
+    --replace
 
-# Copy the config.toml
-cp ./config.toml /etc/gitlab-runner/config.toml 
+# Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
+#   [runners.custom_build_dir] -> enabled = true
+sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\nenabled = true/g' /etc/gitlab-runner/config.toml
 
 gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
