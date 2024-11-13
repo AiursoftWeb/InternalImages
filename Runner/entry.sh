@@ -32,4 +32,4 @@ gitlab-runner register \
     --token $token --executor "shell"
 
 gitlab-runner start
-gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
+gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner --custom_build_dir-enabled=true
