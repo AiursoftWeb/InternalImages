@@ -28,10 +28,10 @@ gitlab-runner register \
     --url "$gitlab_endpoint" \
     --token $token \
     --executor "shell" \
-    --replace
+    --custom_build_dir-enabled  
 
 # Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
-sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\n    enabled = true/g' /etc/gitlab-runner/config.toml
+#sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\n    enabled = true/g' /etc/gitlab-runner/config.toml
 
 #gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
