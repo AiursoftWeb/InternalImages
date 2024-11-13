@@ -19,6 +19,9 @@ if [ -z "$token" ]; then
     exit 1
 fi
 
+# Copy the config.toml
+cp ./config.toml /etc/gitlab-runner/config.toml 
+
 echo "Registering runner with token $token with name $HOSTNAME"
 
 # One runner can run 1 tasks at the same time
