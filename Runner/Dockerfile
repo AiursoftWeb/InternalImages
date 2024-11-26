@@ -6,7 +6,7 @@ RUN apt install -y curl sudo apt-transport-https ca-certificates software-proper
 RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
 RUN curl -fsSL https://deb.nodesource.com/setup_21.x | sudo -E bash -
 RUN apt update
-RUN apt install -y gitlab-runner dotnet8 nodejs libgdiplus build-essential bc ffmpeg zip unzip tar gzip iputils-ping net-tools git jq
+RUN apt install -y gitlab-runner dotnet8 nodejs libgdiplus build-essential bc ffmpeg zip unzip tar gzip iputils-ping net-tools git jq shellcheck
 
 # Install Docker
 RUN curl -fsSL https://get.docker.com -o get-docker.sh
