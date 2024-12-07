@@ -150,5 +150,6 @@ docker exec --user www-data $containerID php occ upgrade
 docker exec --user www-data $containerID php occ maintenance:repair --include-expensive
 docker exec --user www-data $containerID php occ db:add-missing-indices
 docker exec --user www-data $containerID php occ files:scan --all
+docker exec --user www-data $containerID php occ app:update --all
 docker exec $containerID apt-get update
 docker exec $containerID apt-get install -y ffmpeg
