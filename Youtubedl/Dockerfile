@@ -15,7 +15,7 @@ RUN mkdir -p /mnt/data
 
 VOLUME /mnt/data
 
-# Register a crontab job to run apt-mirror every day
+# Register a crontab job to run youtube-dl every day at 6:00
 RUN crontab -l | { cat; echo "0 6 * * * /entry.sh"; } | crontab -
 
 # Run this job at the beginning with verbose output

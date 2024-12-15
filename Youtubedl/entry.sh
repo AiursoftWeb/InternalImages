@@ -59,7 +59,7 @@ youtube-dl \
     --sleep-interval 500 \
     --max-sleep-interval 1000 \
     -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url"
-    sleep 5800
+    sleep 3700
 done
 
 # Delete all .webp files because it may cause jellyfin to crash
