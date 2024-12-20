@@ -17,15 +17,15 @@ RUN echo "set base_path /var/spool/apt-mirror" > /etc/apt/mirror.list
 RUN echo "set nthreads 20" >> /etc/apt/mirror.list
 RUN echo "set _tilde 0" >> /etc/apt/mirror.list
 
-# RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
-# RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-# RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/mirror.list
