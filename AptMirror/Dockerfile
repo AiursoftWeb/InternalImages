@@ -42,6 +42,11 @@ RUN echo "deb [arch=i386] http://archive.ubuntu.com/ubuntu/ jammy-security main 
 # RUN echo "deb http://archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse" >> /etc/apt/mirror.list
 # RUN echo "deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
+RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
+
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
