@@ -4,7 +4,7 @@ FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 RUN apt update
 RUN apt install -y curl sudo apt-transport-https ca-certificates software-properties-common
 RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
-RUN curl -fsSL https://deb.nodesource.com/setup_21.x | sudo -E bash -
+RUN curl -fsSL https://deb.nodesource.com/setup_23.x | sudo -E bash -
 RUN apt update
 RUN apt install -y gitlab-runner dotnet8 nodejs libgdiplus build-essential bc ffmpeg zip unzip tar gzip iputils-ping net-tools git jq shellcheck
 
