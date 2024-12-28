@@ -13,7 +13,9 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh
 ENV CHANNEL=stable
 RUN sh get-docker.sh
 RUN usermod -aG docker root
+RUN usermod -aG systemd-journal gitlab-runner
 RUN usermod -aG docker gitlab-runner
+RUN usermod -aG sudo gitlab-runner
 RUN rm get-docker.sh
 
 # Install .NET Tools
@@ -33,7 +35,6 @@ RUN echo fs.inotify.max_queued_events=524288 | tee -a /etc/sysctl.conf
 RUN sysctl -p
 
 # Allow sudo
-RUN usermod -a -G sudo gitlab-runner
 
 COPY . /app
 WORKDIR /app
