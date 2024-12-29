@@ -6,7 +6,7 @@ iputils-ping net-tools vim tmux systemd \
 apt-transport-https ca-certificates \
 software-properties-common w3m git \
 python3 python-is-python3 python3-pip \
-tree dotnet8 aria2 iperf3 ffmpeg \
+tree dotnet9 aria2 iperf3 ffmpeg \
 unzip zip openssh-server openssh-client \
 build-essential bc jq dnsutils lsb-release \
 shellcheck pipx
