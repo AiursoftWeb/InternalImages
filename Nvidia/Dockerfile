@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/nvidia/cuda:11.9.0-devel-ubuntu22.04
+FROM hub.aiursoft.cn/nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 COPY source.list /etc/apt/sources.list
 RUN apt update
