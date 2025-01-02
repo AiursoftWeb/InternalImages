@@ -1,184 +1,281 @@
-    # 解析出需要的信息
 #!/bin/bash
 
+########################################
+# Colorful log functions
+########################################
+info() {
+  # Print green text
+  echo -e "\033[0;32m[INFO] $*\033[0m"
+}
+
+warn() {
+  # Print yellow text
+  echo -e "\033[0;33m[WARN] $*\033[0m"
+}
+
+error() {
+  # Print red text
+  echo -e "\033[0;31m[ERROR] $*\033[0m"
+}
+
+########################################
+# Clone or update a single repo
+# Arguments:
+#   1) JSON string representing the repo (includes .name, .http_url_to_repo, etc)
+#   2) Local path to clone/update
+########################################
 clone_or_update_repo() {
-    local repo=$1
-    local destination_path=$2
+  local repo_json=$1
+  local destination_path=$2
 
-    local repo_name=$(echo "$repo" | jq -r .name)
-    local repo_url=$(echo "$repo" | jq -r .http_url_to_repo)
-    local repo_path="${destination_path}/${repo_name}"
+  local repo_name
+  local repo_url
+  repo_name=$(echo "$repo_json" | jq -r .name)
+  repo_url=$(echo "$repo_json" | jq -r .http_url_to_repo)
 
-    if [ ! -d "$repo_path" ]; then
-        echo -e "\033[0;32mCloning $repo_name to $repo_path...\033[0m"
-        git clone "$repo_url" "$repo_path"
+  local repo_path="${destination_path}/${repo_name}"
 
-        cd "$repo_path"
-        git fetch --all
-        for branch in $(git branch -r | grep -v '\->'); do
-            git branch --track "${branch##origin/}" "$branch" || true
-            echo "\033[0;32mTracking branch ${branch##origin/} for $repo_name\033[0m"
-        done
-        git pull --all
-        cd - > /dev/null
+  if [ ! -d "$repo_path" ]; then
+    info "Cloning '${repo_name}' into '${repo_path}' ..."
+    git clone "$repo_url" "$repo_path"
+    
+    cd "$repo_path" || exit 1
+    # Fetch all branches
+    git fetch --all
+    # Track all remote branches
+    track_remote_branches "$repo_name"
+    # Pull all
+    git pull --all
+    
+    cd - &>/dev/null || exit 1
+    info "Cloned '${repo_name}' successfully."
+  else
+    info "Updating '${repo_name}' in '${repo_path}' ..."
+    cd "$repo_path" || exit 1
+    
+    # Clean untracked files
+    git clean -fdx
+    # Fetch all and prune deleted branches
+    git fetch --all --prune
+    
+    # Track all remote branches
+    track_remote_branches "$repo_name"
+    # Pull all
+    git pull --all
+    
+    # Ensure we switch to the default branch
+    local default_branch
+    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+    git checkout "$default_branch" 2>/dev/null || git checkout -b "$default_branch"
+    git reset --hard "origin/$default_branch"
+    
+    cd - &>/dev/null || exit 1
+    info "Fetched all branches for '${repo_name}' successfully."
+  fi
 
-        echo -e "\033[0;32mCloned $repo_name to $repo_path\033[0m"
-    else
-        echo -e "\033[0;32mUpdating $repo_name at $repo_path...\033[0m"
-        cd "$repo_path"
-        git clean -fdx
-        git fetch --all --prune
-
-        for branch in $(git branch -r | grep -v '\->'); do
-            git branch --track "${branch##origin/}" "$branch" || true
-            echo "\033[0;32mTracking branch ${branch##origin/} for $repo_name\033[0m"
-        done
-        git pull --all
-
-        defaultBranch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
-        git checkout "$defaultBranch" || git checkout -b "$defaultBranch"
-        git reset --hard "origin/$defaultBranch"
-
-        echo -e "\033[0;32mFetched all branches for $repo_name at $repo_path\033[0m"
-        cd - > /dev/null
-    fi
-
-    add_github_remote "$repo_name" "$repo_path" "$repo_url"
-    push_to_github "$repo_name" "$repo_path"
+  # Add or update github remote
+  add_github_remote "$repo_name" "$repo_path" "$repo_url"
+  # Push to GitHub
+  push_to_github "$repo_name" "$repo_path"
 }
 
+########################################
+# Track all remote branches to local
+# Arguments:
+#   1) Repo name (for logging)
+########################################
+track_remote_branches() {
+  local repo_name=$1
+
+  # We only want to track remote branches that don't exist locally yet
+  local remote_branches
+  remote_branches=$(git branch -r | grep -v '\->')
+
+  for rb in $remote_branches; do
+    local local_branch_name="${rb##origin/}"
+
+    # If the local branch does not exist, track it
+    if ! git rev-parse --verify "$local_branch_name" &>/dev/null; then
+      info "Tracking remote branch '${rb}' locally as '${local_branch_name}' in '${repo_name}' ..."
+      git branch --track "${local_branch_name}" "${rb}" 2>/dev/null || true
+    else
+      info "Local branch '${local_branch_name}' in '${repo_name}' already exists, skipping."
+    fi
+  done
+}
+
+########################################
+# Add GitHub remote based on repo URL
+# Arguments:
+#   1) Repo name
+#   2) Local repo path
+#   3) Original repo URL (used to decide which GitHub account to push to)
+########################################
 add_github_remote() {
-    echo -e "\033[0;32mAdding github remote for $1...\033[0m"
-    local repo_name=$1
-    local repo_path=$2
-    local repo_url=$3  # 新增参数，用来判断要推送到哪个 GitHub 帐号下
+  local repo_name=$1
+  local repo_path=$2
+  local repo_url=$3
 
-    cd "$repo_path"
+  cd "$repo_path" || return
 
-    # 设置 base url
-    github_base_url="https://github.com"
-    # 按照路径判断要用哪个 GitHub 帐号
-    if [[ "$repo_url" == *"/aiursoft/"* ]]; then
-        github_url="${github_base_url}/aiursoftweb/${repo_name}.git"
-    elif [[ "$repo_url" == *"/anduin/"* ]]; then
-        github_url="${github_base_url}/anduin2017/${repo_name}.git"
-    else
-        echo "Unknown repository path: $repo_path"
-        cd - > /dev/null
-        return
-    fi
+  info "Configuring GitHub remote for '${repo_name}' ..."
 
-    # 配置 github remote，需要带上鉴权信息
-    github_remote_url="https://anduin2017:${GITHUB_PAT}@${github_url#https://}"
+  # Decide which GitHub org or user to use
+  local github_base_url="https://github.com"
+  local github_url=""
+  if [[ "$repo_url" == *"/aiursoft/"* ]]; then
+    # Mirror to aiursoftweb
+    github_url="${github_base_url}/aiursoftweb/${repo_name}.git"
+  elif [[ "$repo_url" == *"/anduin/"* ]]; then
+    # Mirror to anduin2017
+    github_url="${github_base_url}/anduin2017/${repo_name}.git"
+  else
+    warn "Unknown repository path: '${repo_url}'. Skipping remote config."
+    cd - &>/dev/null || return
+    return
+  fi
 
-    if git remote | grep -q "github"; then
-        git remote set-url github "$github_remote_url"
-        echo -e "\033[0;32mUpdated github remote for $repo_name\033[0m"
-    else
-        git remote add github "$github_remote_url"
-        echo -e "\033[0;32mAdded github remote for $repo_name\033[0m"
-    fi
+  # Build the remote url with token
+  local github_remote_url="https://anduin2017:${GITHUB_PAT}@${github_url#https://}"
 
-    cd - > /dev/null
+  # If remote 'github' exists, update it; otherwise add it
+  if git remote | grep -q "github"; then
+    git remote set-url github "$github_remote_url"
+    info "Updated existing GitHub remote for '${repo_name}'."
+  else
+    git remote add github "$github_remote_url"
+    info "Added new GitHub remote for '${repo_name}'."
+  fi
+
+  cd - &>/dev/null || return
 }
 
+########################################
+# Push local repo to GitHub
+# Arguments:
+#   1) Repo name
+#   2) Local path
+########################################
 push_to_github() {
-    echo -e "\033[0;32mPushing $1 to github...\033[0m"
-    local repo_name=$1
-    local repo_path=$2
+  local repo_name=$1
+  local repo_path=$2
 
-    cd "$repo_path"
-    # 推送所有本地分支、所有标签到 GitHub
-    git push github --all --force
-    git push github --tags --force
-    echo -e "\033[0;32mPushed $repo_name to github\033[0m"
-    cd - > /dev/null
+  cd "$repo_path" || return
+  info "Pushing '${repo_name}' to GitHub ..."
+  
+  # Push all branches
+  git push github --all --force
+  # Push all tags
+  git push github --tags --force
+  
+  cd - &>/dev/null || return
+  info "Pushed '${repo_name}' to GitHub."
 }
 
+########################################
+# Clone or update multiple repositories
+# Arguments:
+#   1) Array name (indirect)
+#   2) Local path to clone/update
+########################################
 clone_or_update_repositories() {
-    local repos=("${!1}")
-    local destination_path=$2
+  local repos=("${!1}")
+  local destination_path=$2
 
-    for repo in "${repos[@]}"; do
-        clone_or_update_repo "$repo" "$destination_path"
-    done
+  for repo in "${repos[@]}"; do
+    clone_or_update_repo "$repo" "$destination_path"
+  done
 }
 
+########################################
+# Main entry: fetch group/user repos from GitLab 
+# and mirror them to GitHub
+########################################
 reset_git_repos() {
-    echo -e "\033[0;32mCloning or updating all repos...\033[0m"
+  info "Starting to clone or update all repositories..."
 
-    local gitlab_base_url="https://gitlab.aiursoft.cn"
-    local api_url="${gitlab_base_url}/api/v4"
-    local group_name="Aiursoft"
-    local user_name="Anduin"
+  local gitlab_base_url="https://gitlab.aiursoft.cn"
+  local api_url="${gitlab_base_url}/api/v4"
+  local group_name="Aiursoft"
+  local user_name="Anduin"
 
-    local destination_path_aiursoft="/opt/Source/Repos/Aiursoft"
-    local destination_path_anduin="/opt/Source/Repos/Anduin"
+  local destination_path_aiursoft="/opt/Source/Repos/Aiursoft"
+  local destination_path_anduin="/opt/Source/Repos/Anduin"
 
-    mkdir -p "$destination_path_aiursoft"
-    mkdir -p "$destination_path_anduin"
+  mkdir -p "$destination_path_aiursoft"
+  mkdir -p "$destination_path_anduin"
 
-    local group_url="${api_url}/groups?search=${group_name}"
-    local group_request=$(curl -s "$group_url")
-    local group_id=$(echo "$group_request" | jq -r '.[0].id')
+  # Get group ID
+  local group_url="${api_url}/groups?search=${group_name}"
+  local group_request
+  group_request=$(curl -s "$group_url")
+  local group_id
+  group_id=$(echo "$group_request" | jq -r '.[0].id')
 
-    if [ -z "$group_id" ]; then
-        echo "Error: Unable to fetch group ID for $group_name"
-        exit 1
-    fi
+  if [ -z "$group_id" ] || [ "$group_id" == "null" ]; then
+    error "Failed to fetch group ID for '${group_name}'. Exiting."
+    exit 1
+  fi
 
-    local user_url="${api_url}/users?username=${user_name}"
-    local user_request=$(curl -s "$user_url")
-    local user_id=$(echo "$user_request" | jq -r '.[0].id')
+  # Get user ID
+  local user_url="${api_url}/users?username=${user_name}"
+  local user_request
+  user_request=$(curl -s "$user_url")
+  local user_id
+  user_id=$(echo "$user_request" | jq -r '.[0].id')
 
-    if [ -z "$user_id" ]; then
-        echo "Error: Unable to fetch user ID for $user_name"
-        exit 1
-    fi
+  if [ -z "$user_id" ] || [ "$user_id" == "null" ]; then
+    error "Failed to fetch user ID for '${user_name}'. Exiting."
+    exit 1
+  fi
 
-    # 获取 Aiursoft group 下的所有公开项目
-    local repo_url_aiursoft="${api_url}/groups/${group_id}/projects?simple=true&per_page=999&visibility=public&page=1"
-    # 获取 Anduin 用户下的所有公开项目
-    local repo_url_anduin="${api_url}/users/${user_id}/projects?simple=true&per_page=999&visibility=public&page=1"
+  # Fetch all public projects under Aiursoft group
+  local repo_url_aiursoft="${api_url}/groups/${group_id}/projects?simple=true&per_page=999&visibility=public&page=1"
+  local repos_aiursoft
+  repos_aiursoft=$(curl -s "$repo_url_aiursoft" | jq -c '.[]')
+  if [ -z "$repos_aiursoft" ]; then
+    error "Failed to fetch any repositories for group '${group_name}'. Exiting."
+    exit 1
+  fi
 
-    local repos_aiursoft=$(curl -s "$repo_url_aiursoft" | jq -c '.[]')
-    local repos_anduin=$(curl -s "$repo_url_anduin" | jq -c '.[]')
+  # Fetch all public projects under Anduin user
+  local repo_url_anduin="${api_url}/users/${user_id}/projects?simple=true&per_page=999&visibility=public&page=1"
+  local repos_anduin
+  repos_anduin=$(curl -s "$repo_url_anduin" | jq -c '.[]')
+  if [ -z "$repos_anduin" ]; then
+    error "Failed to fetch any repositories for user '${user_name}'. Exiting."
+    exit 1
+  fi
 
-    if [ -z "$repos_aiursoft" ]; then
-        echo "Error: Unable to fetch repositories for group $group_name"
-        exit 1
-    fi
+  # Convert repos to arrays
+  local repos_aiursoft_array=()
+  while IFS= read -r line; do
+    repos_aiursoft_array+=("$line")
+  done <<< "$repos_aiursoft"
 
-    if [ -z "$repos_anduin" ]; then
-        echo "Error: Unable to fetch repositories for user $user_name"
-        exit 1
-    fi
+  local repos_anduin_array=()
+  while IFS= read -r line; do
+    repos_anduin_array+=("$line")
+  done <<< "$repos_anduin"
 
-    # 转成数组
-    repos_aiursoft_array=()
-    while IFS= read -r line; do
-        repos_aiursoft_array+=("$line")
-    done <<< "$repos_aiursoft"
-
-    repos_anduin_array=()
-    while IFS= read -r line; do
-        repos_anduin_array+=("$line")
-    done <<< "$repos_anduin"
-
-    # 克隆或者更新
-    clone_or_update_repositories repos_aiursoft_array[@] "$destination_path_aiursoft"
-    clone_or_update_repositories repos_anduin_array[@] "$destination_path_anduin"
+  # Clone or update group repos
+  clone_or_update_repositories repos_aiursoft_array[@] "$destination_path_aiursoft"
+  # Clone or update user repos
+  clone_or_update_repositories repos_anduin_array[@] "$destination_path_anduin"
 }
 
-echo "Reading token from /run/secrets/github-token"
-token=$(cat /run/secrets/github-token)
+########################################
+# Script starts here
+########################################
+info "Reading token from /run/secrets/github-token ..."
+token=$(cat /run/secrets/github-token 2>/dev/null)
 
-# 如果 token 为空，则退出
 if [ -z "$token" ]; then
-    echo "No token provided."
-    exit 1
+  error "No GitHub token found. Exiting."
+  exit 1
 fi
 
-GITHUB_PAT=$token
+export GITHUB_PAT=$token
 
 reset_git_repos
+info "All operations completed."
