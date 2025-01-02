@@ -38,59 +38,43 @@ clone_or_update_repo() {
   if [ ! -d "$repo_path" ]; then
     info "Cloning '${repo_name}' into '${repo_path}' ..."
     git clone "$repo_url" "$repo_path"
-    
+
     cd "$repo_path" || exit 1
+    # 只 fetch origin 而非 --all
+    git fetch origin --prune
+    # Track all remote branches (只追踪 origin 上的分支)
+    track_remote_branches "$repo_name"
+    # 强制与 origin 同步
+    mirror_all_branches_to_origin
 
-    # 把默认的 origin 改名为 gitlab
-    git remote rename origin gitlab  # <===修改
-
-    # 只从 gitlab 拉取，且 --prune
-    git fetch gitlab --prune  # <===修改
-
-    # 跟踪所有 gitlab 远程分支
-    track_remote_branches "$repo_name" "gitlab"  # <===修改
-
-    # 只从 gitlab pull
-    # (git pull gitlab --all 并不常见，也可以对每个分支逐一 pull，这里为了简单保留)
-    git pull gitlab --all  # <===修改
-    
     cd - &>/dev/null || exit 1
     info "Cloned '${repo_name}' successfully."
   else
     info "Updating '${repo_name}' in '${repo_path}' ..."
     cd "$repo_path" || exit 1
 
-    # 如果之前没改名，先改名（如果已是 gitlab 则会出错，这里加个判断或用 try/catch 也行）
-    # 可以写成： if [ "$(git remote)" == "origin" ]; then git remote rename origin gitlab; fi
-    if git remote | grep -q "^origin$"; then
-      git remote rename origin gitlab  # <===修改
-    fi
-
-    # 打扫工作区
+    # 清理本地未追踪文件
     git clean -fdx
+    # 只 fetch origin 并 prune
+    git fetch origin --prune
+    # 只追踪 origin 上的分支
+    track_remote_branches "$repo_name"
+    # 强制与 origin 同步
+    mirror_all_branches_to_origin
 
-    # 只从 gitlab fetch，且 prune
-    git fetch gitlab --prune  # <===修改
-    
-    # 跟踪所有 gitlab 远程分支
-    track_remote_branches "$repo_name" "gitlab"  # <===修改
-
-    # 只 pull gitlab
-    git pull gitlab --all  # <===修改
-    
-    # 切到 gitlab 的默认分支
+    # 让默认分支也对齐 origin 的状态
     local default_branch
-    default_branch=$(git symbolic-ref refs/remotes/gitlab/HEAD | sed 's@^refs/remotes/gitlab/@@')  # <===修改
+    default_branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
     git checkout "$default_branch" 2>/dev/null || git checkout -b "$default_branch"
-    git reset --hard "gitlab/$default_branch"  # <===修改
-    
+    git reset --hard "origin/$default_branch"
+
     cd - &>/dev/null || exit 1
     info "Fetched all branches for '${repo_name}' successfully."
   fi
 
-  # 添加（或更新）GitHub remote
+  # 添加或更新 GitHub remote
   add_github_remote "$repo_name" "$repo_path" "$repo_url"
-  # 推送到 GitHub（只 push 不 fetch）
+  # 推送到 GitHub（force）
   push_to_github "$repo_name" "$repo_path"
 }
 
@@ -98,24 +82,38 @@ clone_or_update_repo() {
 # Track all remote branches to local
 # Arguments:
 #   1) Repo name (for logging)
-#   2) Remote name (e.g. gitlab)
 ########################################
 track_remote_branches() {
   local repo_name=$1
-  local remote_name=$2  # <===新增
 
-  # 只列出 $remote_name 的远程分支
+  # 只拿 origin 下的分支，不拿 github 的
   local remote_branches
-  remote_branches=$(git branch -r | grep "^  $remote_name/" | grep -v '\->')
+  remote_branches=$(git branch -r | grep -E '^\s*origin/' | grep -v '\->')
 
   for rb in $remote_branches; do
-    local local_branch_name="${rb##$remote_name/}"
+    local local_branch_name="${rb##origin/}"
 
+    # 如果本地分支不存在，就创建并跟踪它
     if ! git rev-parse --verify "$local_branch_name" &>/dev/null; then
       info "Tracking remote branch '${rb}' locally as '${local_branch_name}' in '${repo_name}' ..."
       git branch --track "${local_branch_name}" "${rb}" 2>/dev/null || true
     else
       info "Local branch '${local_branch_name}' in '${repo_name}' already exists, skipping."
+    fi
+  done
+}
+
+########################################
+# 强制将本地所有分支对齐到 origin
+########################################
+mirror_all_branches_to_origin() {
+  local local_branches
+  local_branches=$(git branch --format='%(refname:short)')
+
+  for lb in $local_branches; do
+    if git rev-parse --verify "origin/$lb" &>/dev/null; then
+      git checkout "$lb" 2>/dev/null || continue
+      git reset --hard "origin/$lb"
     fi
   done
 }
@@ -136,6 +134,7 @@ add_github_remote() {
 
   info "Configuring GitHub remote for '${repo_name}' ..."
 
+  # Decide which GitHub org or user to use
   local github_base_url="https://github.com"
   local github_url=""
   if [[ "$repo_url" == *"/aiursoft/"* ]]; then
@@ -150,8 +149,10 @@ add_github_remote() {
     return
   fi
 
+  # Build the remote url with token
   local github_remote_url="https://anduin2017:${GITHUB_PAT}@${github_url#https://}"
 
+  # If remote 'github' exists, update it; otherwise add it
   if git remote | grep -q "github"; then
     git remote set-url github "$github_remote_url"
     info "Updated existing GitHub remote for '${repo_name}'."
@@ -164,7 +165,7 @@ add_github_remote() {
 }
 
 ########################################
-# Push local repo to GitHub
+# Push local repo to GitHub (force)
 # Arguments:
 #   1) Repo name
 #   2) Local path
@@ -175,10 +176,10 @@ push_to_github() {
 
   cd "$repo_path" || return
   info "Pushing '${repo_name}' to GitHub ..."
-  
-  # Push all branches
+
+  # 推送所有分支到 GitHub（强制覆盖）
   git push github --all --force
-  # Push all tags
+  # 同步推送所有 tag（强制覆盖）
   git push github --tags --force
   
   cd - &>/dev/null || return
