@@ -5,27 +5,36 @@ clone_or_update_repo() {
     local repo=$1
     local destination_path=$2
 
-    # 解析出需要的信息
     local repo_name=$(echo "$repo" | jq -r .name)
     local repo_url=$(echo "$repo" | jq -r .http_url_to_repo)
     local repo_path="${destination_path}/${repo_name}"
 
-    # 如果不存在该目录，先 clone
     if [ ! -d "$repo_path" ]; then
         echo -e "\033[0;32mCloning $repo_name to $repo_path...\033[0m"
         git clone "$repo_url" "$repo_path"
+
+        cd "$repo_path"
+        git fetch --all
+        for branch in $(git branch -r | grep -v '\->'); do
+            git branch --track "${branch##origin/}" "$branch" || true
+            echo "\033[0;32mTracking branch ${branch##origin/} for $repo_name\033[0m"
+        done
+        git pull --all
+        cd - > /dev/null
+
         echo -e "\033[0;32mCloned $repo_name to $repo_path\033[0m"
     else
         echo -e "\033[0;32mUpdating $repo_name at $repo_path...\033[0m"
         cd "$repo_path"
-
-        # 清理并获取所有远程分支
         git clean -fdx
-        # 同时拉取所有分支、所有标签，并删除本地已在远程删掉的分支
         git fetch --all --prune
 
-        # 可以让本地的 HEAD 指向默认分支（从 origin/HEAD 获取）
-        # 这样本地默认签出的分支会与远程保持一致
+        for branch in $(git branch -r | grep -v '\->'); do
+            git branch --track "${branch##origin/}" "$branch" || true
+            echo "\033[0;32mTracking branch ${branch##origin/} for $repo_name\033[0m"
+        done
+        git pull --all
+
         defaultBranch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
         git checkout "$defaultBranch" || git checkout -b "$defaultBranch"
         git reset --hard "origin/$defaultBranch"
@@ -34,7 +43,6 @@ clone_or_update_repo() {
         cd - > /dev/null
     fi
 
-    # 添加（或更新）GitHub 的 remote，并 push
     add_github_remote "$repo_name" "$repo_path" "$repo_url"
     push_to_github "$repo_name" "$repo_path"
 }
