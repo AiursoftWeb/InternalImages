@@ -108,7 +108,7 @@ COPY --from=minecraft-builder /datapacks /datapacks
 COPY init-commands.sh /app/init-commands.sh
 
 RUN apt update
-RUN apt install -y openjdk-17-jre-headless tmux
+RUN apt install -y openjdk-24-jre-headless tmux
 RUN mkdir -p /var/log/mc
 RUN touch /var/log/mc/mc.log
 
