@@ -63,7 +63,7 @@ youtube-dl \
     --embed-thumbnail \
     --sleep-interval 500 \
     --max-sleep-interval 1000 \
-    -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url"
+    -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url && echo 'Download complete' || echo 'Download failed' && sleep 1800"
     echo "Running command: youtube-dl -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url in tmux session $user_id"
     tmux list-sessions
     echo "Sleeping for 1800 seconds"
