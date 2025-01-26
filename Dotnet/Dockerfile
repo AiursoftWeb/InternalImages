@@ -1,13 +1,14 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu:latest
 
 # Install dotnet, also install curl and wget because they are often used in dotnet containers.
-RUN apt update && \
-    apt install -y dotnet9 curl wget && \
-    apt clean && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    libatomic1 \
+    wget && \
+    rm -rf /var/lib/apt/lists/* && \
     touch /.dockerenv
-
-# return File.Exists("/.dockerenv") || Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER")?.ToLower().Trim() == "true";
-
 
 # Configure environment variables
 ENV ASPNETCORE_ENVIRONMENT="Production" \
