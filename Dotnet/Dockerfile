@@ -4,3 +4,13 @@ FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu:latest
 RUN apt update && \
     apt install -y dotnet9 curl wget \
     && apt clean
+
+# Configure environment variables
+ENV ASPNETCORE_ENVIRONMENT="Production" \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_PRINT_TELEMETRY_MESSAGE="false" \
+    ASPNETCORE_FORWARDEDHEADERS_ENABLED="true" \
+    DOTNET_NOLOGO="1"
+
+RUN dotnet --info && echo $ASPNETCORE_ENVIRONMENT && \
+    echo "Environment setup complete."
