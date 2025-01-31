@@ -115,3 +115,11 @@ deploy_swinir:
   script:
     - docker build ./SwinIR -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:latest
+
+deploy_dotnet:
+  stage: deploy
+  needs: 
+    - deploy_nvidia
+  script:
+    - docker build ./Dotnet -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:latest
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:latest
