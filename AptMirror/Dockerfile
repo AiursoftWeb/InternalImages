@@ -93,8 +93,9 @@ RUN touch /var/spool/apt-mirror/var/postmirror.sh && chmod +x /var/spool/apt-mir
 
 VOLUME /var/spool/apt-mirror
 
-# Register a crontab job to run apt-mirror every day
-RUN crontab -l | { cat; echo "0 5 * * * /usr/bin/apt-mirror"; } | crontab -
+# Register a crontab job to run apt-mirror every day. (5 times retry.)
+#RUN crontab -l | { cat; echo "0 5 * * * /usr/bin/apt-mirror"; } | crontab -
+RUN crontab -l | { cat; echo "0 5 * * * /usr/bin/apt-mirror || /usr/bin/apt-mirror || /usr/bin/apt-mirror || /usr/bin/apt-mirror || /usr/bin/apt-mirror"; } | crontab -
 
 # Run this job at the beginning with verbose output
 ENTRYPOINT ["cron", "-f", "-L 15"]
