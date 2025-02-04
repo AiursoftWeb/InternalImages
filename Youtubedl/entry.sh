@@ -36,6 +36,7 @@ user_urls=(
     "https://www.youtube.com/@hippopotamus85/videos"
     "https://www.youtube.com/@hippo20251/videos"
     "https://www.youtube.com/@xiao_lin_shuo/videos"
+    "https://www.youtube.com/@lucaas/videos"
 )
 
 # Loop through user URLs and start a new tmux session for each channel
@@ -66,8 +67,8 @@ youtube-dl \
     -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url && echo 'Download complete' || echo 'Download failed' && sleep 1800"
     echo "Running command: youtube-dl -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' $url in tmux session $user_id"
     tmux list-sessions
-    echo "Sleeping for 1800 seconds"
-    sleep 1800
+    echo "Sleeping for 800 seconds"
+    sleep 800
 done
 
 # Delete all .webp files because it may cause jellyfin to crash
