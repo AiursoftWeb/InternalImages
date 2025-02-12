@@ -48,12 +48,12 @@ RUN su - gitlab-runner -c "dotnet tool install JetBrains.ReSharper.GlobalTools -
 RUN npm config set registry https://npm.aiursoft.cn && \
     npm install -g typescript ts-node npm yarn --loglevel verbose
 
+RUN echo "fs.inotify.max_user_instances=524288" >> /etc/sysctl.conf && \
+    echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf && \
+    echo "fs.inotify.max_queued_events=524288" >> /etc/sysctl.conf && \
+    sysctl -p
+
 RUN mkdir /data && chmod 777 /data && \
-    { \
-      echo "fs.inotify.max_user_instances=524288"; \
-      echo "fs.inotify.max_user_watches=524288"; \
-      echo "fs.inotify.max_queued_events=524288"; \
-    } >> /etc/sysctl.conf && sysctl -p && \
     chmod +x /app/entry.sh
 
 ENTRYPOINT ["/bin/bash", "-c", "/app/entry.sh"]
