@@ -10,7 +10,7 @@ RUN apt update && \
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN pipx install 'git+https://github.com/ytdl-org/youtube-dl.git@master#egg=youtube_dl'
-RUN cp /usr/local/bin/youtube-dl /usr/bin/youtube-dl
+RUN mv /root/.local/bin /usr/bin/youtube-dl
 RUN /usr/bin/youtube-dl --version
 
 COPY ./entry.sh /entry.sh
