@@ -1,17 +1,10 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker
 ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 COPY . .
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      curl \
-      sudo \
-      apt-transport-https \
-      ca-certificates \
-      software-properties-common && \
-    curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash && \
+RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash && \
     curl -fsSL https://deb.nodesource.com/setup_23.x | bash - && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -33,14 +26,11 @@ RUN apt-get update && \
       shellcheck && \
     rm -rf /var/lib/apt/lists/*
 
-# 安装 Docker 并调整相关用户组
-RUN curl -fsSL https://get.docker.com -o get-docker.sh && \
-    CHANNEL=stable sh get-docker.sh && \
-    usermod -aG docker root && \
+# Enable docker in docker
+RUN usermod -aG docker root && \
     usermod -aG systemd-journal gitlab-runner && \
     usermod -aG docker gitlab-runner && \
-    usermod -aG sudo gitlab-runner && \
-    rm get-docker.sh
+    usermod -aG sudo gitlab-runner
 
 RUN su - gitlab-runner -c "dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'JB already installed.'" && \
     su - gitlab-runner -c "dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'ReportGenerator already installed.'"

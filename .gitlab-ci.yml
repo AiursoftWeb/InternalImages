@@ -44,7 +44,7 @@ deploy_lab:
 deploy_runner:
   stage: deploy
   needs: 
-    - deploy_ubuntu
+    - deploy_ubuntu_with_docker
   script:
     - docker build ./Runner -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:latest
@@ -76,7 +76,7 @@ deploy_gateway:
 deploy_imagepuller:
   stage: deploy
   needs: 
-    - deploy_ubuntu
+    - deploy_ubuntu_with_docker
   script:
     - docker build ./ImagePuller -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:latest
