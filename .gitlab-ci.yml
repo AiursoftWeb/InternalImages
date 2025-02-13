@@ -12,6 +12,17 @@ deploy_ubuntu:
     - docker build ./Ubuntu -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
 
+deploy_ubuntu_with_docker:
+  stage: deploy
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
+    - docker builder prune -f
+    - docker build ./Ubuntu-with-docker -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:latest
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:latest
+
 deploy_apt_mirror:
   stage: deploy
   needs: 

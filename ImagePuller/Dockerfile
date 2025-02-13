@@ -8,6 +8,7 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh
 ENV CHANNEL=stable
 RUN sh get-docker.sh
 RUN usermod -aG docker root
+RUN chmod 660 /var/run/docker.sock
 RUN rm get-docker.sh
 
 # Copy entry script
