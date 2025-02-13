@@ -9,9 +9,10 @@ RUN apt update && \
 # Allow pip to break system packages
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
-RUN pipx install 'git+https://github.com/ytdl-org/youtube-dl.git@master#egg=youtube_dl'
-RUN mv /root/.local/bin /usr/bin/youtube-dl
-RUN /usr/bin/youtube-dl --version
+RUN pipx install 'git+https://github.com/ytdl-org/youtube-dl.git@master#egg=youtube_dl' && \
+    mv /root/.local/bin/youtube-dl /usr/bin/youtube-dl && \
+    chmod +x /usr/bin/youtube-dl && \
+    /usr/bin/youtube-dl --version
 
 COPY ./entry.sh /entry.sh
 RUN chmod +x /entry.sh
