@@ -14,6 +14,8 @@ deploy_ubuntu:
 
 deploy_ubuntu_with_docker:
   stage: deploy
+  needs: 
+    - deploy_ubuntu
   script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
         echo "CI pipeline will only run for the Aiursoft namespace.";
