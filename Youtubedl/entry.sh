@@ -14,7 +14,7 @@ user_urls=(
     "https://www.youtube.com/@GPINTALK/videos"
     "https://www.youtube.com/@xiaohan-ufo/videos"
     "https://www.youtube.com/@JaredOwen/videos"
-    "https://www.youtube.com/@user-og1rx7gc6o/videos"
+    "https://www.youtube.com/@%E7%A1%AC%E4%BB%B6%E8%8C%B6%E8%B0%88/videos"
     "https://www.youtube.com/@geekerwan1024/videos"
     "https://www.youtube.com/@wbclg/videos"
     "https://www.youtube.com/@user-darkcarrot/videos"
