@@ -7,50 +7,64 @@ ARG X11Forwarding=false
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Install tzdata and set the timezone to UTC
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+# 设置时区为 UTC
+RUN apt-get update && \
     apt-get install -y tzdata && \
     echo "Etc/UTC" > /etc/timezone && \
     ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata
+    dpkg-reconfigure -f noninteractive tzdata && \
+    apt-get clean
 
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+# 安装所需软件包
+RUN apt-get update && \
     apt-get install -y dbus-x11 xrdp sudo openssl gnome-shell ubuntu-desktop-minimal gnome-console && \
-    [ $X11Forwarding = 'true' ] && apt-get install -y openssh-server; \
-    apt-get autoremove --purge; \
-    apt-get clean;
+    if [ "$X11Forwarding" = "true" ]; then \
+        apt-get install -y openssh-server; \
+    fi && \
+    apt-get autoremove --purge -y && \
+    apt-get clean
 
-# Remove the reboot required file
-RUN rm /run/reboot-required* || true
+# 删除可能存在的重启标记文件
+RUN rm -f /run/reboot-required* || true
 
-# Create a user and add it to the sudo group
-RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PasS"); \
-    usermod -aG sudo $USER; \
-    adduser xrdp ssl-cert;
+# 创建用户，并加入 sudo 及 xrdp 所需组
+RUN useradd -s /bin/bash -m $USER -p $(openssl passwd "$PasS") && \
+    usermod -aG sudo $USER && \
+    adduser xrdp ssl-cert
 
-# Setting the required environment variables
-RUN echo 'LANG=en_US.UTF-8' >> /etc/default/locale; \
-    echo 'export GNOME_SHELL_SESSION_MODE=ubuntu' > /home/$USER/.xsessionrc; \
-    echo 'export XDG_CURRENT_DESKTOP=ubuntu:GNOME' >> /home/$USER/.xsessionrc; \
-    echo 'export XDG_SESSION_TYPE=x11' >> /home/$USER/.xsessionrc;
+# 配置 locale 及 session 环境变量
+RUN echo 'LANG=en_US.UTF-8' >> /etc/default/locale && \
+    echo 'export GNOME_SHELL_SESSION_MODE=ubuntu' > /home/$USER/.xsessionrc && \
+    echo 'export XDG_CURRENT_DESKTOP=ubuntu:GNOME' >> /home/$USER/.xsessionrc && \
+    echo 'export XDG_SESSION_TYPE=x11' >> /home/$USER/.xsessionrc
 
-# Enabling log to the stdout
-RUN sed -i "s/#EnableConsole=false/EnableConsole=true/g" /etc/xrdp/xrdp.ini;
+# 调整 xrdp 配置：
+# 1. 启用控制台日志输出
+# 2. 强制安全层为 rdp（避免 TLS 握手问题）
+# 3. 降低颜色深度到 16 bpp 以提升性能
+RUN sed -i 's/#EnableConsole=false/EnableConsole=true/g' /etc/xrdp/xrdp.ini && \
+    if grep -q "^security_layer=" /etc/xrdp/xrdp.ini; then \
+        sed -i 's/^security_layer=.*/security_layer=rdp/' /etc/xrdp/xrdp.ini; \
+    else \
+        echo 'security_layer=rdp' >> /etc/xrdp/xrdp.ini; \
+    fi && \
+    sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini
 
-# Disabling system animations and reducing the image quality to improve the performance
-RUN sed -i 's/max_bpp=32/max_bpp=16/g' /etc/xrdp/xrdp.ini; \
-    gsettings set org.gnome.desktop.interface enable-animations true;
+# 禁用 GNOME 动画（提升性能，若无效可忽略）
+RUN gsettings set org.gnome.desktop.interface enable-animations false || true
 
-# Listening on wildcard address for X forwarding
-RUN [ $X11Forwarding = 'true' ] && \
-        sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config || :;
+# 如果启用 X11 转发，调整 SSH 配置
+RUN if [ "$X11Forwarding" = "true" ]; then \
+        sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config; \
+    fi
 
-# Adding the user to the sudoers file
-RUN echo "$USER ALL=(ALL) NOPasSWD:ALL" | tee -a /etc/sudoers.d/$USER
+# 允许用户无密码 sudo
+RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/$USER
 
-CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1; \
-    service dbus restart >/dev/null 2>&1; \
+# 启动各项服务并运行 xrdp（保持前台运行）
+CMD rm -f /var/run/xrdp/xrdp*.pid >/dev/null 2>&1 && \
+    service dbus restart >/dev/null 2>&1 && \
     /usr/lib/systemd/systemd-logind >/dev/null 2>&1 & \
-    [ -f /usr/sbin/sshd ] && /usr/sbin/sshd; \
-    xrdp-sesman --config /etc/xrdp/sesman.ini; \
+    if [ -f /usr/sbin/sshd ]; then /usr/sbin/sshd; fi && \
+    xrdp-sesman --config /etc/xrdp/sesman.ini && \
     xrdp --nodaemon --config /etc/xrdp/xrdp.ini
