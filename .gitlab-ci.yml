@@ -12,11 +12,28 @@ deploy_ubuntu:
     - docker build ./Ubuntu -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:latest
 
+deploy_ubuntu_with_docker:
+  stage: deploy
+  needs: 
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
+    - docker builder prune -f
+    - docker build ./Ubuntu-with-docker -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:latest
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:latest
+
 deploy_apt_mirror:
   stage: deploy
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./AptMirror -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:latest
 
@@ -25,14 +42,22 @@ deploy_lab:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Lab -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:latest
 
 deploy_runner:
   stage: deploy
   needs: 
-    - deploy_ubuntu
+    - deploy_ubuntu_with_docker
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Runner -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:latest
 
@@ -41,6 +66,10 @@ deploy_kiwix:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Kiwix -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:latest
 
@@ -49,6 +78,10 @@ deploy_minecraft:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Minecraft -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:latest
 
@@ -57,14 +90,22 @@ deploy_gateway:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Gateway -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:latest
 
 deploy_imagepuller:
   stage: deploy
   needs: 
-    - deploy_ubuntu
+    - deploy_ubuntu_with_docker
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./ImagePuller -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:latest
 
@@ -73,6 +114,10 @@ deploy_iperf3:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Iperf3 -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:latest
 
@@ -81,6 +126,10 @@ deploy_youtubedl:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Youtubedl -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:latest
 
@@ -89,6 +138,10 @@ deploy_nvidia:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Nvidia -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:latest
 
@@ -97,6 +150,10 @@ deploy_gitmirror:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./GitMirror -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:latest
 
@@ -105,6 +162,10 @@ deploy_remote_desktop:
   needs: 
     - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./RemoteDesktop -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remote-desktop:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remote-desktop:latest
 
@@ -113,13 +174,21 @@ deploy_swinir:
   needs: 
     - deploy_nvidia
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./SwinIR -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:latest
 
 deploy_dotnet:
   stage: deploy
   needs: 
-    - deploy_nvidia
+    - deploy_ubuntu
   script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
     - docker build ./Dotnet -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:latest
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:latest

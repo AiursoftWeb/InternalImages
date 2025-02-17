@@ -1,43 +1,49 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker
+ENV DEBIAN_FRONTEND=noninteractive
 
-# GitLab Runner.
-RUN apt update
-RUN apt install -y curl sudo apt-transport-https ca-certificates software-properties-common
-RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
-RUN curl -fsSL https://deb.nodesource.com/setup_23.x | sudo -E bash -
-RUN apt update
-RUN apt install -y gitlab-runner dotnet9 nodejs libgdiplus build-essential bc ffmpeg zip unzip tar gzip iputils-ping net-tools git jq shellcheck
-
-# Install Docker
-RUN curl -fsSL https://get.docker.com -o get-docker.sh
-ENV CHANNEL=stable
-RUN sh get-docker.sh
-RUN usermod -aG docker root
-RUN usermod -aG systemd-journal gitlab-runner
-RUN usermod -aG docker gitlab-runner
-RUN usermod -aG sudo gitlab-runner
-RUN rm get-docker.sh
-
-# Install .NET Tools
-RUN sudo -u gitlab-runner dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo "JB already installed."
-RUN sudo -u gitlab-runner dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo "ReportGenerator already installed."
-
-# Install Node Tools
-RUN sudo npm install typescript ts-node npm yarn -g --loglevel verbose
-
-# Create /data folder because a lot of apps need it to temp store data.
-RUN mkdir /data && chmod 777 /data
-
-# Hack inode
-RUN echo fs.inotify.max_user_instances=524288 | tee -a /etc/sysctl.conf
-RUN echo fs.inotify.max_user_watches=524288 | tee -a /etc/sysctl.conf
-RUN echo fs.inotify.max_queued_events=524288 | tee -a /etc/sysctl.conf
-RUN sysctl -p
-
-# Allow sudo
-
-COPY . /app
 WORKDIR /app
-RUN chmod +x /app/entry.sh
+COPY . .
 
-ENTRYPOINT [ "/bin/bash", "-c", "/app/entry.sh" ]
+RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash && \
+    curl -fsSL https://deb.nodesource.com/setup_23.x | bash - && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      gitlab-runner \
+      dotnet9 \
+      nodejs \
+      libgdiplus \
+      build-essential \
+      bc \
+      ffmpeg \
+      zip \
+      unzip \
+      tar \
+      gzip \
+      iputils-ping \
+      net-tools \
+      git \
+      jq \
+      shellcheck && \
+    rm -rf /var/lib/apt/lists/*
+
+# Enable docker in docker
+RUN usermod -aG docker root && \
+    usermod -aG systemd-journal gitlab-runner && \
+    usermod -aG docker gitlab-runner && \
+    usermod -aG sudo gitlab-runner
+
+RUN su - gitlab-runner -c "dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'JB already installed.'" && \
+    su - gitlab-runner -c "dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'ReportGenerator already installed.'"
+
+RUN npm config set registry https://npm.aiursoft.cn && \
+    npm install -g typescript ts-node npm yarn --loglevel verbose
+
+RUN echo "fs.inotify.max_user_instances=524288" >> /etc/sysctl.conf && \
+    echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf && \
+    echo "fs.inotify.max_queued_events=524288" >> /etc/sysctl.conf && \
+    sysctl -p
+
+RUN mkdir /data && chmod 777 /data && \
+    chmod +x /app/entry.sh
+
+ENTRYPOINT ["/bin/bash", "-c", "/app/entry.sh"]

@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Make sure the docker.sock has correct permissions
+if [ -S /var/run/docker.sock ]; then
+    chown root:docker /var/run/docker.sock
+    chmod 660 /var/run/docker.sock
+else
+    echo "Docker socket not found. Exiting..."
+    exit 1
+fi
+
+
 # Load from environment variables
 gitlab_endpoint=${GITLAB_ENDPOINT:-http://gitlab}
 

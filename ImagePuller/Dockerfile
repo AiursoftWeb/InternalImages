@@ -1,14 +1,8 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker
 WORKDIR /
-RUN apt update
-RUN apt install -y git unzip wget cron curl
-
-# Install Docker
-RUN curl -fsSL https://get.docker.com -o get-docker.sh
-ENV CHANNEL=stable
-RUN sh get-docker.sh
-RUN usermod -aG docker root
-RUN rm get-docker.sh
+RUN apt update && \
+    apt install -y cron && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy entry script
 COPY entry.sh /entry.sh
