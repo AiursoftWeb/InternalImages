@@ -116,6 +116,7 @@ func handleConnection(conn net.Conn) {
 	// 保证连接结束时减少计数
 	defer func() {
 		connCountLock.Lock()
+		log.Println("关闭连接：", conn.RemoteAddr())
 		activeConnCount--
 		log.Println("当前活跃连接数：", activeConnCount)
 		connCountLock.Unlock()
