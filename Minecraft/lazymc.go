@@ -99,7 +99,7 @@ func monitorInactivity() {
 			continue
 		}
 
-		log.Printf("当前在线玩家数：%d\n", resp.Players.Online)
+		log.Printf("当前在线玩家数：%d\n", *resp.Players.Online)
 		if resp.Players.Online != nil && *resp.Players.Online == 0 {
 			zeroCount++
 			log.Printf("连续无在线玩家检测次数：%d/100\n", zeroCount)
