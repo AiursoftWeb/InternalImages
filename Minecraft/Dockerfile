@@ -34,10 +34,10 @@ RUN buildId=$(curl "https://api.papermc.io/v2/projects/paper/versions/${VERSION}
 # Plugins
 # ================
 # Geyser-Spigot
-RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
+#RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
 
 # floodgate-spigot
-RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
+#RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
 
 # ViaBackwards
 RUN viabUrl=$(curl https://api.github.com/repos/ViaVersion/ViaBackwards/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
@@ -133,7 +133,6 @@ VOLUME /app/plugins/dynmap
 VOLUME /var/log/mc
 
 EXPOSE 25565
-EXPOSE 19132/udp
 EXPOSE 8123
 
 # Run paper once to download the latest version

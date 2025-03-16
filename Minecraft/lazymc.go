@@ -13,7 +13,7 @@ import (
 var (
 	mcProcess       *exec.Cmd
 	mcProcessLock   sync.Mutex
-	activeConnCount int        // 活跃连接数（仅计入保持至少30秒的连接）
+	activeConnCount int        // 活跃连接数
 	connCountLock   sync.Mutex // 保护 activeConnCount 的互斥锁
 )
 
@@ -105,47 +105,28 @@ func monitorInactivity() {
 	}
 }
 
-// handleConnection 处理来自 25565 的每个连接，并将数据转发到 25566。
-// 只有保持连接至少30秒，才算作活跃连接。
+// handleConnection 处理来自 25565 的每个连接，并将数据转发到 25566
 func handleConnection(conn net.Conn) {
-	log.Println("处理连接：", conn.RemoteAddr())
+	// 增加连接计数
+	connCountLock.Lock()
+	activeConnCount++
+	log.Println("当前活跃连接数：", activeConnCount)
+	connCountLock.Unlock()
 
-	// 创建一个 channel 用于通知连接关闭
-	closed := make(chan struct{})
-	// 使用互斥锁保护 active 标志
-	var mu sync.Mutex
-	active := false
-
-	// 启动一个定时器，30秒后检查连接是否仍然活跃
-	timer := time.NewTimer(30 * time.Second)
-	go func() {
-		select {
-		case <-timer.C:
-			// 只有连接未关闭时才将其标记为活跃
-			select {
-			case <-closed:
-				// 连接已关闭，不标记为活跃
-				return
-			default:
-				mu.Lock()
-				active = true
-				mu.Unlock()
-				connCountLock.Lock()
-				activeConnCount++
-				log.Println("连接已保持30秒，计入活跃连接，当前活跃连接数：", activeConnCount)
-				connCountLock.Unlock()
-			}
-		case <-closed:
-			if !timer.Stop() {
-				<-timer.C
-			}
-		}
+	// 保证连接结束时减少计数
+	defer func() {
+		connCountLock.Lock()
+		log.Println("关闭连接：", conn.RemoteAddr())
+		activeConnCount--
+		log.Println("当前活跃连接数：", activeConnCount)
+		connCountLock.Unlock()
+		conn.Close()
 	}()
 
 	// 确保 Minecraft 进程已启动
+	log.Println("处理连接：", conn.RemoteAddr())
 	if err := startMinecraft(); err != nil {
 		log.Println("启动 Minecraft 失败：", err)
-		conn.Close()
 		return
 	}
 
@@ -153,29 +134,13 @@ func handleConnection(conn net.Conn) {
 	backend, err := net.Dial("tcp", "127.0.0.1:25566")
 	if err != nil {
 		log.Println("连接 Minecraft 服务失败：", err)
-		conn.Close()
 		return
 	}
 	defer backend.Close()
 
-	// 双向转发数据
+	// 双向转发
 	go io.Copy(backend, conn)
 	io.Copy(conn, backend)
-
-	// 当双向转发结束时，关闭连接，清理定时器和活跃计数
-	close(closed)
-	mu.Lock()
-	wasActive := active
-	mu.Unlock()
-	if wasActive {
-		connCountLock.Lock()
-		activeConnCount--
-		log.Println("关闭连接：", conn.RemoteAddr(), "当前活跃连接数：", activeConnCount)
-		connCountLock.Unlock()
-	} else {
-		log.Println("连接未达到30秒，不计入活跃连接：", conn.RemoteAddr())
-	}
-	conn.Close()
 }
 
 func main() {
