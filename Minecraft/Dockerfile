@@ -98,6 +98,17 @@ RUN unzip /tmp/sty.zip -d /datapacks/structory
 #RUN unzip /tmp/tcr.zip -d /datapacks/tcr
 
 #============================
+#       lazyMC Builder
+#============================
+FROM hub.aiursoft.cn/golang:1.21.5 AS lazymc-builder
+WORKDIR /src
+# 将 lazymc.go 放置在与 Dockerfile 同目录
+COPY lazymc.go .
+ENV GO111MODULE=off
+RUN go build -o lazymc .
+
+
+#============================
 #       Final image
 #============================
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
@@ -112,6 +123,9 @@ RUN apt install -y openjdk-24-jre-headless tmux
 RUN mkdir -p /var/log/mc
 RUN touch /var/log/mc/mc.log
 
+# 将 lazymc 二进制拷贝到镜像中
+COPY --from=lazymc-builder /src/lazymc /app/lazymc
+
 VOLUME /app/world
 VOLUME /app/world_nether
 VOLUME /app/world_the_end
@@ -122,9 +136,11 @@ EXPOSE 25565
 EXPOSE 19132/udp
 EXPOSE 8123
 
-ENTRYPOINT [ "sh", "-c", \
- "cp -r /datapacks/* /app/world/datapacks/ && \
- tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
- & tail -f /var/log/mc/mc.log \
- & sleep 60 && bash /app/init-commands.sh \
- & wait" ]
+# ENTRYPOINT [ "sh", "-c", \
+#  "cp -r /datapacks/* /app/world/datapacks/ && \
+#  tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
+#  & tail -f /var/log/mc/mc.log \
+#  & sleep 60 && bash /app/init-commands.sh \
+#  & wait" ]
+
+ENTRYPOINT ["/app/lazymc"]
