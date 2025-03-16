@@ -136,6 +136,9 @@ EXPOSE 25565
 EXPOSE 19132/udp
 EXPOSE 8123
 
+# Run paper once to download the latest version
+RUN java -jar /app/papermc.jar --nojline --nogui --version
+
 # ENTRYPOINT [ "sh", "-c", \
 #  "cp -r /datapacks/* /app/world/datapacks/ && \
 #  tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
