@@ -73,7 +73,8 @@ func stopMinecraft() error {
 	return nil
 }
 
-// monitorInactivity 定时检查活跃连接数，只有连续10次检测（每次间隔10分钟）都为0时才停止服务器
+// monitorInactivity 定时检查活跃连接数，只有连续100次检测均无活跃连接时，也就是1000秒（约16分钟）后，才停止 Minecraft 服务器。
+// 这样可以避免频繁启停 Minecraft 服务器，节省资源。
 func monitorInactivity() {
 	log.Println("启动空连接检测...")
 	zeroCount := 0
@@ -91,9 +92,9 @@ func monitorInactivity() {
 		log.Println("当前活跃连接数：", count)
 		if count == 0 {
 			zeroCount++
-			log.Printf("连续空连接检测次数: %d\n", zeroCount)
-			if zeroCount >= 10 {
-				log.Println("连续10次检测均无活跃连接，停止 Minecraft 服务器")
+			log.Printf("连续空连接检测次数: %d/100\n", zeroCount)
+			if zeroCount >= 100 {
+				log.Println("连续100次检测均无活跃连接，停止 Minecraft 服务器")
 				stopMinecraft()
 				zeroCount = 0 // 重置计数器
 			}
