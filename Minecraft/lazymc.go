@@ -64,6 +64,7 @@ func stopMinecraft() error {
 	if mcProcess != nil && mcProcess.Process != nil {
 		log.Println("因长时间无活跃连接，停止 Minecraft 进程……")
 		err := mcProcess.Process.Kill()
+		log.Println("Minecraft 进程已停止。这是为了节省资源。下次连接时会自动重启。")
 		mcProcess = nil
 		return err
 	} else {
@@ -78,6 +79,12 @@ func monitorInactivity() {
 	zeroCount := 0
 	for {
 		time.Sleep(10 * time.Second)
+		// 如果 Minecraft 进程根本没有启动，等待启动
+		if mcProcess == nil || mcProcess.Process == nil {
+			log.Println("Minecraft 服务器未启动，等待启动...")
+			zeroCount = 0
+			continue
+		}
 		connCountLock.Lock()
 		count := activeConnCount
 		connCountLock.Unlock()
