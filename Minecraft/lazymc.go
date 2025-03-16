@@ -74,7 +74,7 @@ func stopMinecraft() error {
 	return nil
 }
 
-// monitorInactivity 定时查询在线玩家数，只有连续 100 次（约 1000 秒）检测到在线玩家数为 0 时，才停止 Minecraft 服务器。
+// monitorInactivity 定时查询在线玩家数，只有连续 8 次（约 80 秒）检测到在线玩家数为 0 时，才停止 Minecraft 服务器。
 func monitorInactivity() {
 	log.Println("启动在线玩家监测...")
 	zeroCount := 0
@@ -102,9 +102,9 @@ func monitorInactivity() {
 		log.Printf("当前在线玩家数：%d\n", *resp.Players.Online)
 		if resp.Players.Online != nil && *resp.Players.Online == 0 {
 			zeroCount++
-			log.Printf("连续无在线玩家检测次数：%d/100\n", zeroCount)
-			if zeroCount >= 100 {
-				log.Println("连续100次检测均无在线玩家，停止 Minecraft 服务器")
+			log.Printf("连续无在线玩家检测次数：%d/8\n", zeroCount)
+			if zeroCount >= 8 {
+				log.Println("连续8次检测均无在线玩家，停止 Minecraft 服务器")
 				stopMinecraft()
 				zeroCount = 0 // 重置计数器
 			}
