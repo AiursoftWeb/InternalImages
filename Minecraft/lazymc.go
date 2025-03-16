@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"net"
@@ -8,13 +9,13 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/mcstatus-io/mcutil/v4/status"
 )
 
 var (
-	mcProcess       *exec.Cmd
-	mcProcessLock   sync.Mutex
-	activeConnCount int        // 活跃连接数
-	connCountLock   sync.Mutex // 保护 activeConnCount 的互斥锁
+	mcProcess     *exec.Cmd
+	mcProcessLock sync.Mutex
 )
 
 // startMinecraft 启动 Minecraft 进程，并等待 25566 端口就绪。
@@ -62,9 +63,9 @@ func stopMinecraft() error {
 	mcProcessLock.Lock()
 	defer mcProcessLock.Unlock()
 	if mcProcess != nil && mcProcess.Process != nil {
-		log.Println("因长时间无活跃连接，停止 Minecraft 进程……")
+		log.Println("因长时间无在线玩家，停止 Minecraft 进程……")
 		err := mcProcess.Process.Kill()
-		log.Println("Minecraft 进程已停止。这是为了节省资源。下次连接时会自动重启。")
+		log.Println("Minecraft 进程已停止。节省资源。下次连接时会自动重启。")
 		mcProcess = nil
 		return err
 	} else {
@@ -73,57 +74,53 @@ func stopMinecraft() error {
 	return nil
 }
 
-// monitorInactivity 定时检查活跃连接数，只有连续100次检测均无活跃连接时，也就是1000秒（约16分钟）后，才停止 Minecraft 服务器。
-// 这样可以避免频繁启停 Minecraft 服务器，节省资源。
+// monitorInactivity 定时查询在线玩家数，只有连续 100 次（约 1000 秒）检测到在线玩家数为 0 时，才停止 Minecraft 服务器。
 func monitorInactivity() {
-	log.Println("启动空连接检测...")
+	log.Println("启动在线玩家监测...")
 	zeroCount := 0
 	for {
 		time.Sleep(10 * time.Second)
-		// 如果 Minecraft 进程根本没有启动，等待启动
+
+		// 如果 Minecraft 进程未启动，跳过检测
 		if mcProcess == nil || mcProcess.Process == nil {
 			log.Println("Minecraft 服务器未启动，等待启动...")
 			zeroCount = 0
 			continue
 		}
-		connCountLock.Lock()
-		count := activeConnCount
-		connCountLock.Unlock()
-		log.Println("当前活跃连接数：", count)
-		if count == 0 {
+
+		// 使用 mcutil 查询服务器状态（需 1.7+ 的 netty 服务器）
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := status.Modern(ctx, "127.0.0.1:25566")
+		cancel()
+		if err != nil {
+			log.Println("查询 Minecraft 服务器状态失败：", err)
+			// 查询出错时不增加计数，防止误杀
+			continue
+		}
+
+		log.Printf("当前在线玩家数：%d\n", resp.Players.Online)
+		if resp.Players.Online == 0 {
 			zeroCount++
-			log.Printf("连续空连接检测次数: %d/100\n", zeroCount)
+			log.Printf("连续无在线玩家检测次数：%d/100\n", zeroCount)
 			if zeroCount >= 100 {
-				log.Println("连续100次检测均无活跃连接，停止 Minecraft 服务器")
+				log.Println("连续100次检测均无在线玩家，停止 Minecraft 服务器")
 				stopMinecraft()
 				zeroCount = 0 // 重置计数器
 			}
 		} else {
 			zeroCount = 0
-			log.Println("有活跃连接，不停止 Minecraft 服务器。 空连接检测次数重置为0。")
+			log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
 		}
 	}
 }
 
-// handleConnection 处理来自 25565 的每个连接，并将数据转发到 25566
+// handleConnection 处理来自 25565 的每个连接，并将数据转发到 25566。
 func handleConnection(conn net.Conn) {
-	// 增加连接计数
-	connCountLock.Lock()
-	activeConnCount++
-	log.Println("当前活跃连接数：", activeConnCount)
-	connCountLock.Unlock()
-
-	// 保证连接结束时减少计数
 	defer func() {
-		connCountLock.Lock()
 		log.Println("关闭连接：", conn.RemoteAddr())
-		activeConnCount--
-		log.Println("当前活跃连接数：", activeConnCount)
-		connCountLock.Unlock()
 		conn.Close()
 	}()
 
-	// 确保 Minecraft 进程已启动
 	log.Println("处理连接：", conn.RemoteAddr())
 	if err := startMinecraft(); err != nil {
 		log.Println("启动 Minecraft 失败：", err)
@@ -138,7 +135,7 @@ func handleConnection(conn net.Conn) {
 	}
 	defer backend.Close()
 
-	// 双向转发
+	// 双向转发数据
 	go io.Copy(backend, conn)
 	io.Copy(conn, backend)
 }
