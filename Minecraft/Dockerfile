@@ -143,4 +143,5 @@ EXPOSE 8123
 #  & sleep 60 && bash /app/init-commands.sh \
 #  & wait" ]
 
-ENTRYPOINT ["/app/lazymc"]
+ENTRYPOINT ["sh", "-c", \
+    "cp -r /datapacks/* /app/world/datapacks/ && /app/lazymc"]
