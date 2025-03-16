@@ -66,15 +66,18 @@ func stopMinecraft() error {
 		err := mcProcess.Process.Kill()
 		mcProcess = nil
 		return err
+	} else {
+		log.Println("Minecraft 进程未启动，无需停止")
 	}
 	return nil
 }
 
 // monitorInactivity 定时检查活跃连接数，只有连续10次检测（每次间隔10分钟）都为0时才停止服务器
 func monitorInactivity() {
+	log.Println("启动空连接检测...")
 	zeroCount := 0
 	for {
-		time.Sleep(10 * time.Minute)
+		time.Sleep(10 * time.Second)
 		connCountLock.Lock()
 		count := activeConnCount
 		connCountLock.Unlock()
@@ -89,7 +92,7 @@ func monitorInactivity() {
 			}
 		} else {
 			zeroCount = 0
-			log.Println("有活跃连接，不停止 Minecraft 服务器")
+			log.Println("有活跃连接，不停止 Minecraft 服务器。 空连接检测次数重置为0。")
 		}
 	}
 }
