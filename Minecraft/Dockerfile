@@ -104,7 +104,11 @@ FROM hub.aiursoft.cn/golang:1.21.5 AS lazymc-builder
 WORKDIR /src
 # 将 lazymc.go 放置在与 Dockerfile 同目录
 COPY lazymc.go .
-ENV GO111MODULE=off
+
+# Create go.mod
+RUN go mod init lazymc
+# go get github.com/mcstatus-io/mcutil/v4
+RUN go get github.com/mcstatus-io/mcutil/v4
 RUN go build -o lazymc .
 
 
