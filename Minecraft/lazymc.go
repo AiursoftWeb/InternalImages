@@ -110,17 +110,20 @@ func handleConnection(conn net.Conn) {
 	// 增加连接计数
 	connCountLock.Lock()
 	activeConnCount++
+	log.Println("当前活跃连接数：", activeConnCount)
 	connCountLock.Unlock()
 
 	// 保证连接结束时减少计数
 	defer func() {
 		connCountLock.Lock()
 		activeConnCount--
+		log.Println("当前活跃连接数：", activeConnCount)
 		connCountLock.Unlock()
 		conn.Close()
 	}()
 
 	// 确保 Minecraft 进程已启动
+	log.Println("处理连接：", conn.RemoteAddr())
 	if err := startMinecraft(); err != nil {
 		log.Println("启动 Minecraft 失败：", err)
 		return
@@ -153,6 +156,7 @@ func main() {
 			log.Println("Accept 错误：", err)
 			continue
 		}
+		log.Println("新连接：", conn.RemoteAddr())
 		go handleConnection(conn)
 	}
 }
