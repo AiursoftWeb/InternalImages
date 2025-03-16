@@ -89,28 +89,29 @@ func monitorInactivity() {
 		}
 
 		// 使用 mcutil 查询服务器状态（需 1.7+ 的 netty 服务器）
-		// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		// resp, err := status.Modern(ctx, "127.0.0.1:25566")
-		// cancel()
-		// if err != nil {
-		// 	log.Println("查询 Minecraft 服务器状态失败：", err)
-		// 	// 查询出错时不增加计数，防止误杀
-		// 	continue
-		// }
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		response, err := status.Modern(ctx, "127.0.0.1", 25566)
+		resp := response
+		cancel()
+		if err != nil {
+			log.Println("查询 Minecraft 服务器状态失败：", err)
+			// 查询出错时不增加计数，防止误杀
+			continue
+		}
 
-		// log.Printf("当前在线玩家数：%d\n", resp.Players.Online)
-		// if resp.Players.Online == 0 {
-		// 	zeroCount++
-		// 	log.Printf("连续无在线玩家检测次数：%d/100\n", zeroCount)
-		// 	if zeroCount >= 100 {
-		// 		log.Println("连续100次检测均无在线玩家，停止 Minecraft 服务器")
-		// 		stopMinecraft()
-		// 		zeroCount = 0 // 重置计数器
-		// 	}
-		// } else {
-		// 	zeroCount = 0
-		// 	log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
-		// }
+		log.Printf("当前在线玩家数：%d\n", resp.Players.Online)
+		if resp.Players.Online != nil && *resp.Players.Online == 0 {
+			zeroCount++
+			log.Printf("连续无在线玩家检测次数：%d/100\n", zeroCount)
+			if zeroCount >= 100 {
+				log.Println("连续100次检测均无在线玩家，停止 Minecraft 服务器")
+				stopMinecraft()
+				zeroCount = 0 // 重置计数器
+			}
+		} else {
+			zeroCount = 0
+			log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
+		}
 	}
 }
 
