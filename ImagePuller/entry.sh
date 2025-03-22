@@ -144,18 +144,4 @@ mirror_docker "wordpress:php8.3-fpm-alpine"
 mirror_docker "bytemark/webdav"
 mirror_docker "jgraph/drawio:24.7.17"
 
-
 echo "All images are pulled and pushed to the mirror."
-echo "Sleeping for 100 seconds to wait for new containers to be started."
-sleep 100 # Wait for new images to be pulled
-
-# Get the nextcloud container ID
-echo "Upgrading nextcloud..."
-containerID=$(docker ps | grep "nextcloud:stable" | awk '{print $1}')
-docker exec --user www-data $containerID php occ upgrade
-docker exec --user www-data $containerID php occ maintenance:repair --include-expensive
-docker exec --user www-data $containerID php occ db:add-missing-indices
-docker exec --user www-data $containerID php occ files:scan --all
-docker exec --user www-data $containerID php occ app:update --all
-docker exec $containerID apt-get update
-docker exec $containerID apt-get install -y ffmpeg
