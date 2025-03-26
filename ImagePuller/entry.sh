@@ -1,20 +1,88 @@
 #!/bin/bash
 
-mirror_docker()
-{
-    containerName=$1
+set -e
 
-    if [[ $containerName != *":"* ]]; then
-        containerName="$containerName:latest"
+prepare_buildx() {
+    # 检查是否已经存在 multiarch_builder 构建器
+    if docker buildx ls | grep -q multiarch_builder; then
+        echo ">>> multiarch_builder 构建器已存在，直接使用"
+        docker buildx use multiarch_builder
+        return
+    else
+        echo ">>> 未找到 multiarch_builder 构建器，创建新的构建器"
+        docker buildx create --name multiarch_builder
+        docker buildx use multiarch_builder
     fi
-    echo "Container name: $containerName"
 
-    docker pull $containerName
-    docker rmi hub.aiursoft.cn/$containerName
-    docker tag $containerName hub.aiursoft.cn/$containerName
-    docker push hub.aiursoft.cn/$containerName
+    echo ">>> 启动 multiarch_builder 构建器"
+    docker buildx inspect multiarch_builder --bootstrap
 }
 
+actual_mirror_docker() {
+    sourceImage="$1"
+
+    if [[ "$sourceImage" != *":"* ]]; then
+        sourceImage="${sourceImage}:latest"
+    fi
+
+    imageName=$(echo "$sourceImage" | cut -d: -f1)
+    imageTag=$(echo "$sourceImage" | cut -d: -f2)
+    finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+
+    echo ">>> 镜像转换: $sourceImage --> $finalMirror"
+
+    # Execute the command and capture both its exit status and output
+    output=$(docker buildx imagetools create -t "$finalMirror" "$sourceImage" 2>&1)
+    status=$?
+    
+    # Check if rate limit error occurred
+    if echo "$output" | grep -q "Too Many Requests"; then
+        echo ">>> 遇到速率限制: $output"
+        return 1
+    fi
+    
+    # Check for any other errors
+    if [ $status -ne 0 ]; then
+        echo ">>> 镜像推送失败: $output"
+        return 2
+    fi
+
+    # Verify the image exists in the local registry
+    if curl -s "http://localhost:8080/v2/${imageName}/manifests/${imageTag}" | grep -q "schemaVersion"; then
+        echo ">>> 镜像推送成功: $finalMirror"
+        return 0
+    else
+        echo ">>> 镜像推送验证失败"
+        return 3
+    fi
+}
+
+mirror_docker() {
+    sourceImage="$1"
+    max_attempts=8
+    
+    for attempt in $(seq 1 $max_attempts); do
+        echo ">>> 尝试 $attempt/$max_attempts: $sourceImage"
+        
+        if actual_mirror_docker "$sourceImage"; then
+            echo ">>> 镜像 $sourceImage 处理完成"
+            return 0
+        fi
+        
+        # Calculate backoff time with exponential increase and some randomness
+        backoff=$((300 + (attempt * attempt * 150) + (RANDOM % 300)))
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo ">>> 镜像推送失败，${backoff}秒后重试..."
+            sleep $backoff
+        else
+            echo ">>> 镜像 $sourceImage 处理失败，已达到最大重试次数"
+            return 1
+        fi
+    done
+}
+
+prepare_buildx
 mirror_docker "alpine"
 mirror_docker "andyzhangx/samba:win-fix"
 mirror_docker "ghcr.io/anduin2017/how-to-cook:latest"
