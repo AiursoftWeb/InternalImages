@@ -48,7 +48,8 @@ actual_mirror_docker() {
     fi
 
     # Verify the image exists in the local registry
-    if curl -s "http://localhost:8080/v2/${imageName}/manifests/${imageTag}" | grep -q "schemaVersion"; then
+    #if curl -s "http://localhost:8080/v2/${imageName}/manifests/${imageTag}" | grep -q "schemaVersion"; then
+    if docker manifest inspect "$finalMirror" &> /dev/null; then
         echo ">>> 镜像推送成功: $finalMirror"
         return 0
     else
