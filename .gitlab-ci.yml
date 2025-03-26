@@ -137,7 +137,7 @@ deploy_gitmirror:
 deploy_imagepuller:
   stage: deploy
   needs:
-    - deploy_ubuntu
+    - deploy_ubuntu_with_docker
   script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
@@ -202,7 +202,7 @@ deploy_remotedesktop:
 deploy_swinir:
   stage: deploy
   needs:
-    - deploy_ubuntu
+    - deploy_nvidia
   script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
