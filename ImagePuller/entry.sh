@@ -49,7 +49,7 @@ actual_mirror_docker() {
 
     # Verify the image exists in the local registry
     echo ">>> 验证镜像: $finalMirror"
-    if docker manifest inspect "$finalMirror" &> /dev/null; then
+    if docker pull "$finalMirror" &> /dev/null; then
         echo ">>> 镜像推送成功: $finalMirror"
         return 0
     else
