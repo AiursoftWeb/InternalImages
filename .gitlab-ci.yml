@@ -79,7 +79,6 @@ deploy_runner:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-# Continue for remaining jobs with the same pattern
 deploy_kiwix:
   stage: deploy
   needs: 
@@ -96,4 +95,132 @@ deploy_kiwix:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-# Add remaining jobs with the same pattern...
+deploy_dotnet:
+  stage: deploy
+  needs: 
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG
+    - docker build ./Dotnet -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_gateway:
+  stage: deploy
+  needs: 
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG
+    - docker build ./Gateway -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_gitmirror:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG
+    - docker build ./GitMirror -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_imagepuller:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG
+    - docker build ./ImagePuller -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_iperf3:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG
+    - docker build ./Iperf3 -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_minecraft:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG
+    - docker build ./Minecraft -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_nvidia:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
+    - docker build ./Nvidia -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_remotedesktop:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG
+    - docker build ./RemoteDesktop -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_swinir:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG
+    - docker build ./SwinIR -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_youtubedl:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
+    - docker build ./Youtubedl -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
