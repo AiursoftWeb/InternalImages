@@ -27,7 +27,7 @@ actual_mirror_docker() {
 
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
-    finalMirror="localhost:8080/${imageName}:${imageTag}"
+    finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
 
     echo ">>> 镜像转换: $sourceImage --> $finalMirror"
 
