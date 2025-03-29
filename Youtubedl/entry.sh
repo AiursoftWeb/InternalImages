@@ -1,5 +1,6 @@
 #!/bin/bash
 user_urls=(
+    "https://www.youtube.com/@rousseau"
     "https://www.youtube.com/@redknot-miaomiao/videos"
     "https://www.youtube.com/@MagicSecretsRevealed/videos"
     "https://www.youtube.com/@HsWrWwc/videos"
