@@ -1,18 +1,43 @@
 #!/bin/bash
 
-mirror_docker()
-{
-    containerName=$1
+set -e
 
-    if [[ $containerName != *":"* ]]; then
-        containerName="$containerName:latest"
+actual_mirror_docker() {
+    sourceImage="$1"
+
+    if [[ "$sourceImage" != *":"* ]]; then
+        sourceImage="${sourceImage}:latest"
     fi
-    echo "Container name: $containerName"
 
-    docker pull $containerName
-    docker rmi hub.aiursoft.cn/$containerName
-    docker tag $containerName hub.aiursoft.cn/$containerName
-    docker push hub.aiursoft.cn/$containerName
+    imageName=$(echo "$sourceImage" | cut -d: -f1)
+    imageTag=$(echo "$sourceImage" | cut -d: -f2)
+    finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+    regctl image copy "$sourceImage" "$finalMirror"
+}
+
+mirror_docker() {
+    sourceImage="$1"
+    max_attempts=8
+    
+    for attempt in $(seq 1 $max_attempts); do
+        echo ">>> 尝试 $attempt/$max_attempts: $sourceImage"
+        
+        if actual_mirror_docker "$sourceImage"; then
+            echo ">>> 镜像 $sourceImage 处理完成"
+            return 0
+        fi
+        
+        # Calculate backoff time with exponential increase and some randomness
+        backoff=$((300 + (attempt * attempt * 150) + (RANDOM % 300)))
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo ">>> 镜像推送失败，${backoff}秒后重试..."
+            sleep $backoff
+        else
+            echo ">>> 镜像 $sourceImage 处理失败，已达到最大重试次数"
+            return 1
+        fi
+    done
 }
 
 mirror_docker "alpine"
@@ -144,18 +169,4 @@ mirror_docker "wordpress:php8.3-fpm-alpine"
 mirror_docker "bytemark/webdav"
 mirror_docker "jgraph/drawio:24.7.17"
 
-
 echo "All images are pulled and pushed to the mirror."
-echo "Sleeping for 100 seconds to wait for new containers to be started."
-sleep 100 # Wait for new images to be pulled
-
-# Get the nextcloud container ID
-echo "Upgrading nextcloud..."
-containerID=$(docker ps | grep "nextcloud:stable" | awk '{print $1}')
-docker exec --user www-data $containerID php occ upgrade
-docker exec --user www-data $containerID php occ maintenance:repair --include-expensive
-docker exec --user www-data $containerID php occ db:add-missing-indices
-docker exec --user www-data $containerID php occ files:scan --all
-docker exec --user www-data $containerID php occ app:update --all
-docker exec $containerID apt-get update
-docker exec $containerID apt-get install -y ffmpeg
