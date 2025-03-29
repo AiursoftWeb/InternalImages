@@ -2,22 +2,6 @@
 
 set -e
 
-prepare_buildx() {
-    # 检查是否已经存在 multiarch_builder 构建器
-    if docker buildx ls | grep -q multiarch_builder; then
-        echo ">>> multiarch_builder 构建器已存在，直接使用"
-        docker buildx use multiarch_builder
-        return
-    else
-        echo ">>> 未找到 multiarch_builder 构建器，创建新的构建器"
-        docker buildx create --name multiarch_builder
-        docker buildx use multiarch_builder
-    fi
-
-    echo ">>> 启动 multiarch_builder 构建器"
-    docker buildx inspect multiarch_builder --bootstrap
-}
-
 actual_mirror_docker() {
     sourceImage="$1"
 
@@ -28,34 +12,7 @@ actual_mirror_docker() {
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
-
-    echo ">>> 镜像转换: $sourceImage --> $finalMirror"
-
-    # Execute the command and capture both its exit status and output
-    output=$(docker buildx imagetools create -t "$finalMirror" "$sourceImage" 2>&1)
-    status=$?
-    
-    # Check if rate limit error occurred
-    if echo "$output" | grep -q "Too Many Requests"; then
-        echo ">>> 遇到速率限制: $output"
-        return 1
-    fi
-    
-    # Check for any other errors
-    if [ $status -ne 0 ]; then
-        echo ">>> 镜像推送失败: $output"
-        return 2
-    fi
-
-    # Verify the image exists in the local registry
-    echo ">>> 验证镜像: $finalMirror"
-    if docker pull "$finalMirror" &> /dev/null; then
-        echo ">>> 镜像推送成功: $finalMirror"
-        return 0
-    else
-        echo ">>> 镜像推送验证失败"
-        return 3
-    fi
+    regctl image copy "$sourceImage" "$finalMirror"
 }
 
 mirror_docker() {
@@ -83,7 +40,6 @@ mirror_docker() {
     done
 }
 
-prepare_buildx
 mirror_docker "alpine"
 mirror_docker "andyzhangx/samba:win-fix"
 mirror_docker "ghcr.io/anduin2017/how-to-cook:latest"
