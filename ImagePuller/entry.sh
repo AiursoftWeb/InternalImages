@@ -12,11 +12,11 @@ actual_mirror_docker() {
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
-    #regctl image copy "$sourceImage" "$finalMirror"
-    docker pull "$sourceImage"
-    docker rmi "$finalMirror" || true
-    docker tag "$sourceImage" "$finalMirror"
-    docker push "$finalMirror"
+    regctl image copy "$sourceImage" "$finalMirror"
+    #docker pull "$sourceImage"
+    #docker rmi "$finalMirror" || true
+    #docker tag "$sourceImage" "$finalMirror"
+    #docker push "$finalMirror"
 }
 
 mirror_docker() {
