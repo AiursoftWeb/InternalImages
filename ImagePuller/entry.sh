@@ -33,6 +33,7 @@ actual_mirror_docker() {
     # Second check - proper API validation like in TypeScript
     echo ">>> 检查镜像标签是否存在"
     tags_url="https://hub.aiursoft.cn/v2/${imageName}/tags/list"
+    echo ">>> 请求: $tags_url"
     tag_check=$(curl -s "$tags_url")
     
     if ! echo "$tag_check" | grep -q "\"$imageTag\""; then
@@ -40,36 +41,18 @@ actual_mirror_docker() {
         regctl image delete "$finalMirror" || true
         return 1
     fi
-    
-    # Third check - manifest with proper accept headers
-    echo ">>> 检查清单"
-    manifest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
-    manifest_response=$(curl -s -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" "$manifest_url")
-    
-    # Check if it's a manifest list (multi-architecture)
-    if echo "$manifest_response" | grep -q "\"manifests\""; then
-        echo ">>> 检测到多架构镜像，验证第一个架构清单"
-        # Extract first digest
-        digest=$(echo "$manifest_response" | grep -o '"digest":"[^"]*"' | head -1 | cut -d'"' -f4)
-        if [ -n "$digest" ]; then
-            # Check specific architecture manifest
-            digest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${digest}"
-            digest_check=$(curl -s -o /dev/null -w "%{http_code}" \
-                -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-                "$digest_url")
-            
-            if [ "$digest_check" -ne 200 ]; then
-                echo ">>> 架构清单验证失败: $finalMirror ($digest_check)"
-                regctl image delete "$finalMirror" || true
-                return 1
-            fi
-        else
-            echo ">>> 无法提取架构清单: $finalMirror"
-            regctl image delete "$finalMirror" || true
-            return 1
-        fi
+
+    echo ">>> 检查镜像清单是否存在"
+    manifests_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
+    echo ">>> 请求: $manifests_url"
+    manifest_check=$(curl -s -o /dev/null -w "%{http_code}" "$manifests_url")
+
+    if [ "$manifest_check" -ne 200 ]; then
+        echo ">>> 清单验证失败: $finalMirror"
+        regctl image delete "$finalMirror" || true
+        return 1
     fi
-    
+
     echo ">>> 镜像 $finalMirror 验证通过"
     return 0
 }
@@ -99,12 +82,12 @@ mirror_docker() {
     done
 }
 
+mirror_docker "busybox"
 mirror_docker "alpine"
 mirror_docker "andyzhangx/samba:win-fix"
 mirror_docker "ghcr.io/anduin2017/how-to-cook:latest"
 mirror_docker "artalk/artalk-go"
 mirror_docker "bitwardenrs/server"
-mirror_docker "busybox"
 mirror_docker "caddy"
 mirror_docker "caddy:builder"
 mirror_docker "clickhouse/clickhouse-server"
