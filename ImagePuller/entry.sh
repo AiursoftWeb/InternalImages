@@ -2,6 +2,23 @@
 
 set -e
 
+try_docker_login() {
+    # Load DOCKER_USERNAME from environment variable
+    # Load DOCKER_PASSWORD from /run/secrets/docker-password
+    # If any of those not set, do not login
+    echo "Attempting to login to Docker Hub..."
+    echo "Docker USERNAME: $DOCKER_USERNAME"
+    DOCKER_PASSWORD=$(cat /run/secrets/docker-password 2>/dev/null || echo "")
+
+    if [[ -z "$DOCKER_USERNAME" || -z "$DOCKER_PASSWORD" ]]; then
+        echo ">>> Docker credentials are not set. Skipping login."
+        return 1
+    fi
+
+    echo ">>> Docker credentials are set. Attempting login..."
+    echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+}
+
 actual_mirror_docker() {
     sourceImage="$1"
     attempt="$2"
@@ -75,6 +92,7 @@ mirror_docker() {
     done
 }
 
+try_docker_login
 mirror_docker "24oi/oi-wiki"
 mirror_docker "alpine"
 mirror_docker "andyzhangx/samba:win-fix"
