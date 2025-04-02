@@ -8,7 +8,7 @@ try_docker_login() {
     # If any of those not set, do not login
     echo "Attempting to login to Docker Hub..."
     echo "Docker USERNAME: $DOCKER_USERNAME"
-    DOCKER_PASSWORD=$(cat /run/secrets/docker-password 2>/dev/null || echo "")
+    DOCKER_PASSWORD=$(cat /run/secrets//run/secrets/DOCKER_PASSWORD 2>/dev/null || echo "")
 
     if [[ -z "$DOCKER_USERNAME" || -z "$DOCKER_PASSWORD" ]]; then
         echo ">>> Docker credentials are not set. Skipping login."
