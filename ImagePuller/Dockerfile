@@ -8,6 +8,7 @@ RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regc
     chmod 755 regctl && \
     mv regctl /usr/local/bin/
 
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 RUN pip install requests
       
 # Copy entry script
