@@ -22,30 +22,56 @@ actual_mirror_docker() {
 
     echo ">>> 验证镜像: $finalMirror"
     
-    # Check if the manifest is valid
+    # First check - manifest via regctl
     if ! regctl image manifest "$finalMirror" &> /dev/null; then
-        echo ">>> 镜像验证失败: $finalMirror"
+        echo ">>> 镜像验证失败: $finalMirror (regctl check)"
         echo ">>> 删除无效镜像"
         regctl image delete "$finalMirror" || true
         return 1
     fi
     
-    echo ">>> 镜像验证成功: $finalMirror"
+    # Second check - proper API validation like in TypeScript
+    echo ">>> 检查镜像标签是否存在"
+    tags_url="https://hub.aiursoft.cn/v2/${imageName}/tags/list"
+    tag_check=$(curl -s "$tags_url")
     
-    # 检查镜像的manifest是否存在且正常
-    manifest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
-        "$manifest_url")
-
-    if [ "$http_code" -ne 200 ]; then
-        echo ">>> 镜像 $finalMirror 检测失败 (HTTP 状态码: $http_code)"
-        echo ">>> 删除远程镜像 $finalMirror"
+    if ! echo "$tag_check" | grep -q "\"$imageTag\""; then
+        echo ">>> 标签验证失败: $finalMirror"
         regctl image delete "$finalMirror" || true
         return 1
     fi
-
-    echo ">>> 镜像 $finalMirror 检测通过"
+    
+    # Third check - manifest with proper accept headers
+    echo ">>> 检查清单"
+    manifest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
+    manifest_response=$(curl -s -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" "$manifest_url")
+    
+    # Check if it's a manifest list (multi-architecture)
+    if echo "$manifest_response" | grep -q "\"manifests\""; then
+        echo ">>> 检测到多架构镜像，验证第一个架构清单"
+        # Extract first digest
+        digest=$(echo "$manifest_response" | grep -o '"digest":"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [ -n "$digest" ]; then
+            # Check specific architecture manifest
+            digest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${digest}"
+            digest_check=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+                "$digest_url")
+            
+            if [ "$digest_check" -ne 200 ]; then
+                echo ">>> 架构清单验证失败: $finalMirror ($digest_check)"
+                regctl image delete "$finalMirror" || true
+                return 1
+            fi
+        else
+            echo ">>> 无法提取架构清单: $finalMirror"
+            regctl image delete "$finalMirror" || true
+            return 1
+        fi
+    fi
+    
+    echo ">>> 镜像 $finalMirror 验证通过"
+    return 0
 }
 
 mirror_docker() {
