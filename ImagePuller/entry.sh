@@ -17,6 +17,35 @@ actual_mirror_docker() {
     #docker rmi "$finalMirror" || true
     #docker tag "$sourceImage" "$finalMirror"
     #docker push "$finalMirror"
+    # 等待一小段时间，确保registry数据更新
+    sleep 1
+
+    echo ">>> 验证镜像: $finalMirror"
+    
+    # Check if the manifest is valid
+    if ! regctl image manifest "$finalMirror" &> /dev/null; then
+        echo ">>> 镜像验证失败: $finalMirror"
+        echo ">>> 删除无效镜像"
+        regctl image delete "$finalMirror" || true
+        return 1
+    fi
+    
+    echo ">>> 镜像验证成功: $finalMirror"
+    
+    # 检查镜像的manifest是否存在且正常
+    manifest_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+        "$manifest_url")
+
+    if [ "$http_code" -ne 200 ]; then
+        echo ">>> 镜像 $finalMirror 检测失败 (HTTP 状态码: $http_code)"
+        echo ">>> 删除远程镜像 $finalMirror"
+        regctl image delete "$finalMirror" || true
+        return 1
+    fi
+
+    echo ">>> 镜像 $finalMirror 检测通过"
 }
 
 mirror_docker() {
