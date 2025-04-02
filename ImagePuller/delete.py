@@ -46,7 +46,9 @@ def delete_manifest(domain, repository, digest):
     """
     url = f"http://{domain}/v2/{repository}/manifests/{digest}"
     print(f"Deleting manifest at {url} ...")
-    response = requests.delete(url)
+    response = requests.delete(url, headers={
+        'Accept': 'application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json'
+    })
     if response.status_code == 202:
         print("Deletion successful.")
     else:
