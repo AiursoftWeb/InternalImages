@@ -21,7 +21,10 @@ def check_image(image):
 
     # 先尝试通过 tag 获取 manifest
     url_tag = f"https://{registry}/v2/{repository}/manifests/{tag}"
-    resp = requests.get(url_tag)
+    # -H "Authorization: Bearer QQ==" -H 'Accept: application/vnd.oci.image.index.v1+json'
+    resp = requests.get(url_tag, headers={
+        'Accept': 'application/vnd.oci.image.index.v1+json'
+    })
     if not resp.ok:
         print(f"{url_tag} 获取 manifest 失败: {repository}:{tag}. Status Code: {resp.status_code}", file=sys.stderr)
             #   ", file=sys.stderr)
@@ -56,6 +59,7 @@ def main():
 
     image = sys.argv[1]
     if check_image(image):
+        print(f"Image {image} 正常", file=sys.stderr)
         sys.exit(0)
     else:
         sys.exit(1)

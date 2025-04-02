@@ -27,7 +27,7 @@ def get_digest(domain, repository, tag):
     获取镜像对应的 Docker-Content-Digest，用于删除。
     """
     url = f"http://{domain}/v2/{repository}/manifests/{tag}"
-    headers = {'Accept': 'application/vnd.docker.distribution.manifest.v2+json'}
+    headers = {'Accept': 'application/vnd.oci.image.index.v1+json'}
     print(f"Fetching manifest from {url} ...")
     response = requests.get(url, headers=headers)
     if response.status_code != 200:

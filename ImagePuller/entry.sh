@@ -30,26 +30,11 @@ actual_mirror_docker() {
         return 1
     fi
     
-    # Second check - proper API validation like in TypeScript
-    echo ">>> 检查镜像标签是否存在"
-    tags_url="https://hub.aiursoft.cn/v2/${imageName}/tags/list"
-    echo ">>> 请求: $tags_url"
-    tag_check=$(curl -s "$tags_url")
-    
-    if ! echo "$tag_check" | grep -q "\"$imageTag\""; then
-        echo ">>> 标签验证失败: $finalMirror"
-        regctl image delete "$finalMirror" || true
-        return 1
-    fi
-
-    echo ">>> 检查镜像清单是否存在"
-    manifests_url="https://hub.aiursoft.cn/v2/${imageName}/manifests/${imageTag}"
-    echo ">>> 请求: $manifests_url"
-    manifest_check=$(curl -s -o /dev/null -w "%{http_code}" "$manifests_url")
-
-    if [ "$manifest_check" -ne 200 ]; then
-        echo ">>> 清单验证失败: $finalMirror"
-        regctl image delete "$finalMirror" || true
+    # 调用 Python 脚本检测镜像健康状态
+    if ! python3 check.py "$finalMirror"; then
+        echo ">>> 镜像检查失败: ${finalMirror}"
+        echo ">>> 删除远程镜像: ${finalMirror}"
+        python3 delete.py "$finalMirror"
         return 1
     fi
 
