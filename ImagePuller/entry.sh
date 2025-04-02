@@ -12,7 +12,7 @@ actual_mirror_docker() {
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
-    regctl image copy "$sourceImage" "$finalMirror"
+    regctl image copy "$sourceImage" "$finalMirror" --force-recursive
     #docker pull "$sourceImage"
     #docker rmi "$finalMirror" || true
     #docker tag "$sourceImage" "$finalMirror"
@@ -26,7 +26,7 @@ actual_mirror_docker() {
     if ! regctl image manifest "$finalMirror" &> /dev/null; then
         echo ">>> 镜像验证失败: $finalMirror (regctl check)"
         echo ">>> 删除无效镜像"
-        regctl image delete "$finalMirror" --force-recursive
+        python3 delete.py "$finalMirror"
         return 1
     fi
     
