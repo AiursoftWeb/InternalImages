@@ -55,8 +55,8 @@ def check_image(image):
     if "manifests" in data:
         return True
     else:
-        print(f"获取到的 manifest 数据中不包含 manifests 字段. URL: {url_tag}. Content: {data}", file=sys.stderr)
-        return False
+        print(f"获取到的 manifest 数据中不包含 manifests 字段. URL: {url_tag}. 这可能意味着该镜像是一个索引镜像而不是一个具体的镜像.", file=sys.stderr)
+        return True
 
 def main():
     if len(sys.argv) < 2:

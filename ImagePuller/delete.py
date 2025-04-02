@@ -31,8 +31,9 @@ def get_digest(domain, repository, tag):
     print(f"Fetching manifest from {url} ...")
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
-        print(f"Error: Unable to fetch manifest. Status code: {response.status_code}. Will try to directly delete the manifest.")
-        delete_manifest(domain, repository, tag)
+        print(f"Error: Unable to fetch manifest. Status code: {response.status_code}")
+        print("The image may not exist in the registry.")
+        sys.exit(1)
         
     digest = response.headers.get('Docker-Content-Digest')
     if not digest:
