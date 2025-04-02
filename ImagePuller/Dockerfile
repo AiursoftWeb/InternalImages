@@ -8,6 +8,8 @@ RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regc
     chmod 755 regctl && \
     mv regctl /usr/local/bin/
 
+RUN pip install requests
+      
 # Copy entry script
 COPY entry.sh /entry.sh
 COPY check.py /check.py
