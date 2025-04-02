@@ -4,6 +4,7 @@ set -e
 
 actual_mirror_docker() {
     sourceImage="$1"
+    attempt="$2"
 
     if [[ "$sourceImage" != *":"* ]]; then
         sourceImage="${sourceImage}:latest"
@@ -12,7 +13,14 @@ actual_mirror_docker() {
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
-    regctl image copy "$sourceImage" "$finalMirror" --force-recursive
+
+    # If first attempt, use
+    if [[ $attempt -eq 1 ]]; then
+        regctl image copy "$sourceImage" "$finalMirror" --digest-tags
+    else
+        # If second or more attempts, use --force-recursive
+        regctl image copy "$sourceImage" "$finalMirror" --force-recursive --digest-tags
+    fi
     #docker pull "$sourceImage"
     #docker rmi "$finalMirror" || true
     #docker tag "$sourceImage" "$finalMirror"
@@ -49,13 +57,13 @@ mirror_docker() {
     for attempt in $(seq 1 $max_attempts); do
         echo ">>> 尝试 $attempt/$max_attempts: $sourceImage"
         
-        if actual_mirror_docker "$sourceImage"; then
+        if actual_mirror_docker "$sourceImage" "$attempt"; then
             echo ">>> 镜像 $sourceImage 处理完成"
             return 0
         fi
         
         # Calculate backoff time with exponential increase and some randomness
-        backoff=$((300 + (attempt * attempt * 150) + (RANDOM % 300)))
+        backoff=$((300 + (attempt * attempt * 15) + (RANDOM % 30)))
         
         if [ $attempt -lt $max_attempts ]; then
             echo ">>> 镜像推送失败，${backoff}秒后重试..."
