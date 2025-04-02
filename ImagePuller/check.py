@@ -23,7 +23,7 @@ def check_image(image):
     url_tag = f"https://{registry}/v2/{repository}/manifests/{tag}"
     # -H "Authorization: Bearer QQ==" -H 'Accept: application/vnd.oci.image.index.v1+json'
     resp = requests.get(url_tag, headers={
-        'Accept': 'application/vnd.oci.image.index.v1+json'
+        'Accept': 'application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
     })
     if not resp.ok:
         print(f"{url_tag} 获取 manifest 失败: {repository}:{tag}. Status Code: {resp.status_code}", file=sys.stderr)
@@ -45,12 +45,18 @@ def check_image(image):
             return False
 
         url_digest = f"https://{registry}/v2/{repository}/manifests/{digest}"
-        resp_digest = requests.get(url_digest)
+        resp_digest = requests.get(url_digest, headers={
+            'Accept': 'application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+        })
         if not resp_digest.ok:
-            print(f"通过 digest 获取 manifest 失败: {repository}:{tag}", file=sys.stderr)
+            print(f"{url_digest} 通过 digest 获取 manifest 失败: {repository}:{tag}. Status Code: {resp_digest.status_code}", file=sys.stderr)
             return False
 
-    return True
+    if "manifests" in data:
+        return True
+    else:
+        print(f"获取到的 manifest 数据中不包含 manifests 字段. URL: {url_tag}. Content: {data}", file=sys.stderr)
+        return False
 
 def main():
     if len(sys.argv) < 2:

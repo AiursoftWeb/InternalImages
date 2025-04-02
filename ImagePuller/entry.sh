@@ -26,7 +26,7 @@ actual_mirror_docker() {
     if ! regctl image manifest "$finalMirror" &> /dev/null; then
         echo ">>> 镜像验证失败: $finalMirror (regctl check)"
         echo ">>> 删除无效镜像"
-        regctl image delete "$finalMirror" || true
+        regctl image delete "$finalMirror" --force-recursive
         return 1
     fi
     
