@@ -53,10 +53,14 @@ def check_image(image):
             return False
 
     if "manifests" in data:
+        print(f"获取到的 manifest 数据中包含 manifests 字段，这意味着该镜像是一个融合的镜像.", file=sys.stderr)
+        return True
+    elif "layers" in data:    
+        print(f"获取到的 manifest 数据中不包含 manifests 字段，但包含 layers 字段。 URL: {url_tag}. 这意味着该镜像是一个单架构映像而不是一个融合的镜像.", file=sys.stderr)
         return True
     else:
-        print(f"获取到的 manifest 数据中不包含 manifests 字段. URL: {url_tag}. 这可能意味着该镜像是一个索引镜像而不是一个具体的镜像.", file=sys.stderr)
-        return True
+        print(f"获取到的 manifest 数据中不包含 manifests 字段和 layers 字段. URL: {url_tag}. 这意味着可能出错了！", file=sys.stderr)
+        return False
 
 def main():
     if len(sys.argv) < 2:
