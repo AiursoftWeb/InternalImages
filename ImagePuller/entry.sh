@@ -12,7 +12,7 @@ try_docker_login() {
 
     if [[ -z "$DOCKER_USERNAME" || -z "$DOCKER_PASSWORD" ]]; then
         echo ">>> Docker credentials are not set. Skipping login."
-        return 1
+        return 0
     fi
 
     echo ">>> Docker credentials are set. Attempting login..."
@@ -30,6 +30,19 @@ actual_mirror_docker() {
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+
+    echo ">>> 检查镜像 $sourceImage 是否已是最新..."
+    if python3 is_latest.py "$sourceImage"; then
+        echo ">>> 镜像 $sourceImage 已是最新版本。正在检查..."
+        if ! python3 check.py "$finalMirror"; then
+            echo ">>> 镜像检查失败: ${finalMirror}"
+            echo ">>> 删除远程镜像: ${finalMirror}"
+            python3 delete.py "$finalMirror"
+            return 1
+        fi
+        echo ">>> 镜像 $finalMirror 验证通过且已是最新版本，跳过同步。"
+        return 0
+    fi
 
     # If first attempt, use
     if [[ $attempt -eq 1 ]]; then

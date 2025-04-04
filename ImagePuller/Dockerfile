@@ -15,6 +15,7 @@ RUN pip install requests
 COPY entry.sh /entry.sh
 COPY check.py /check.py
 COPY delete.py /delete.py
+COPY is_latest.py /is_latest.py
 RUN chmod +x /entry.sh
 
 # Register a crontab job to run entry every day 3:00
