@@ -31,16 +31,15 @@ actual_mirror_docker() {
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
     finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
 
-    echo ">>> 检查镜像 $sourceImage 是否已是最新..."
+    echo ">>> Checking if $sourceImage is already mirrored to $finalMirror"
     if python3 is_latest.py "$sourceImage"; then
-        echo ">>> 镜像 $sourceImage 已是最新版本。正在检查..."
+        echo ">>> Image $sourceImage is already mirrored to $finalMirror. Will check integrity..."
         if ! python3 check.py "$finalMirror"; then
-            echo ">>> 镜像检查失败: ${finalMirror}"
-            echo ">>> 删除远程镜像: ${finalMirror}"
+            echo ">>> Integrity check failed for $finalMirror. Attempting to delete..."
             python3 delete.py "$finalMirror"
             return 1
         fi
-        echo ">>> 镜像 $finalMirror 验证通过且已是最新版本，跳过同步。"
+        echo ">>> Image $finalMirror is valid. Skipping..."
         return 0
     fi
 
@@ -51,32 +50,24 @@ actual_mirror_docker() {
         # If second or more attempts, use --force-recursive
         regctl image copy "$sourceImage" "$finalMirror" --force-recursive --digest-tags
     fi
-    #docker pull "$sourceImage"
-    #docker rmi "$finalMirror" || true
-    #docker tag "$sourceImage" "$finalMirror"
-    #docker push "$finalMirror"
-    # 等待一小段时间，确保registry数据更新
-    sleep 1
+    sleep 3
 
-    echo ">>> 验证镜像: $finalMirror"
+    echo ">>> Image $sourceImage copied to $finalMirror. Checking integrity..."
     
     # First check - manifest via regctl
     if ! regctl image manifest "$finalMirror" &> /dev/null; then
-        echo ">>> 镜像验证失败: $finalMirror (regctl check)"
-        echo ">>> 删除无效镜像"
+        echo ">>> Manifest check failed for $finalMirror. Attempting to delete..."
         python3 delete.py "$finalMirror"
         return 1
     fi
     
-    # 调用 Python 脚本检测镜像健康状态
     if ! python3 check.py "$finalMirror"; then
-        echo ">>> 镜像检查失败: ${finalMirror}"
-        echo ">>> 删除远程镜像: ${finalMirror}"
+        echo ">>> Health check failed for $finalMirror. Attempting to delete..."
         python3 delete.py "$finalMirror"
         return 1
     fi
 
-    echo ">>> 镜像 $finalMirror 验证通过"
+    echo ">>> Image $finalMirror is valid. Proceeding to push..."
     return 0
 }
 
@@ -85,10 +76,10 @@ mirror_docker() {
     max_attempts=8
     
     for attempt in $(seq 1 $max_attempts); do
-        echo ">>> 尝试 $attempt/$max_attempts: $sourceImage"
+        echo ">>> Attempting $attempt/$max_attempts: $sourceImage"
         
         if actual_mirror_docker "$sourceImage" "$attempt"; then
-            echo ">>> 镜像 $sourceImage 处理完成"
+            echo ">>> Image $sourceImage mirrored successfully."
             return 0
         fi
         
@@ -96,10 +87,10 @@ mirror_docker() {
         backoff=$((300 + (attempt * attempt * 15) + (RANDOM % 30)))
         
         if [ $attempt -lt $max_attempts ]; then
-            echo ">>> 镜像推送失败，${backoff}秒后重试..."
+            echo ">>> Image $sourceImage failed to mirror. Retrying in $backoff seconds..."
             sleep $backoff
         else
-            echo ">>> 镜像 $sourceImage 处理失败，已达到最大重试次数"
+            echo ">>> Image $sourceImage failed to mirror after $max_attempts attempts. Skipping..."
             return 1
         fi
     done
