@@ -15,4 +15,10 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
 
 RUN apt install -y nvidia-cuda-toolkit \
     gcc g++ make cmake git sudo wget curl vim python3 python3-pip python-is-python3 \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libxext-dev libxrender-dev
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libxext-dev libxrender-dev \
+    libmpfr-dev libmpc-dev
+
+RUN rm -rf /var/lib/apt/lists/* && \
+    apt-get clean && \
+    apt-get autoclean && \
+    apt-get autoremove -y
