@@ -26,7 +26,7 @@ def get_image_digest(image):
     """Get the digest for a Docker image using regctl."""
     try:
         result = subprocess.run(
-            ["regctl", "image", "digest", image],
+            ["/usr/local/bin/regctl", "image", "digest", image],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -45,7 +45,7 @@ def image_exists(image):
     """Check if an image exists using regctl."""
     try:
         result = subprocess.run(
-            ["regctl", "image", "manifest", image],
+            ["/usr/local/bin/regctl", "image", "manifest", image],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False
