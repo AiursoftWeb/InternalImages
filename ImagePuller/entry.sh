@@ -1,6 +1,7 @@
 #!/bin/bash
-
 set -e
+
+cd /app
 
 try_docker_login() {
     # Load DOCKER_USERNAME from environment variable
