@@ -10,7 +10,7 @@ RUN apt update && \
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Avoid Docker cache
-RUN date > /etc/docker_build_date
+ADD https://api.github.com/repos/ytdl-org/youtube-dl/branches/master skipcache
 
 RUN pipx install 'git+https://github.com/ytdl-org/youtube-dl.git@master#egg=youtube_dl' && \
     mv /root/.local/bin/youtube-dl /usr/bin/youtube-dl && \
