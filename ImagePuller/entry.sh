@@ -1,6 +1,7 @@
 #!/bin/bash
-
 set -e
+
+cd /app
 
 try_docker_login() {
     # Load DOCKER_USERNAME from environment variable
@@ -45,17 +46,17 @@ actual_mirror_docker() {
 
     # If first attempt, use
     if [[ $attempt -eq 1 ]]; then
-        regctl image copy "$sourceImage" "$finalMirror" --digest-tags
+        /usr/local/bin/regctl image copy "$sourceImage" "$finalMirror" --digest-tags
     else
         # If second or more attempts, use --force-recursive
-        regctl image copy "$sourceImage" "$finalMirror" --force-recursive --digest-tags
+        /usr/local/bin/regctl image copy "$sourceImage" "$finalMirror" --force-recursive --digest-tags
     fi
     sleep 3
 
     echo ">>> Image $sourceImage copied to $finalMirror. Checking integrity..."
     
     # First check - manifest via regctl
-    if ! regctl image manifest "$finalMirror" &> /dev/null; then
+    if ! /usr/local/bin/regctl image manifest "$finalMirror" &> /dev/null; then
         echo ">>> Manifest check failed for $finalMirror. Attempting to delete..."
         python3 delete.py "$finalMirror"
         return 1
