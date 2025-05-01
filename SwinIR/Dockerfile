@@ -1,6 +1,8 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/nvidia:latest
 WORKDIR /app
 RUN sudo apt update && sudo apt install -y git
+
+ADD "https://api.github.com/repos/JingyunLiang/SwinIR/commits?per_page=1" latest_commit
 RUN git clone https://github.com/JingyunLiang/SwinIR.git
 
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
