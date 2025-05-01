@@ -17,6 +17,12 @@ RUN echo "set base_path /var/spool/apt-mirror" > /etc/apt/mirror.list
 RUN echo "set nthreads 20" >> /etc/apt/mirror.list
 RUN echo "set _tilde 0" >> /etc/apt/mirror.list
 
+# questing
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
+
 # plucky
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
