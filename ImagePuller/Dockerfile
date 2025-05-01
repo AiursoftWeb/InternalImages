@@ -4,6 +4,8 @@ RUN apt update && \
     apt install -y cron python3 python-is-python3 python3-pip curl tmux && \
     rm -rf /var/lib/apt/lists/*
 
+ADD "https://api.github.com/repos/regclient/regclient/commits?per_page=1" latest_commit
+
 RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >regctl && \
     chmod 755 regctl && \
     mv regctl /usr/local/bin/
