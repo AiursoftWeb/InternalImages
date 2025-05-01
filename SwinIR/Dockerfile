@@ -3,6 +3,8 @@ WORKDIR /app
 RUN sudo apt update && sudo apt install -y git
 RUN git clone https://github.com/JingyunLiang/SwinIR.git
 
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
 RUN pip install opencv-python torch torchvision
 RUN pip install requests numpy timm
 
