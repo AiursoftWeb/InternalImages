@@ -4,11 +4,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 COPY . .
 
-RUN curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash && \
-    curl -fsSL https://deb.nodesource.com/setup_23.x | bash - && \
+# Replace ${arch} with any of the supported architectures, e.g. amd64, arm, arm64
+# A full list of architectures can be found here https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/index.html
+# curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner-helper-images.deb"
+# curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner_${arch}.deb"
+
+RUN curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner-helper-images.deb" && \
+    curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner_amd64.deb" && \
+    dpkg -i gitlab-runner-helper-images.deb && \
+    dpkg -i gitlab-runner_amd64.deb && \
+    rm -rf gitlab-runner-helper-images.deb gitlab-runner_amd64.deb
+
+RUN curl -fsSL https://deb.nodesource.com/setup_23.x | bash - && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      gitlab-runner \
       dotnet9 \
       nodejs \
       libgdiplus \
