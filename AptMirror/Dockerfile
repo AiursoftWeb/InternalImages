@@ -29,6 +29,12 @@ RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky-updates main restricted u
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
+# plucky i386
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
+
 # oracular
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
@@ -53,6 +59,10 @@ RUN echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted u
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
+
+RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu plucky main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
 
 # oracular
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu oracular main" >> /etc/apt/mirror.list
