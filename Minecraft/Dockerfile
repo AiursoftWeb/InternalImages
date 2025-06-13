@@ -7,8 +7,8 @@ FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu AS minecraft-builder
 ARG VERSION
 WORKDIR /app
 
-RUN apt update
-RUN apt install -y curl wget jq unzip
+RUN apt-get update
+RUN apt-get install -y curl wget jq unzip
 
 RUN mkdir -p /app/plugins && \
     mkdir -p /app/world && \
@@ -34,10 +34,10 @@ RUN buildId=$(curl "https://api.papermc.io/v2/projects/paper/versions/${VERSION}
 # Plugins
 # ================
 # Geyser-Spigot
-#RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
+RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
 
 # floodgate-spigot
-#RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
+RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
 
 # ViaBackwards
 RUN viabUrl=$(curl https://api.github.com/repos/ViaVersion/ViaBackwards/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
@@ -122,8 +122,8 @@ COPY --from=minecraft-builder /app /app
 COPY --from=minecraft-builder /datapacks /datapacks
 COPY init-commands.sh /app/init-commands.sh
 
-RUN apt update
-RUN apt install -y openjdk-24-jre-headless tmux
+RUN apt-get update
+RUN apt-get install -y openjdk-24-jre-headless tmux
 RUN mkdir -p /var/log/mc
 RUN touch /var/log/mc/mc.log
 
