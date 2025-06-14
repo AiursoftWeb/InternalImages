@@ -1,7 +1,7 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 WORKDIR /
-RUN apt update
-RUN apt install -y apt-mirror git unzip wget cron
+RUN apt-get update
+RUN apt-get install -y apt-mirror git unzip wget cron
 
 # Install a patched version of apt-mirror
 RUN wget https://gist.aiursoft.cn/anduin/57a393ed8ed343c9bc8a9ae7a30f61e5/raw/HEAD/apt-mirror -O ./apt-mirror

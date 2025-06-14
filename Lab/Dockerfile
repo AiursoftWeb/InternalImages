@@ -1,7 +1,7 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 
-RUN apt update
-RUN apt install -y ttyd sudo wget curl \
+RUN apt-get update
+RUN apt-get install -y ttyd sudo wget curl \
 iputils-ping net-tools vim tmux systemd \
 apt-transport-https ca-certificates \
 software-properties-common w3m git \

@@ -1,7 +1,7 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 WORKDIR /
 COPY . .
-RUN apt update && apt install -y git jq cron curl
+RUN apt-get update && apt install -y git jq cron curl
 RUN chmod +x /mirror.sh
 
 VOLUME /opt/Source/Repos/

@@ -2,7 +2,7 @@ FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
 
 WORKDIR /root
 
-RUN apt update && \
+RUN apt-get update && \
     apt install python3 python3-pip python-is-python3 ffmpeg atomicparsley git sudo tmux cron pipx -y && \
     rm -rf /var/lib/apt/lists/*
 
