@@ -23,6 +23,12 @@ RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-updates main restricted
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
+# questing i386
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
+
 # plucky
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
@@ -41,11 +47,23 @@ RUN echo "deb http://archive.ubuntu.com/ubuntu/ oracular-updates main restricted
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
+# oracular i386
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
+
 # noble
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
+
+# noble i386
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://archive.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # jammy
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse" >> /etc/apt/mirror.list
