@@ -1,5 +1,8 @@
 FROM hub.aiursoft.cn/teddysun/xray
 
+# No cache
+ADD "https://api.github.com/repos/XTLS/Xray-core/commits?per_page=1" latest_commit
+
 RUN mkdir -p /etc/xray
 RUN mkdir -p /var/log/xray
 RUN mkdir -p /etc/xray/cert
