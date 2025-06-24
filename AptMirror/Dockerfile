@@ -77,7 +77,6 @@ RUN echo "deb http://archive.ubuntu.com/ubuntu/ jammy-security main restricted u
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
-
 RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu plucky main" >> /etc/apt/mirror.list
@@ -86,16 +85,25 @@ RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu plucky m
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu oracular main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu oracular main" >> /etc/apt/mirror.list
 
 # noble
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu noble main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu noble main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu noble main" >> /etc/apt/mirror.list
 
 # jammy
 RUN echo "deb-amd64 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-amd64 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu jammy main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
 
 RUN echo "clean http://archive.ubuntu.com/ubuntu/" >> /etc/apt/mirror.list
 
