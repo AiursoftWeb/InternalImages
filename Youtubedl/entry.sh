@@ -41,6 +41,7 @@ user_urls=(
     "https://www.youtube.com/@hippo20251/videos"
     "https://www.youtube.com/@xiao_lin_shuo/videos"
     "https://www.youtube.com/@lucaas/videos"
+    "https://www.youtube.com/@ramosxin2340/videos"
 )
 
 # Loop through user URLs and start a new tmux session for each channel
