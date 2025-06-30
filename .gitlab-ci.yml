@@ -240,3 +240,16 @@ deploy_youtubedl:
     - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_ubuntu_with_docker_with_nvidia:
+  stage: deploy
+  needs:
+    - deploy_nvidia
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker-with-nvidia:$TAG
+    - docker build ./Youtubedl -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker-with-nvidia:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker-with-nvidia:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
