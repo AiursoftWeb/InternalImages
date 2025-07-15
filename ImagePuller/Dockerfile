@@ -31,4 +31,4 @@ RUN chmod 0644 /etc/cron.d/entry-cron
 #ENTRYPOINT ["cron", "-f", "-L 15"]
 
 # Entry point should be: run the entry script once, then start cron
-ENTRYPOINT ["sh -c", "tmux new-session -d -s entry /app/entry.sh && cron -f -L 15"]
+ENTRYPOINT ["sh", "-c", "tmux new-session -d -s entry /app/entry.sh && cron -f -L 15"]
