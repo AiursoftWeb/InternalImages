@@ -28,4 +28,7 @@ RUN echo "0 3 * * * root tmux new-session -d -s entry /app/entry.sh" > /etc/cron
 RUN chmod 0644 /etc/cron.d/entry-cron
 
 # Run this job at the beginning with verbose output
-ENTRYPOINT ["cron", "-f", "-L 15"]
+#ENTRYPOINT ["cron", "-f", "-L 15"]
+
+# Entry point should be: run the entry script once, then start cron
+ENTRYPOINT ["sh -c", "tmux new-session -d -s entry /app/entry.sh && cron -f -L 15"]
