@@ -238,6 +238,7 @@ mirror_docker "ubuntu:24.10"
 mirror_docker "ubuntu:25.04"
 mirror_docker "valkey/valkey:8-bookworm"
 mirror_docker "verdaccio/verdaccio"
+mirror_docker "vikunja/vikunja"
 mirror_docker "vminnovations/typescript-sdk:16-latest"
 mirror_docker "wordpress:php8.3-fpm-alpine"
 
