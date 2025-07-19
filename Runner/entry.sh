@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+echo "Starting GitLab Runner registration script..."
+
 # Make sure the docker.sock has correct permissions
 if [ -S /var/run/docker.sock ]; then
     chown root:docker /var/run/docker.sock
