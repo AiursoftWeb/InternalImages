@@ -37,7 +37,7 @@ gitlab-runner register \
     --non-interactive \
     --url "$gitlab_endpoint" \
     --token $token \
-    --executor "shell" \
+    --executor "docker" \
     --custom_build_dir-enabled=true
 
 # Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
