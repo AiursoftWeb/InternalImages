@@ -5,6 +5,15 @@ set -e
 if [ -S /var/run/docker.sock ]; then
     chown root:docker /var/run/docker.sock
     chmod 660 /var/run/docker.sock
+# DOCKER_HOST may point to a dind container, so we need to ensure it is set correctly
+elif [ -n "$DOCKER_HOST" ]; then
+    if [ -S "$DOCKER_HOST" ]; then
+        chown root:docker "$DOCKER_HOST"
+        chmod 660 "$DOCKER_HOST"
+    else
+        echo "Docker host $DOCKER_HOST is not a socket. Exiting..."
+        exit 1
+    fi
 else
     echo "Docker socket not found. Exiting..."
     exit 1
