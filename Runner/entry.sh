@@ -5,13 +5,18 @@ echo "Starting GitLab Runner registration script..."
 
 # Make sure the docker.sock has correct permissions
 if [ -S /var/run/docker.sock ]; then
+    # We need that socket to create new job containers
     chown root:docker /var/run/docker.sock
     chmod 660 /var/run/docker.sock
-# DOCKER_HOST may point to a dind container, so we need to ensure it is set correctly
-elif [ -n "$DOCKER_HOST" ]; then
-    echo "DOCKER_HOST is set to $DOCKER_HOST"
 else
     echo "Docker socket not found. Exiting..."
+    exit 1
+fi
+
+# JOB_CONTAINER_IMAGE
+job_container_image=${JOB_CONTAINER_IMAGE}
+if [ -z "$job_container_image" ]; then
+    echo "JOB_CONTAINER_IMAGE is not set. Exiting..."
     exit 1
 fi
 
@@ -61,13 +66,10 @@ gitlab-runner register \
     --executor "docker" \
     --env "DOCKER_HOST=$job_docker_to_use_socket" \
     --env "DOCKER_TLS_CERTDIR=" \
-    --docker-image "hub.aiursoft.cn/aiursoft/internalimages/jobrunner:latest" \
+    --docker-image "$job_container_image" \
     --docker-network-mode "$job_container_in_network" \
     --docker-volumes "/certs/client" \
     --custom_build_dir-enabled=true
-
-# Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
-#sed -i 's/\[runners.custom_build_dir\]/\[runners.custom_build_dir\]\n    enabled = true/g' /etc/gitlab-runner/config.toml
 
 #gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
