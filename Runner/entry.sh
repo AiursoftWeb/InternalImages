@@ -59,7 +59,7 @@ gitlab-runner register \
     --url "$gitlab_endpoint" \
     --token $token \
     --executor "docker" \
-    --env "DOCKER_HOST=$job_docker_to_use_socket \
+    --env "DOCKER_HOST=$job_docker_to_use_socket" \
     --env "DOCKER_TLS_CERTDIR=" \
     --docker-image "hub.aiursoft.cn/aiursoft/internalimages/jobrunner:latest" \
     --docker-network-mode "$job_container_in_network" \
