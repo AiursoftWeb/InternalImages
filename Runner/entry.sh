@@ -15,7 +15,6 @@ else
     exit 1
 fi
 
-
 # Load from environment variables
 gitlab_endpoint=${GITLAB_ENDPOINT:-http://gitlab}
 
@@ -43,7 +42,7 @@ gitlab-runner register \
     --url "$gitlab_endpoint" \
     --token $token \
     --executor "docker" \
-    --docker-image "hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker:latest" \
+    --docker-image "hub.aiursoft.cn/aiursoft/internalimages/jobrunner:latest" \
     --custom_build_dir-enabled=true
 
 # Inject `    enabled = true` under `[[runners.custom_build_dir]]` in config.toml
