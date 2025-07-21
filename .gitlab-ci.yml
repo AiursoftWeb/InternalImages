@@ -96,22 +96,6 @@ deploy_runner:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-deploy_job_runner:
-  stage: deploy
-  needs: 
-    - deploy_ubuntu_with_docker
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG
-    - docker build ./JobRunner -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG
-    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
 deploy_kiwix:
   stage: deploy
   needs: 
