@@ -40,7 +40,8 @@ gitlab-runner register \
     --non-interactive \
     --url "$gitlab_endpoint" \
     --token $token \
-    --executor "shell"
+    --executor "shell" \
+    --custom_build_dir-enabled=true
 
 #gitlab-runner start
 gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner
