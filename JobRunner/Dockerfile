@@ -3,7 +3,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-RUN curl -fsSL https://deb.nodesource.com/setup_23.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       dotnet9 \
