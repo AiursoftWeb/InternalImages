@@ -126,7 +126,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl wget jq unzip openjdk-24-jre-headless tmux && \
     rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /var/log/mc && \
+RUN chmod +x /app/init-commands.sh && \
+    mkdir -p /var/log/mc && \
     touch /var/log/mc/mc.log
 
 # 将 lazymc 二进制拷贝到镜像中
