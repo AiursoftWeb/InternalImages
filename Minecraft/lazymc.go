@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -14,39 +13,36 @@ import (
 )
 
 var (
-	mcProcess     *exec.Cmd
 	mcProcessLock sync.Mutex
 )
 
-// startMinecraft 启动 Minecraft 进程，并等待 25566 端口就绪。
-// 同时延迟执行 /app/init-commands.sh 初始化脚本（可根据需要调整）。
+// hasSession 判断 tmux 会话是否存在
+func hasSession(name string) bool {
+	cmd := exec.Command("tmux", "has-session", "-t", name)
+	err := cmd.Run()
+	return err == nil
+}
+
+// startMinecraft 启动 Minecraft 服务器（放在 tmux 会话 mc 里），并在端口就绪后执行 init 脚本。
 func startMinecraft() error {
 	mcProcessLock.Lock()
 	defer mcProcessLock.Unlock()
 
-	if mcProcess != nil && mcProcess.Process != nil {
-		// 已经启动，无需重复启动
+	if hasSession("mc") {
+		// 已有会话，假定服务器已经在跑
 		return nil
 	}
 
-	log.Println("启动 Minecraft 进程……")
-	// 注意：server.properties 需要预先修改为监听 25566
-	cmd := exec.Command("java", "-XX:+UseG1GC", "-Xms4G", "-Xmx12G", "-jar", "/app/papermc.jar", "--nojline", "--nogui")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	log.Println("在 tmux 会话 mc 中启动 Minecraft 进程……")
+	// 用 bash -lc 方便重定向日志
+	javaCmdStr := `java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1`
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", "mc", "bash", "-lc", javaCmdStr)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("创建 tmux 会话失败，输出：%s", string(output))
 		return err
 	}
-	mcProcess = cmd
 
-	// 延迟 60 秒后执行 init-commands.sh（可选）
-	go func() {
-		time.Sleep(60 * time.Second)
-		log.Println("执行 init-commands.sh")
-		exec.Command("bash", "/app/init-commands.sh").Run()
-	}()
-
-	// 等待 Minecraft 服务器在 25566 上就绪（最多等待约 60 秒）
+	// 等待 Minecraft 服务器在 25566 上可连通
 	for i := 0; i < 30; i++ {
 		conn, err := net.Dial("tcp", "127.0.0.1:25566")
 		if err == nil {
@@ -55,67 +51,77 @@ func startMinecraft() error {
 		}
 		time.Sleep(2 * time.Second)
 	}
+
+	// 服务器端口可达，执行 init 脚本（脚本本身用 tmux send-keys 注入命令）
+	log.Println("检测到 Minecraft 服务器可达，执行 init-commands.sh")
+	if out, err := exec.Command("bash", "/app/init-commands.sh").CombinedOutput(); err != nil {
+		log.Printf("执行 init-commands.sh 失败: %v, 输出: %s", err, string(out))
+	}
+
 	return nil
 }
 
-// stopMinecraft 杀掉 Minecraft 进程
+// stopMinecraft 通过 kill tmux session 停掉服务器
 func stopMinecraft() error {
 	mcProcessLock.Lock()
 	defer mcProcessLock.Unlock()
-	if mcProcess != nil && mcProcess.Process != nil {
-		log.Println("因长时间无在线玩家，停止 Minecraft 进程……")
-		err := mcProcess.Process.Kill()
-		log.Println("Minecraft 进程已停止。节省资源。下次连接时会自动重启。")
-		mcProcess = nil
-		return err
-	} else {
-		log.Println("Minecraft 进程未启动，无需停止")
+
+	if !hasSession("mc") {
+		log.Println("Minecraft tmux 会话不存在，跳过停止")
+		return nil
 	}
+
+	log.Println("因无在线玩家，停止 Minecraft 服务器（kill tmux 会话 mc）……")
+	if out, err := exec.Command("tmux", "kill-session", "-t", "mc").CombinedOutput(); err != nil {
+		log.Printf("kill-session 失败: %v, 输出: %s", err, string(out))
+		return err
+	}
+	log.Println("Minecraft 服务器已停止。")
 	return nil
 }
 
-// monitorInactivity 定时查询在线玩家数，只有连续 8 次（约 80 秒）检测到在线玩家数为 0 时，才停止 Minecraft 服务器。
+// monitorInactivity 周期性检查在线玩家数，连续 8 次为 0 才停服
 func monitorInactivity() {
 	log.Println("启动在线玩家监测...")
 	zeroCount := 0
 	for {
 		time.Sleep(10 * time.Second)
 
-		// 如果 Minecraft 进程未启动，跳过检测
-		if mcProcess == nil || mcProcess.Process == nil {
+		if !hasSession("mc") {
 			log.Println("Minecraft 服务器未启动，等待启动...")
 			zeroCount = 0
 			continue
 		}
 
-		// 使用 mcutil 查询服务器状态（需 1.7+ 的 netty 服务器）
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		response, err := status.Modern(ctx, "127.0.0.1", 25566)
-		resp := response
 		cancel()
 		if err != nil {
 			log.Println("查询 Minecraft 服务器状态失败：", err)
-			// 查询出错时不增加计数，防止误杀
 			continue
 		}
 
-		log.Printf("当前在线玩家数：%d\n", *resp.Players.Online)
-		if resp.Players.Online != nil && *resp.Players.Online == 0 {
-			zeroCount++
-			log.Printf("连续无在线玩家检测次数：%d/8\n", zeroCount)
-			if zeroCount >= 8 {
-				log.Println("连续8次检测均无在线玩家，停止 Minecraft 服务器")
-				stopMinecraft()
-				zeroCount = 0 // 重置计数器
+		if response.Players != nil && response.Players.Online != nil {
+			log.Printf("当前在线玩家数：%d\n", *response.Players.Online)
+			if *response.Players.Online == 0 {
+				zeroCount++
+				log.Printf("连续无在线玩家检测次数：%d/8\n", zeroCount)
+				if zeroCount >= 8 {
+					log.Println("连续8次检测均无在线玩家，停止 Minecraft 服务器")
+					stopMinecraft()
+					zeroCount = 0
+				}
+			} else {
+				zeroCount = 0
+				log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
 			}
 		} else {
-			zeroCount = 0
-			log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
+			log.Println("玩家数信息不可用，跳过计数。")
 		}
 	}
 }
 
-// handleConnection 处理来自 25565 的每个连接，并将数据转发到 25566。
+// handleConnection 接入时触发，懒惰启动
 func handleConnection(conn net.Conn) {
 	defer func() {
 		log.Println("关闭连接：", conn.RemoteAddr())
@@ -128,7 +134,6 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	// 连接真实 Minecraft 服务
 	backend, err := net.Dial("tcp", "127.0.0.1:25566")
 	if err != nil {
 		log.Println("连接 Minecraft 服务失败：", err)
@@ -136,7 +141,6 @@ func handleConnection(conn net.Conn) {
 	}
 	defer backend.Close()
 
-	// 双向转发数据
 	go io.Copy(backend, conn)
 	io.Copy(conn, backend)
 }

@@ -1,3 +1,17 @@
+#!/bin/bash
+
+# 等待 Minecraft 完全启动（按 Paper 输出的 Done (x.xx s)! 为准），最多等 60s
+timeout=60
+while ! grep -q 'Done (' /var/log/mc/mc.log && ((timeout--)); do
+    sleep 1
+done
+
+# 下面是你原来的 tmux send-keys 序列
+tmux send-keys -t mc "say 服务器正在重置世界配置为自由模式……" Enter
+sleep 1
+# ... 剩下的命令 ...
+
+
 tmux send-keys -t mc "say 服务器正在重置世界配置为自由模式……" Enter
 sleep 1
 
