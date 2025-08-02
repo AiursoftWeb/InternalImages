@@ -122,10 +122,12 @@ COPY --from=minecraft-builder /app /app
 COPY --from=minecraft-builder /datapacks /datapacks
 COPY init-commands.sh /app/init-commands.sh
 
-RUN apt-get update
-RUN apt-get install -y openjdk-24-jre-headless tmux
-RUN mkdir -p /var/log/mc
-RUN touch /var/log/mc/mc.log
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl wget jq unzip openjdk-24-jre-headless tmux && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /var/log/mc && \
+    touch /var/log/mc/mc.log
 
 # 将 lazymc 二进制拷贝到镜像中
 COPY --from=lazymc-builder /src/lazymc /app/lazymc

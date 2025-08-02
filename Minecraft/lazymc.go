@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net"
-	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -23,18 +23,16 @@ func hasSession(name string) bool {
 	return err == nil
 }
 
-// startMinecraft 启动 Minecraft 服务器（放在 tmux 会话 mc 里），并在端口就绪后执行 init 脚本。
+// startMinecraft 在 tmux 会话 mc 中启动 Minecraft 服务器，并在端口就绪后执行 init 脚本。
 func startMinecraft() error {
 	mcProcessLock.Lock()
 	defer mcProcessLock.Unlock()
 
 	if hasSession("mc") {
-		// 已有会话，假定服务器已经在跑
 		return nil
 	}
 
 	log.Println("在 tmux 会话 mc 中启动 Minecraft 进程……")
-	// 用 bash -lc 方便重定向日志
 	javaCmdStr := `java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1`
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", "mc", "bash", "-lc", javaCmdStr)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -42,7 +40,7 @@ func startMinecraft() error {
 		return err
 	}
 
-	// 等待 Minecraft 服务器在 25566 上可连通
+	// 等待 Minecraft 服务器在 25566 上就绪（最多等 60 秒）
 	for i := 0; i < 30; i++ {
 		conn, err := net.Dial("tcp", "127.0.0.1:25566")
 		if err == nil {
@@ -52,7 +50,7 @@ func startMinecraft() error {
 		time.Sleep(2 * time.Second)
 	}
 
-	// 服务器端口可达，执行 init 脚本（脚本本身用 tmux send-keys 注入命令）
+	// 服务器起来后执行 init 脚本
 	log.Println("检测到 Minecraft 服务器可达，执行 init-commands.sh")
 	if out, err := exec.Command("bash", "/app/init-commands.sh").CombinedOutput(); err != nil {
 		log.Printf("执行 init-commands.sh 失败: %v, 输出: %s", err, string(out))
@@ -101,9 +99,10 @@ func monitorInactivity() {
 			continue
 		}
 
-		if response.Players != nil && response.Players.Online != nil {
-			log.Printf("当前在线玩家数：%d\n", *response.Players.Online)
-			if *response.Players.Online == 0 {
+		if response.Players.Online != nil {
+			online := *response.Players.Online
+			log.Printf("当前在线玩家数：%d\n", online)
+			if online == 0 {
 				zeroCount++
 				log.Printf("连续无在线玩家检测次数：%d/8\n", zeroCount)
 				if zeroCount >= 8 {
@@ -121,7 +120,7 @@ func monitorInactivity() {
 	}
 }
 
-// handleConnection 接入时触发，懒惰启动
+// handleConnection 懒惰启动并做 TCP 反向代理
 func handleConnection(conn net.Conn) {
 	defer func() {
 		log.Println("关闭连接：", conn.RemoteAddr())
