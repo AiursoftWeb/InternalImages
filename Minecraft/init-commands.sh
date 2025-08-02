@@ -6,6 +6,8 @@ while ! grep -q 'Done (' /var/log/mc/mc.log && ((timeout--)); do
     sleep 1
 done
 
+sleep 20
+
 # 下面是你原来的 tmux send-keys 序列
 tmux send-keys -t mc "say 服务器正在重置世界配置为自由模式……" Enter
 sleep 1
