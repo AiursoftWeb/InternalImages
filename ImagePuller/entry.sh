@@ -252,6 +252,7 @@ mirror_docker "valkey/valkey:8-bookworm"
 mirror_docker "verdaccio/verdaccio"
 mirror_docker "vikunja/vikunja"
 mirror_docker "vminnovations/typescript-sdk:16-latest"
+mirror_docker "wolveix/satisfactory-server:latest"
 mirror_docker "wordpress:php8.3-fpm-alpine"
 
 echo "All images are pulled and pushed to the mirror."
