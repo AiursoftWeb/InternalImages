@@ -16,7 +16,7 @@ must_login_local_registry() {
     # If any of those not set, do not login
     echo "Logging into local registry ${MIRROR_TARGET}..."
     echo "Local Docker USERNAME: $LOCAL_DOCKER_USERNAME"
-    LOCAL_DOCKER_PASSWORD=$(cat /run/secrets/local-docker-password 2>/dev/null || echo "")
+    LOCAL_DOCKER_PASSWORD=$(cat /run/secrets/LOCAL_DOCKER_PASSWORD 2>/dev/null || echo "")
 
     if [[ -z "$LOCAL_DOCKER_USERNAME" || -z "$LOCAL_DOCKER_PASSWORD" ]]; then
         echo ">>> Local Docker credentials are not set. Aborting."
