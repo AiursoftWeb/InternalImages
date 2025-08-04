@@ -255,6 +255,19 @@ deploy_youtubedl:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
+deploy_zot:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG
+    - docker build ./Zot -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG
+    - docker push hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
 deploy_ubuntu_with_docker_with_nvidia:
   stage: deploy
   needs:
