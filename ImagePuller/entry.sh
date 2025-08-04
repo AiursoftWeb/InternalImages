@@ -55,7 +55,8 @@ actual_mirror_docker() {
 
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
-    finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+    #finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+    finalMirror="${MIRROR_TARGET}/${imageName}:${imageTag}"
 
     echo ">>> Checking if $sourceImage is already mirrored to $finalMirror"
     if python3 is_latest.py "$sourceImage"; then
