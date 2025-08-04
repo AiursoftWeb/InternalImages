@@ -3,6 +3,31 @@ set -e
 
 cd /app
 
+# Mirror target is ${MIRROR_TARGET:-registry.aiursoft.cn}
+
+must_login_local_registry() {
+    if [[ -z "$MIRROR_TARGET" ]]; then
+        echo ">>> MIRROR_TARGET is not set. Crash now."
+        exit 1
+    fi
+
+    # Load LOCAL_DOCKER_USERNAME from environment variable
+    # Load LOCAL_DOCKER_PASSWORD from /run/secrets/local-docker-password
+    # If any of those not set, do not login
+    echo "Logging into local registry ${MIRROR_TARGET}..."
+    echo "Local Docker USERNAME: $LOCAL_DOCKER_USERNAME"
+    LOCAL_DOCKER_PASSWORD=$(cat /run/secrets/local-docker-password 2>/dev/null || echo "")
+
+    if [[ -z "$LOCAL_DOCKER_USERNAME" || -z "$LOCAL_DOCKER_PASSWORD" ]]; then
+        echo ">>> Local Docker credentials are not set. Aborting."
+        exit 1
+    fi
+
+    echo "$LOCAL_DOCKER_PASSWORD" | docker login ${MIRROR_TARGET} -u "$LOCAL_DOCKER_USERNAME" --password-stdin
+    echo ">>> Successfully logged into local registry ${MIRROR_TARGET}."
+}
+
+
 try_docker_login() {
     # Load DOCKER_USERNAME from environment variable
     # Load DOCKER_PASSWORD from /run/secrets/docker-password
@@ -97,6 +122,7 @@ mirror_docker() {
     done
 }
 
+must_login_local_registry
 try_docker_login
 mirror_docker "24oi/oi-wiki"
 mirror_docker "alpine"
