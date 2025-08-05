@@ -3,7 +3,7 @@ set -e
 
 cd /app
 
-# Mirror target is ${MIRROR_TARGET:-registry.aiursoft.cn}
+# Mirror target is ${MIRROR_TARGET:-hub.aiursoft.cn}
 
 must_login_local_registry() {
     if [[ -z "$MIRROR_TARGET" ]]; then

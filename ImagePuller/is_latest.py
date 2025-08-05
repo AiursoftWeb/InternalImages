@@ -20,7 +20,7 @@ def get_mirror_image(source_image):
         # Keep as is for other registries or namespaced Docker Hub images
         mirror_repo = repo_part
     
-    return f"registry.aiursoft.cn/{mirror_repo}:{tag}"
+    return f"hub.aiursoft.cn/{mirror_repo}:{tag}"
 
 def get_image_digest(image):
     """Get the digest for a Docker image using regctl."""

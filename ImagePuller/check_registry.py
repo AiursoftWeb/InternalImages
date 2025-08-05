@@ -2,12 +2,12 @@
 import sys
 import requests
 
-REGISTRY = "registry.aiursoft.cn"
+REGISTRY = "hub.aiursoft.cn"
 
 def check_image(image):
     """
     检查 image 是否正常。
-    image 格式应为：registry.aiursoft.cn/<repository>:<tag>
+    image 格式应为：hub.aiursoft.cn/<repository>:<tag>
     """
     registry = REGISTRY
     if not image.startswith(f"{registry}/"):
