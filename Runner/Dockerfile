@@ -4,6 +4,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 COPY . .
 
+RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >regctl && \
+    chmod 755 regctl && \
+    mv regctl /usr/local/bin/
+
 # Apt tools
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get update && \
