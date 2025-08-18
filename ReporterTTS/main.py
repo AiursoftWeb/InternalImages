@@ -1,7 +1,7 @@
 import os
 import uuid  # 导入 uuid 模块
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from indextts.infer import IndexTTS
 
 # 创建 FastAPI 实例
