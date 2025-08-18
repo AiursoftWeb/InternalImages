@@ -345,3 +345,20 @@ deploy_zot:
     - rm ./temp.tar
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_reportertts:
+  stage: deploy
+  needs:
+    - deploy_nvidia
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo "Building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG"
+    - docker build ./ReporterTTS -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG
+    - echo "Logging in to Docker Registry..."
+    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.cn -u "$LOCAL_DOCKER_USERNAME" --password-stdin
+    - docker save -o temp.tar hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG
+    - regctl image import hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG temp.tar
+    - rm ./temp.tar
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
