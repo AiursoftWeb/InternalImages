@@ -23,8 +23,8 @@ RUN . "$HOME/.local/bin/env" \
 
 COPY . .
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 CMD \
-wget --quiet --tries=1 --spider http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 \
+  CMD curl --fail http://localhost:8000/health || exit 1
 
 EXPOSE 8000
 CMD ["/app/index-tts/tts/bin/uvicorn","main:app","--host","0.0.0.0","--port", "8000"]
