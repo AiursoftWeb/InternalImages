@@ -62,6 +62,13 @@ def generate_speech(text: str):
         # 处理生成过程中的异常
         raise HTTPException(status_code=500, detail=f"语音生成过程中出现错误: {e}")
 
+@app.head("/health")
+def health_check():
+    """
+    健康检查端点，用于确认服务是否正在运行。
+    """
+    return JSONResponse(status_code=200, content={"status": "ok"})
+
 @app.get("/health")
 def health_check():
     """
