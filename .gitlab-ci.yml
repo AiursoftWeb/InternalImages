@@ -349,7 +349,7 @@ deploy_zot:
 deploy_reportertts:
   stage: deploy
   needs:
-    - deploy_ubuntu
+    - deploy_nvidia
   script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
