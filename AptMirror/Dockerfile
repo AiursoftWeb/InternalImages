@@ -18,58 +18,58 @@ RUN echo "set nthreads 20" >> /etc/apt/mirror.list
 RUN echo "set _tilde 0" >> /etc/apt/mirror.list
 
 # questing
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # questing i386
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ questing main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ questing-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ questing-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ questing-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # plucky
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # plucky i386
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ plucky main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ plucky-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ plucky-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ plucky-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # oracular
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # oracular i386
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ oracular main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ oracular-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ oracular-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ oracular-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # noble
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # noble i386
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb-i386 http://mirrors.ustc.edu.cn/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ noble main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ noble-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ noble-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ossmirror.mycloud.services/ubuntu/ noble-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # jammy
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ jammy main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-backports main restricted universe multiverse" >> /etc/apt/mirror.list
-RUN echo "deb http://mirrors.ustc.edu.cn/ubuntu/ jammy-security main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ jammy main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ jammy-backports main restricted universe multiverse" >> /etc/apt/mirror.list
+RUN echo "deb http://ossmirror.mycloud.services/ubuntu/ jammy-security main restricted universe multiverse" >> /etc/apt/mirror.list
 
 # Add some ppa
 
@@ -105,7 +105,7 @@ RUN echo "deb-i386 http://ppa.launchpad.net/nextcloud-devs/client/ubuntu jammy m
 RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/graphics-drivers/ppa/ubuntu jammy main" >> /etc/apt/mirror.list
 
-RUN echo "clean http://mirrors.ustc.edu.cn/ubuntu/" >> /etc/apt/mirror.list
+RUN echo "clean http://ossmirror.mycloud.services/ubuntu/" >> /etc/apt/mirror.list
 
 RUN touch /var/spool/apt-mirror/var/postmirror.sh && chmod +x /var/spool/apt-mirror/var/postmirror.sh
 
