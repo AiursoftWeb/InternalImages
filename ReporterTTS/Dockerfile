@@ -1,6 +1,17 @@
 FROM hub.aiursoft.cn/aiursoft/internalimages/nvidia:latest
 
-RUN apt-get update && apt-get install -y ffmpeg git curl wget
+# 必要包：clickhouse-connect 做写入；tzdata 提供时区；watchdog/uvloop 可选
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git curl wget \
+        build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN pip install clickhouse-connect==0.8.18 uvloop==0.21.0 watchdog==6.0.0
+
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
 
