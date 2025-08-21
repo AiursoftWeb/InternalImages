@@ -23,8 +23,18 @@ RUN . "$HOME/.local/bin/env" \
 
 COPY . .
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 \
-  CMD curl --fail http://localhost:8000/health || exit 1
+# 默认环境变量（可在 compose/Swarm 覆盖）
+ENV CLICKHOUSE_URL=http://clickhouse:8123 \
+    CLICKHOUSE_USER=default \
+    CLICKHOUSE_PASSWORD=123456 \
+    CLICKHOUSE_DATABASE=logs \
+    CLICKHOUSE_TABLE=caddy_requests \
+    BATCH_SIZE=1000 \
+    FLUSH_INTERVAL_SEC=2 \
+    TZ="UTC"
 
 EXPOSE 8000
 CMD ["/app/index-tts/tts/bin/uvicorn","main:app","--host","0.0.0.0","--port", "8000"]
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 \
+  CMD curl --fail http://localhost:8000/health || exit 1
