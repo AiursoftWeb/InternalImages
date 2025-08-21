@@ -10,7 +10,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
-RUN pip install clickhouse-connect==0.8.18 uvloop==0.21.0 watchdog==6.0.0
+# 【删除这一行】
+# RUN pip install clickhouse-connect==0.8.18 uvloop==0.21.0 watchdog==6.0.0
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
@@ -20,11 +21,13 @@ RUN git clone https://github.com/index-tts/index-tts.git
 
 WORKDIR /app/index-tts
 
+# 【修改这一段 RUN 命令】
+# 将所有依赖项统一用 uv 安装到虚拟环境中
 RUN . "$HOME/.local/bin/env" \
 	&& uv --version \
 	&& uv venv tts \
 	&& . "tts/bin/activate" \
-	&& uv pip install uvicorn fastapi \
+	&& uv pip install uvicorn fastapi clickhouse-connect uvloop \
 	&& uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118 \
 	&& uv pip install -e .
 
