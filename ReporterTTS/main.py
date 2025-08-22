@@ -159,11 +159,21 @@ async def log_requests(request: Request, call_next):
     request_id = uuid.uuid4()
     start_time = time.perf_counter()
     
+    # --- MODIFICATION START ---
+    # Get real client IP from X-Forwarded-For header if behind a proxy
+    x_forwarded_for = request.headers.get("x-forwarded-for")
+    if x_forwarded_for:
+        # The first IP in the list is the original client
+        client_ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+    # --- MODIFICATION END ---
+
     # Initialize log info on request state
     request.state.log_info = {
         "ts": datetime.now(timezone.utc),
         "request_id": request_id,
-        "client_ip": request.client.host if request.client else "unknown",
+        "client_ip": client_ip, # Use the derived client_ip
     }
     
     response = await call_next(request)
