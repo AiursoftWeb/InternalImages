@@ -1,4 +1,4 @@
-token=$(cat /run/secrets/user_id)
+token=$(echo $XRAY_UUID)
 
 # If token is empty, exit
 if [ -z "$token" ]; then

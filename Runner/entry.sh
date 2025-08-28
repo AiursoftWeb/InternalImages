@@ -23,7 +23,7 @@ if ! curl -s $gitlab_endpoint; then
 fi
 echo "GitLab server: $gitlab_endpoint is reachable"
 
-echo "Reading token from /run/secrets/gitlab-runner-token"
+echo "Reading token from environment variable GITLAB_RUNNER_TOKEN ..."
 token=$(echo $GITLAB_RUNNER_TOKEN)
 
 # If token is empty, exit
