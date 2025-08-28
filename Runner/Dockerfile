@@ -26,6 +26,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
       net-tools \
       git \
       jq \
+      python3-pip \
       shellcheck && \
     rm -rf /var/lib/apt/lists/*
 
