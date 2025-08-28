@@ -48,7 +48,9 @@ RUN viavUrl=$(curl https://api.github.com/repos/ViaVersion/ViaVersion/releases/l
     wget -O /app/plugins/ViaVersion.jar $viavUrl
 
 # Dynmap
-RUN wget -O /app/plugins/Dynmap.jar "https://dev.bukkit.org/projects/dynmap/files/latest"
+#RUN wget -O /app/plugins/Dynmap.jar "https://dev.bukkit.org/projects/dynmap/files/latest"
+# The server already down.
+COPY ./Dynmap-3.6-spigot.jar /app/plugins/Dynmap.jar
 
 # NoEndermanGrief
 RUN wget -O /app/plugins/NoEndermanGrief.jar "https://dev.bukkit.org/projects/no-enderman-grief2/files/latest"
