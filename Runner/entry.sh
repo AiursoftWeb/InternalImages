@@ -24,7 +24,7 @@ fi
 echo "GitLab server: $gitlab_endpoint is reachable"
 
 echo "Reading token from /run/secrets/gitlab-runner-token"
-token=$(cat /run/secrets/gitlab-runner-token)
+token=$(echo $GITLAB_RUNNER_TOKEN)
 
 # If token is empty, exit
 if [ -z "$token" ]; then
