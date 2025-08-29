@@ -53,7 +53,9 @@ RUN viavUrl=$(curl https://api.github.com/repos/ViaVersion/ViaVersion/releases/l
 COPY ./Dynmap-3.6-spigot.jar /app/plugins/Dynmap.jar
 
 # NoEndermanGrief
-RUN wget -O /app/plugins/NoEndermanGrief.jar "https://dev.bukkit.org/projects/no-enderman-grief2/files/latest"
+#RUN wget -O /app/plugins/NoEndermanGrief.jar "https://dev.bukkit.org/projects/no-enderman-grief2/files/latest"
+# The server already down.
+COPY ./NoEndermanGrief-1.14_1.0.9.jar /app/plugins/NoEndermanGrief.jar
 
 # NoBoom
 COPY ./NoBoom-1.2.jar /app/plugins/NoBoom.jar
