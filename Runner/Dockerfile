@@ -8,6 +8,10 @@ RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regc
     chmod 755 regctl && \
     mv regctl /usr/local/bin/
 
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
 # Apt tools
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get update && \
@@ -29,6 +33,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
       python3-pip \
       shellcheck && \
     rm -rf /var/lib/apt/lists/*
+
+# Python packages
+RUN pip install PyYAML
 
 # .NET Global Tools
 RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'JB already installed.' && \
