@@ -63,6 +63,10 @@ RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu plucky main" 
 RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
 RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu noble main" >> /etc/apt/mirror.list
 
+# questing
+RUN echo "deb-amd64 http://ppa.launchpad.net/mozillateam/ppa/ubuntu questing main" >> /etc/apt/mirror.list
+RUN echo "deb-i386 http://ppa.launchpad.net/mozillateam/ppa/ubuntu questing main" >> /etc/apt/mirror.list
+
 RUN echo "clean http://ossmirror.mycloud.services/ubuntu/" >> /etc/apt/mirror.list
 
 RUN touch /var/spool/apt-mirror/var/postmirror.sh && chmod +x /var/spool/apt-mirror/var/postmirror.sh
