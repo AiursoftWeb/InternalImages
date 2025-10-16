@@ -39,46 +39,6 @@ deploy_ubuntu_with_docker:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-deploy_apt_mirror:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:$TAG"
-    - docker build ./AptMirror -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.cn -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:$TAG
-    - regctl image import hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-mirror:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_apt_arm_mirror:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-arm-mirror:$TAG"
-    - docker build ./AptArmMirror -t hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-arm-mirror:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.cn -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-arm-mirror:$TAG
-    - regctl image import hub.aiursoft.cn/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/apt-arm-mirror:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
 deploy_exp_apt_mirror:
   stage: deploy
   needs:
