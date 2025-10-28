@@ -1,4 +1,4 @@
-deb http://mirror.aiursoft.cn/ubuntu/ noble main restricted universe multiverse
-deb http://mirror.aiursoft.cn/ubuntu/ noble-updates main restricted universe multiverse
-deb http://mirror.aiursoft.cn/ubuntu/ noble-backports main restricted universe multiverse
-deb http://mirror.aiursoft.cn/ubuntu/ noble-security main restricted universe multiverse
+deb http://mirror.aiursoft.com/ubuntu/ noble main restricted universe multiverse
+deb http://mirror.aiursoft.com/ubuntu/ noble-updates main restricted universe multiverse
+deb http://mirror.aiursoft.com/ubuntu/ noble-backports main restricted universe multiverse
+deb http://mirror.aiursoft.com/ubuntu/ noble-security main restricted universe multiverse
