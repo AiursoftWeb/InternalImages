@@ -27,8 +27,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
       shellcheck && \
     rm -rf /var/lib/apt/lists/*
 
-RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'JB already installed.' && \
-    dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'ReportGenerator already installed.'
+RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.com/v3/index.json -v d || echo 'JB already installed.' && \
+    dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.com/v3/index.json -v d || echo 'ReportGenerator already installed.'
 
 RUN npm config set registry https://npm.aiursoft.cn && \
     npm install -g typescript ts-node npm yarn --loglevel verbose

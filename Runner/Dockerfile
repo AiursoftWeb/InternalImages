@@ -38,8 +38,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 RUN pip install PyYAML
 
 # .NET Global Tools
-RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'JB already installed.' && \
-    dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.cn/v3/index.json -v d || echo 'ReportGenerator already installed.'
+RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source https://nuget.aiursoft.com/v3/index.json -v d || echo 'JB already installed.' && \
+    dotnet tool install dotnet-reportgenerator-globaltool --global --add-source https://nuget.aiursoft.com/v3/index.json -v d || echo 'ReportGenerator already installed.'
 
 # Node.js Global Tools
 RUN npm config set registry https://npm.aiursoft.cn && \
