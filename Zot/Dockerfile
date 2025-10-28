@@ -1,5 +1,5 @@
 ARG ZOT_VERSION=v2.1.7
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
 
 ARG ZOT_VERSION
 ENV DEBIAN_FRONTEND=noninteractive

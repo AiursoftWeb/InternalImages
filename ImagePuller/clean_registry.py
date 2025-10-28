@@ -3,7 +3,7 @@ import requests
 import subprocess
 
 # Registry 基本配置
-REGISTRY_URL = "https://hub.aiursoft.cn"
+REGISTRY_URL = "https://hub.aiursoft.com"
 CATALOG_ENDPOINT = f"{REGISTRY_URL}/v2/_catalog?n=1000"
 # 镜像数据在本地存放的路径
 BASE_PATH = "/swarm-vol/registry-data/docker/registry/v2/repositories"

@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu:latest
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu:latest
 EXPOSE 3389/tcp
 ARG USER=test
 ARG PasS=1234

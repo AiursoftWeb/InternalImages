@@ -5,9 +5,9 @@ import requests
 def check_image(image):
     """
     Checking if the image is a valid Aiursoft registry image.
-    image format should hub.aiursoft.cn/<repository>:<tag>
+    image format should hub.aiursoft.com/<repository>:<tag>
     """
-    registry = "hub.aiursoft.cn"
+    registry = "hub.aiursoft.com"
     if not image.startswith(f"{registry}/"):
         print("Image doesn't belong to registry", file=sys.stderr)
         return False

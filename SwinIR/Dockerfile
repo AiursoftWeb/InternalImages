@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/nvidia:latest
+FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 WORKDIR /app
 RUN sudo apt update && sudo apt install -y git
 

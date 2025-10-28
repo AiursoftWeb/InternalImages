@@ -3,7 +3,7 @@ set -e
 
 cd /app
 
-# Mirror target is ${MIRROR_TARGET:-hub.aiursoft.cn}
+# Mirror target is ${MIRROR_TARGET:-hub.aiursoft.com}
 
 must_login_local_registry() {
     if [[ -z "$MIRROR_TARGET" ]]; then
@@ -53,7 +53,7 @@ actual_mirror_docker() {
 
     imageName=$(echo "$sourceImage" | cut -d: -f1)
     imageTag=$(echo "$sourceImage" | cut -d: -f2)
-    #finalMirror="hub.aiursoft.cn/${imageName}:${imageTag}"
+    #finalMirror="hub.aiursoft.com/${imageName}:${imageTag}"
     finalMirror="${MIRROR_TARGET}/${imageName}:${imageTag}"
 
     echo ">>> Checking if $sourceImage is already mirrored to $finalMirror"

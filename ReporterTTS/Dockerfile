@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/nvidia:latest
+FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
 # 必要包：clickhouse-connect 做写入；tzdata 提供时区；watchdog/uvloop 可选
 RUN apt-get update && apt-get install -y --no-install-recommends \

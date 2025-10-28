@@ -3,7 +3,7 @@ ARG VERSION="1.19.3"
 #============================
 #       Builder image
 #============================
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu AS minecraft-builder
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu AS minecraft-builder
 ARG VERSION
 WORKDIR /app
 
@@ -104,7 +104,7 @@ RUN unzip /tmp/sty.zip -d /datapacks/structory
 #============================
 #       lazyMC Builder
 #============================
-FROM hub.aiursoft.cn/golang:1.21.5 AS lazymc-builder
+FROM hub.aiursoft.com/golang:1.21.5 AS lazymc-builder
 WORKDIR /src
 # 将 lazymc.go 放置在与 Dockerfile 同目录
 COPY lazymc.go .
@@ -119,7 +119,7 @@ RUN go build -o lazymc .
 #============================
 #       Final image
 #============================
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
 WORKDIR /app
 
 COPY --from=minecraft-builder /app /app

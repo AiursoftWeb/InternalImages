@@ -1,5 +1,5 @@
 # 使用您确认的 Ubuntu 基础镜像
-FROM hub.aiursoft.cn/aiursoft/static
+FROM hub.aiursoft.com/aiursoft/static
 
 # 使用 apt-get 安装 cron 服务
 # RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y cron

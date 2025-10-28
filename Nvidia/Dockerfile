@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/nvidia/cuda:12.6.2-devel-ubuntu24.04
+FROM hub.aiursoft.com/nvidia/cuda:12.6.2-devel-ubuntu24.04
 
 COPY source.list /etc/apt/sources.list
 RUN apt-get update

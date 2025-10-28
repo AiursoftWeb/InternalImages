@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
 WORKDIR /
 COPY . .
 RUN apt-get update && apt install -y git jq cron curl

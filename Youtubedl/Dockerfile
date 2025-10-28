@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
 
 WORKDIR /root
 

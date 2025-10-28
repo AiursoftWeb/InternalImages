@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu-with-docker
 ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app

@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu-with-docker
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu-with-docker
 WORKDIR /app
 RUN apt-get update && \
     apt install -y cron python3 python-is-python3 python3-pip curl tmux && \

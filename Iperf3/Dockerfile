@@ -1,5 +1,5 @@
 # Iperf3
-FROM hub.aiursoft.cn/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
 RUN apt-get update
 RUN apt-get install -y iperf3
 

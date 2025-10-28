@@ -1,4 +1,4 @@
-FROM hub.aiursoft.cn/teddysun/xray
+FROM hub.aiursoft.com/teddysun/xray
 
 # No cache
 ARG BuildDate=2025-06-15
