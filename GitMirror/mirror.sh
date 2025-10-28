@@ -208,7 +208,7 @@ clone_or_update_repositories() {
 reset_git_repos() {
   info "Starting to clone or update all repositories..."
 
-  local gitlab_base_url="https://gitlab.aiursoft.cn"
+  local gitlab_base_url="https://gitlab.aiursoft.com"
   local api_url="${gitlab_base_url}/api/v4"
   local group_name="Aiursoft"
   local user_name="Anduin"
