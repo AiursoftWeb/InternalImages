@@ -18,7 +18,7 @@ RUN apt-get update && \
     curl \
     git \
     libatomic1 \
-    dotnet9 \
+    dotnet10 \
     wget && \
     rm -rf /var/lib/apt/lists/* && \
     touch /.dockerenv

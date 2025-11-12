@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/ubuntu:25.04
+FROM hub.aiursoft.com/ubuntu:25.10
 COPY source.list /etc/apt/sources.list
 RUN rm /etc/apt/sources.list.d/*
 RUN apt-get update && \
