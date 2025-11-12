@@ -17,6 +17,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       dotnet9 \
+      dotnet10 \
       nodejs \
       libgdiplus \
       build-essential \
