@@ -127,7 +127,7 @@ COPY --from=minecraft-builder /datapacks /datapacks
 COPY init-commands.sh /app/init-commands.sh
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl wget jq unzip openjdk-24-jre-headless tmux && \
+    apt-get install -y --no-install-recommends curl wget jq unzip openjdk-25-jre-headless tmux && \
     rm -rf /var/lib/apt/lists/*
 
 RUN chmod +x /app/init-commands.sh && \
