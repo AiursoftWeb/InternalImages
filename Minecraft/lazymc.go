@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -74,7 +76,7 @@ func stopMinecraft() error {
 		log.Printf("kill-session 失败: %v, 输出: %s", err, string(out))
 		return err
 	}
-	log.Println("Minecraft 服务器已停止。")
+	log.Println("Minecraft 服务器已停止。" )
 	return nil
 }
 
@@ -112,12 +114,49 @@ func monitorInactivity() {
 				}
 			} else {
 				zeroCount = 0
-				log.Println("检测到在线玩家，不停止 Minecraft 服务器。")
+				log.Println("检测到在线玩家，不停止 Minecraft 服务器。" )
 			}
 		} else {
-			log.Println("玩家数信息不可用，跳过计数。")
+			log.Println("玩家数信息不可用，跳过计数。" )
 		}
 	}
+}
+
+// bufReader helper to read bytes from conn and write to buffer
+type bufReader struct {
+	r io.Reader
+	w io.Writer
+}
+
+func (b bufReader) ReadByte() (byte, error) {
+	buf := make([]byte, 1)
+	n, err := b.r.Read(buf)
+	if n > 0 {
+		b.w.Write(buf)
+		return buf[0], nil
+	}
+	return 0, err
+}
+
+// ReadVarInt reads a VarInt from the buffer and returns the value and the number of bytes read.
+func ReadVarInt(r io.ByteReader) (int, int, error) {
+	num := 0
+	cnt := 0
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return 0, cnt, err
+		}
+		num |= (int(b&0x7F) << (7 * cnt))
+		cnt++
+		if cnt > 5 {
+			return 0, cnt, fmt.Errorf("VarInt too big")
+		}
+		if (b & 0x80) == 0 {
+			break
+		}
+	}
+	return num, cnt, nil
 }
 
 // handleConnection 懒惰启动并做 TCP 反向代理
@@ -129,15 +168,73 @@ func handleConnection(conn net.Conn) {
 
 	log.Println("处理连接：", conn.RemoteAddr())
 
-	// 读取首个字节，防止端口扫描或健康检查触发启动
-	buf := make([]byte, 1)
+	// Set a deadline for the handshake
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	n, err := conn.Read(buf)
+
+	var forwardBuffer bytes.Buffer
+	
+	// 1. Read Packet Length (VarInt)
+	// We use bufReader to capture bytes into forwardBuffer as we read
+	packetLen, _, err := ReadVarInt(bufReader{r: conn, w: &forwardBuffer})
 	if err != nil {
-		log.Println("读取首个字节失败（可能是扫描）：", err)
+		log.Printf("Failed to read packet length from %s: %v", conn.RemoteAddr(), err)
 		return
 	}
-	conn.SetReadDeadline(time.Time{}) // 重置超时
+
+	if packetLen <= 0 || packetLen > 32768 {
+		log.Printf("Invalid packet length %d from %s", packetLen, conn.RemoteAddr())
+		return
+	}
+
+	// 2. Read the rest of the packet
+	packetData := make([]byte, packetLen)
+	_, err = io.ReadFull(conn, packetData)
+	if err != nil {
+		log.Printf("Failed to read packet data from %s: %v", conn.RemoteAddr(), err)
+		return
+	}
+	forwardBuffer.Write(packetData) // Append to buffer for forwarding
+
+	// Reset deadline
+	conn.SetReadDeadline(time.Time{})
+
+	// 3. Parse Handshake
+	// Format: [Packet ID] [Protocol Ver] [Address] [Port] [Next State]
+	dataReader := bytes.NewReader(packetData)
+	
+	// Packet ID (VarInt)
+	packetID, _, err := ReadVarInt(dataReader)
+	if err == nil && packetID == 0x00 {
+		// Protocol Version (VarInt)
+		_, _, err = ReadVarInt(dataReader)
+		
+		// Server Address (String)
+		if err == nil {
+			addrLen, _, err := ReadVarInt(dataReader)
+			if err == nil {
+				// Skip address bytes
+				if int(dataReader.Size()) - int(dataReader.Len()) + addrLen <= len(packetData) {
+					dataReader.Seek(int64(addrLen), io.SeekCurrent)
+					
+					// Server Port (Unsigned Short)
+					dataReader.Seek(2, io.SeekCurrent)
+					
+					// Next State (VarInt)
+					nextState, _, err := ReadVarInt(dataReader)
+					if err == nil {
+						if nextState == 1 {
+							log.Printf("Ignoring Status Ping (State 1) from %s", conn.RemoteAddr())
+							return // Ignore, close connection
+						} else if nextState == 2 {
+							log.Printf("Login Request (State 2) from %s. Waking server.", conn.RemoteAddr())
+						}
+					}
+				}
+			}
+		}
+	} else {
+		log.Printf("Non-handshake packet (ID 0x%X) from %s. Proceeding.", packetID, conn.RemoteAddr())
+	}
 
 	if err := startMinecraft(); err != nil {
 		log.Println("启动 Minecraft 失败：", err)
@@ -151,8 +248,7 @@ func handleConnection(conn net.Conn) {
 	}
 	defer backend.Close()
 
-	// 写入首个字节
-	if _, err := backend.Write(buf[:n]); err != nil {
+	if _, err := backend.Write(forwardBuffer.Bytes()); err != nil {
 		log.Println("转发首个字节失败：", err)
 		return
 	}
