@@ -9,13 +9,7 @@ python3 python-is-python3 python3-pip \
 tree aria2 iperf3 ffmpeg \
 unzip zip openssh-server openssh-client \
 build-essential bc jq dnsutils lsb-release \
-shellcheck pipx
-
-RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-    chmod +x dotnet-install.sh && \
-    ./dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet && \
-    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
-    rm dotnet-install.sh
+shellcheck pipx dotnet10
 
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo

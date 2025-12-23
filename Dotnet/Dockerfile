@@ -19,15 +19,10 @@ RUN apt-get update && \
     git \
     libicu76 \
     libatomic1 \
+    dotnet10 \
     wget && \
     rm -rf /var/lib/apt/lists/* && \
     touch /.dockerenv
-
-RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-    chmod +x dotnet-install.sh && \
-    ./dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet && \
-    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
-    rm dotnet-install.sh
 
 RUN dotnet --info && echo $ASPNETCORE_ENVIRONMENT && \
     echo "Environment setup complete."

@@ -30,15 +30,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
       git \
       jq \
       python3-pip \
-      shellcheck && \
+      shellcheck 
+      dotnet10 && \
     rm -rf /var/lib/apt/lists/*
 
-# .NET SDK installation
-RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-    chmod +x dotnet-install.sh && \
-    ./dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet && \
-    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
-    rm dotnet-install.sh
 
 # Python packages
 RUN pip install PyYAML
