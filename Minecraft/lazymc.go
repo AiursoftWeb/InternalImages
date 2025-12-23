@@ -128,6 +128,17 @@ func handleConnection(conn net.Conn) {
 	}()
 
 	log.Println("处理连接：", conn.RemoteAddr())
+
+	// 读取首个字节，防止端口扫描或健康检查触发启动
+	buf := make([]byte, 1)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Println("读取首个字节失败（可能是扫描）：", err)
+		return
+	}
+	conn.SetReadDeadline(time.Time{}) // 重置超时
+
 	if err := startMinecraft(); err != nil {
 		log.Println("启动 Minecraft 失败：", err)
 		return
@@ -139,6 +150,12 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	defer backend.Close()
+
+	// 写入首个字节
+	if _, err := backend.Write(buf[:n]); err != nil {
+		log.Println("转发首个字节失败：", err)
+		return
+	}
 
 	go io.Copy(backend, conn)
 	io.Copy(conn, backend)
