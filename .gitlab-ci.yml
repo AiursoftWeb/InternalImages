@@ -39,26 +39,6 @@ deploy_ubuntu_with_docker:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-deploy_exp_apt_mirror:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-apt-mirror:$TAG"
-    - docker build ./ExpAptMirror -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-apt-mirror:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-apt-mirror:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-apt-mirror:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
 deploy_exp_ppa_mirror:
   stage: deploy
   needs:
@@ -95,46 +75,6 @@ deploy_lab:
     - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
     - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG
     - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_runner:
-  stage: deploy
-  needs:
-    - deploy_ubuntu_with_docker
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:$TAG"
-    - docker build ./Runner -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/runner:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_job_runner:
-  stage: deploy
-  needs:
-    - deploy_ubuntu_with_docker
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG"
-    - docker build ./JobRunner -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/jobrunner:$TAG temp.tar
     - rm ./temp.tar
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
@@ -231,40 +171,6 @@ deploy_gitmirror:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-deploy_imagepuller:
-  stage: deploy
-  needs:
-    - deploy_ubuntu_with_docker
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG"
-    - docker build ./ImagePuller -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/imagepuller:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_iperf3:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG"
-    - docker build ./Iperf3 -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/iperf3:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
 deploy_minecraft:
   stage: deploy
   needs:
@@ -293,23 +199,6 @@ deploy_nvidia:
     - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
     - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
     - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_remotedesktop:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG"
-    - docker build ./RemoteDesktop -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/remotedesktop:$TAG temp.tar
     - rm ./temp.tar
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
@@ -344,23 +233,6 @@ deploy_youtubedl:
     - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
     - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
     - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-
-deploy_zot:
-  stage: deploy
-  needs:
-    - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG"
-    - docker build ./Zot -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/zot:$TAG temp.tar
     - rm ./temp.tar
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
