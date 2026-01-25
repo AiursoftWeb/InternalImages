@@ -4,6 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 COPY . .
 
+# Install regctl
 RUN curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >regctl && \
     chmod 755 regctl && \
     mv regctl /usr/local/bin/
@@ -34,7 +35,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
       dotnet10 && \
     rm -rf /var/lib/apt/lists/*
 
-
 # Python packages
 RUN pip install PyYAML
 
@@ -46,15 +46,11 @@ RUN dotnet tool install JetBrains.ReSharper.GlobalTools --global --add-source ht
 RUN npm config set registry https://npm.aiursoft.com && \
     npm install -g typescript ts-node npm yarn --loglevel verbose
 
+# Increase inotify limits
 RUN echo "fs.inotify.max_user_instances=524288" >> /etc/sysctl.conf && \
     echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf && \
     echo "fs.inotify.max_queued_events=524288" >> /etc/sysctl.conf && \
     sysctl -p
-
-# Replace ${arch} with any of the supported architectures, e.g. amd64, arm, arm64
-# A full list of architectures can be found here https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/index.html
-# curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner-helper-images.deb"
-# curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner_${arch}.deb"
 
 # Install GitLab Runner
 RUN curl -LJO "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner-helper-images.deb" && \
