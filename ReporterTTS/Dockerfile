@@ -1,54 +1,60 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
+# ==========================================
+# Build Stage (构建阶段)
+# ==========================================
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
 
-# 必要包：clickhouse-connect 做写入；tzdata 提供时区；watchdog/uvloop 可选
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git curl wget \
-        build-essential python3-dev \
+# 1. 安装构建所需的系统依赖
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    pkg-config \
+    libssl-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1
+# 2. 安装 Rust (使用 rustup)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-# 【删除这一行】
-# RUN pip install clickhouse-connect==0.8.18 uvloop==0.21.0 watchdog==6.0.0
-
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# 3. 设置工作目录
 WORKDIR /app
 
-ADD "https://api.github.com/repos/index-tts/index-tts/commits?per_page=1" latest_commit
-RUN git clone https://github.com/index-tts/index-tts.git
-
-WORKDIR /app/index-tts
-
-# 【修改这一段 RUN 命令】
-# 将所有依赖项统一用 uv 安装到虚拟环境中
-RUN . "$HOME/.local/bin/env" \
-	&& uv --version \
-	&& uv venv tts \
-	&& . "tts/bin/activate" \
-	&& uv pip install uvicorn fastapi clickhouse-connect uvloop \
-	&& uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118 \
-	&& uv pip install -e .
-
-RUN . "$HOME/.local/bin/env" \
-	&& . "tts/bin/activate" \
-	&& hf download IndexTeam/IndexTTS-1.5 config.yaml bigvgan_discriminator.pth bigvgan_generator.pth bpe.model dvae.pth gpt.pth unigram_12000.vocab --local-dir checkpoints
-
+# 4. 复制项目文件
+# 为了利用 Docker 缓存，建议先复制 Cargo 配置文件下载依赖（可选优化），
+# 但为了简单起见，这里直接复制所有文件
 COPY . .
 
-# 默认环境变量（可在 compose/Swarm 覆盖）
-ENV CLICKHOUSE_URL=http://clickhouse:8123 \
-    CLICKHOUSE_USER=default \
-    CLICKHOUSE_PASSWORD=123456 \
-    CLICKHOUSE_DATABASE=logs \
-    CLICKHOUSE_TABLE=tts_requests \
-    BATCH_SIZE=1000 \
-    FLUSH_INTERVAL_SEC=2 \
-    TZ="UTC"
+# 5. 编译 Server (CUDA 版本)
+# 注意：如果需要 Flash Attention (更极端的性能)，可以添加 --features flash-attn
+# 但这会显著增加编译时间和内存消耗(需16GB+ RAM)，因此默认仅开启 cuda
+RUN cargo build --release --bin server --features cuda
 
-EXPOSE 8000
-CMD ["/app/index-tts/tts/bin/uvicorn","main:app","--host","0.0.0.0","--port", "8000"]
+# ==========================================
+# Runtime Stage (运行阶段)
+# ==========================================
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=3 \
-  CMD curl --fail http://localhost:8000/health || exit 1
+# 1. 安装运行时依赖 (主要是 SSL 和 CA 证书，用于下载模型)
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 2. 从构建阶段复制编译好的二进制文件
+COPY --from=builder /app/target/release/server /usr/local/bin/server
+
+# 3. 复制 voice-template 目录 (运行时需要)
+COPY --from=builder /app/voices-template /app/voices-template
+
+# 4. 创建模型缓存目录 (用于挂载 Volume)
+RUN mkdir -p /root/.cache/huggingface /root/.cache/candle
+
+# 5. 暴露端口
+EXPOSE 3000
+
+# 6. 设置入口点
+# 默认使用 voices-template 目录启动
+ENTRYPOINT ["server"]
+CMD ["--voice-dir", "voices-template"]
