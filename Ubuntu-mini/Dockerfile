@@ -1,10 +1,17 @@
 FROM hub.aiursoft.com/ubuntu:25.10
 
+COPY source.list /tmp/new_sources.list
+
 RUN apt-get update && \
-    apt install -y bash unzip wget curl ca-certificates apt-transport-https
-
-COPY source.list /etc/apt/sources.list
-RUN rm /etc/apt/sources.list.d/*
-
-RUN apt upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        apt-transport-https \
+        bash \
+        unzip \
+        wget \
+        curl && \
+    mv /tmp/new_sources.list /etc/apt/sources.list && \
+    rm -rf /etc/apt/sources.list.d/* && \
+    apt-get update && \
+    apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
