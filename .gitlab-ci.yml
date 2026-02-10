@@ -39,6 +39,26 @@ deploy_ubuntu_with_docker:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
+deploy_ubuntu_mini:
+  stage: deploy
+  needs:
+    - deploy_ubuntu
+  script:
+    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
+        echo "CI pipeline will only run for the Aiursoft namespace.";
+        exit 1;
+      fi
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/Ubuntu-mini:$TAG"
+    - docker build ./Ubuntu-mini -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/Ubuntu-mini:$TAG
+    - echo "Logging in to Docker Registry..."
+    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
+    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/Ubuntu-mini:$TAG
+    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/Ubuntu-mini:$TAG temp.tar
+    - rm ./temp.tar
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
 deploy_exp_ppa_mirror:
   stage: deploy
   needs:
@@ -121,7 +141,7 @@ deploy_dotnet:
 deploy_dotnet_only_runtime:
   stage: deploy
   needs:
-    - deploy_ubuntu
+    - deploy_ubuntu_mini
   script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
         echo "CI pipeline will only run for the Aiursoft namespace."; exit 1;
