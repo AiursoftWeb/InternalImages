@@ -1,7 +1,10 @@
 FROM hub.aiursoft.com/nvidia/cuda:12.6.2-devel-ubuntu24.04
 
-COPY source.list /etc/apt/sources.list
-RUN rm -v /etc/apt/sources.list.d/ubuntu*
+COPY source.list /tmp/source.list
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        mv /tmp/source.list /etc/apt/sources.list && \
+        rm -v /etc/apt/sources.list.d/ubuntu*; \
+    fi
 RUN apt-get update
 RUN apt-get upgrade -y
 

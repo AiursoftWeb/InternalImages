@@ -1,290 +1,158 @@
+variables:
+  BUILDER_NAME: "builder-${CI_JOB_ID}"
+
 stages:
   - deploy
 
-deploy_ubuntu:
+.deploy_template:
   stage: deploy
-  script:
+  before_script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
         echo "CI pipeline will only run for the Aiursoft namespace.";
         exit 1;
       fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:$TAG"
-    - docker build ./Ubuntu -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:$TAG
+    - docker run --privileged --rm tonistiigi/binfmt --install all
+    - docker buildx create --use --name $BUILDER_NAME --driver docker-container
+    - docker buildx inspect --bootstrap
     - echo "Logging in to Docker Registry..."
     - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu:$TAG temp.tar
-    - rm ./temp.tar
+  script:
+    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
+    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
+    - docker buildx build $CONTEXT --platform linux/amd64,linux/arm64 -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
+  after_script:
+    - docker buildx rm $BUILDER_NAME || true
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
+
+deploy_ubuntu:
+  extends: .deploy_template
+  variables:
+    IMAGE_NAME: "ubuntu"
+    CONTEXT: "./Ubuntu"
 
 deploy_ubuntu_with_docker:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:$TAG"
-    - docker build ./Ubuntu-with-docker -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-with-docker:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "ubuntu-with-docker"
+    CONTEXT: "./Ubuntu-with-docker"
 
 deploy_ubuntu_mini:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-mini:$TAG"
-    - docker build ./Ubuntu-mini -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-mini:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-mini:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/ubuntu-mini:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "ubuntu-mini"
+    CONTEXT: "./Ubuntu-mini"
 
 deploy_exp_ppa_mirror:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-ppa-mirror:$TAG"
-    - docker build ./ExpPpaMirror -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-ppa-mirror:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-ppa-mirror:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/exp-ppa-mirror:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "exp-ppa-mirror"
+    CONTEXT: "./ExpPpaMirror"
 
 deploy_lab:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG"
-    - docker build ./Lab -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/lab:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "lab"
+    CONTEXT: "./Lab"
 
 deploy_kiwix:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace.";
-        exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:$TAG"
-    - docker build ./Kiwix -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kiwix:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "kiwix"
+    CONTEXT: "./Kiwix"
 
 deploy_dotnet:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace."; exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG"
-    - docker build ./Dotnet -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnet:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "dotnet"
+    CONTEXT: "./Dotnet"
 
 deploy_dotnet_only_runtime:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu_mini
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
-        echo "CI pipeline will only run for the Aiursoft namespace."; exit 1;
-      fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnetonlyruntime:$TAG"
-    - docker build ./DotnetOnlyRuntime -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnetonlyruntime:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnetonlyruntime:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/dotnetonlyruntime:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "dotnetonlyruntime"
+    CONTEXT: "./DotnetOnlyRuntime"
 
 deploy_gateway:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG"
-    - docker build ./Gateway -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gateway:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "gateway"
+    CONTEXT: "./Gateway"
 
 deploy_gateway_docker_hub:
-  stage: deploy
+  extends: .deploy_template
   needs: 
     - deploy_gateway
+  before_script:
+    - docker run --privileged --rm tonistiigi/binfmt --install all
+    - docker buildx create --use --name $BUILDER_NAME --driver docker-container
+    - docker buildx inspect --bootstrap
+    - echo "Logging in to Docker Hub..."
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
   script:
     - if [ "$CI_PROJECT_NAMESPACE" = "anduin" ]; then NAMESPACE="anduin2019"; else NAMESPACE="$CI_PROJECT_NAMESPACE"; fi
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
     - echo building image $NAMESPACE/gateway:$TAG
-    - docker build ./Gateway -t $NAMESPACE/gateway:$TAG
-    - echo "Logging in to Docker Hub..."
-    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    - docker push $NAMESPACE/gateway:$TAG
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+    - docker buildx build ./Gateway --platform linux/amd64,linux/arm64 -t $NAMESPACE/gateway:$TAG --push
 
 deploy_gitmirror:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG"
-    - docker build ./GitMirror -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/gitmirror:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "gitmirror"
+    CONTEXT: "./GitMirror"
 
 deploy_minecraft:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG"
-    - docker build ./Minecraft -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/minecraft:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "minecraft"
+    CONTEXT: "./Minecraft"
 
 deploy_nvidia:
-  stage: deploy
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG"
-    - docker build ./Nvidia -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/nvidia:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  extends: .deploy_template
+  variables:
+    IMAGE_NAME: "nvidia"
+    CONTEXT: "./Nvidia"
 
 deploy_swinir:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_nvidia
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG"
-    - docker build ./SwinIR -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/swinir:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "swinir"
+    CONTEXT: "./SwinIR"
 
 deploy_youtubedl:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_ubuntu
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG"
-    - docker build ./Youtubedl -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/youtubedl:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "youtubedl"
+    CONTEXT: "./Youtubedl"
 
 deploy_reportertts:
-  stage: deploy
+  extends: .deploy_template
   needs:
     - deploy_nvidia
-  script:
-    - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then echo "CI pipeline will only run for the Aiursoft namespace."; exit 1; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG"
-    - docker build ./ReporterTTS -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG
-    - echo "Logging in to Docker Registry..."
-    - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
-    - docker save -o temp.tar hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG
-    - regctl image import hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/reportertts:$TAG temp.tar
-    - rm ./temp.tar
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    IMAGE_NAME: "reportertts"
+    CONTEXT: "./ReporterTTS"

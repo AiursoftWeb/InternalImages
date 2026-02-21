@@ -10,8 +10,10 @@ RUN apt-get update && \
         unzip \
         wget \
         curl && \
-    mv /tmp/new_sources.list /etc/apt/sources.list && \
-    rm -rf /etc/apt/sources.list.d/* && \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+        mv /tmp/new_sources.list /etc/apt/sources.list && \
+        rm -rf /etc/apt/sources.list.d/*; \
+    fi && \
     apt-get update && \
     apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
