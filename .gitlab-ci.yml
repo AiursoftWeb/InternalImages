@@ -1,6 +1,3 @@
-variables:
-  BUILDER_NAME: "builder-${CI_JOB_ID}"
-
 stages:
   - deploy
 
@@ -11,17 +8,13 @@ stages:
         echo "CI pipeline will only run for the Aiursoft namespace.";
         exit 1;
       fi
-    - docker run --privileged --rm tonistiigi/binfmt --install all
-    - docker buildx create --use --name $BUILDER_NAME --driver docker-container
-    - docker buildx inspect --bootstrap
     - echo "Logging in to Docker Registry..."
     - echo "$LOCAL_DOCKER_PASSWORD" | docker login hub.aiursoft.com -u "$LOCAL_DOCKER_USERNAME" --password-stdin
+    - docker buildx use aiur-global-builder
   script:
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
     - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
     - docker buildx build $CONTEXT --platform linux/amd64,linux/arm64 -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
-  after_script:
-    - docker buildx rm $BUILDER_NAME || true
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
