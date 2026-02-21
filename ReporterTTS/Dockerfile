@@ -28,7 +28,11 @@ RUN . "$HOME/.local/bin/env" \
 	&& uv venv tts \
 	&& . "tts/bin/activate" \
 	&& uv pip install uvicorn fastapi clickhouse-connect uvloop \
-	&& uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118 \
+	&& if [ "$(uname -m)" = "x86_64" ]; then \
+		uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118; \
+	else \
+		uv pip install torch torchaudio; \
+	fi \
 	&& uv pip install -e .
 
 RUN . "$HOME/.local/bin/env" \
