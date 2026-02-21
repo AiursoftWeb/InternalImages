@@ -95,22 +95,6 @@ deploy_gateway:
     IMAGE_NAME: "gateway"
     CONTEXT: "./Gateway"
 
-deploy_gateway_docker_hub:
-  extends: .deploy_template
-  needs: 
-    - deploy_gateway
-  before_script:
-    - docker run --privileged --rm tonistiigi/binfmt --install all
-    - docker buildx create --use --name $BUILDER_NAME --driver docker-container
-    - docker buildx inspect --bootstrap
-    - echo "Logging in to Docker Hub..."
-    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-  script:
-    - if [ "$CI_PROJECT_NAMESPACE" = "anduin" ]; then NAMESPACE="anduin2019"; else NAMESPACE="$CI_PROJECT_NAMESPACE"; fi
-    - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo building image $NAMESPACE/gateway:$TAG
-    - docker buildx build ./Gateway --platform linux/amd64,linux/arm64 -t $NAMESPACE/gateway:$TAG --push
-
 deploy_gitmirror:
   extends: .deploy_template
   needs:
