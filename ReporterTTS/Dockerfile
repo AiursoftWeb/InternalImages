@@ -13,7 +13,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
 
 ADD "https://api.github.com/repos/index-tts/index-tts/commits?per_page=1" latest_commit
-RUN git clone https://github.com/index-tts/index-tts.git
+RUN git clone https://git.aiursoft.com/PublicVault/index-tts.git
 
 WORKDIR /app/index-tts
 

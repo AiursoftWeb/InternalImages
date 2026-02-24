@@ -3,9 +3,11 @@
 ReporterTTS – Web-based Text-to-Speech service powered by IndexTTS.
 
 Features:
-  • Web portal for voice management and TTS generation
-  • REST API for programmatic access
+  • Web portal with advanced parameter tuning for TTS generation
+  • Voice profile management (upload / list / delete)
   • GPU / CPU auto-detection with system info display
+  • Both standard and fast (batched-bucket) inference modes
+  • Full GPT-2 sampling parameter exposure
 """
 
 import os
@@ -14,10 +16,11 @@ import time
 import shutil
 import logging
 import platform
+from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from indextts.infer import IndexTTS
 
@@ -29,6 +32,22 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 VOICES_DIR = os.path.join(DATA_DIR, "voices")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
+
+# ── Default generation parameters (IndexTTS best-practice values) ────────────
+# These match the defaults used in IndexTTS's own WebUI / source code.
+DEFAULTS = {
+    "temperature": 1.0,       # Sampling temperature. Higher → more diverse but less stable.
+    "top_p": 0.8,             # Nucleus sampling probability mass.
+    "top_k": 30,              # Top-K sampling. 0 = disabled.
+    "do_sample": True,        # Enable stochastic sampling. False = greedy / beam only.
+    "num_beams": 3,           # Beam search width. 1 = no beam search.
+    "repetition_penalty": 10.0,  # Penalise repeated mel-tokens strongly to avoid loops.
+    "length_penalty": 0.0,    # Encourage longer (>0) or shorter (<0) sequences.
+    "max_mel_tokens": 600,    # Hard cap on generated mel tokens per segment.
+    "max_text_tokens_per_segment": 120,  # Text segmentation granularity (tokens).
+    "fast_mode": True,        # Use batched-bucket fast inference (2-10× speed-up).
+    "bucket_size": 4,         # Max batch size per bucket in fast mode.
+}
 
 
 # ── System Information ───────────────────────────────────────────────────────
@@ -46,7 +65,6 @@ def get_system_info() -> dict:
     }
     try:
         import torch
-
         if torch.cuda.is_available():
             info["device"] = "CUDA (GPU)"
             info["gpu_name"] = torch.cuda.get_device_name(0)
@@ -60,7 +78,7 @@ def get_system_info() -> dict:
 
 
 # ── Application ──────────────────────────────────────────────────────────────
-tts_model = None
+tts_model: Optional[IndexTTS] = None
 system_info: dict = {}
 
 
@@ -81,6 +99,10 @@ async def lifespan(app: FastAPI):
             raise FileNotFoundError("Model directory or config file not found.")
         tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
         logger.info("IndexTTS model initialized successfully!")
+        logger.info(
+            "  device=%s  fp16=%s  cuda_kernel=%s",
+            tts_model.device, tts_model.use_fp16, tts_model.use_cuda_kernel,
+        )
     except Exception as e:
         logger.error("IndexTTS model initialization failed: %s", e)
         tts_model = None
@@ -112,8 +134,12 @@ def web_portal():
 # ── API: System Info ─────────────────────────────────────────────────────────
 @app.get("/api/system")
 def api_system():
-    """Return system / hardware information."""
-    return {**system_info, "model_loaded": tts_model is not None}
+    """Return system / hardware information and default generation parameters."""
+    return {
+        **system_info,
+        "model_loaded": tts_model is not None,
+        "defaults": DEFAULTS,
+    }
 
 
 # ── API: Voice Management ───────────────────────────────────────────────────
@@ -161,10 +187,34 @@ def delete_voice(name: str):
     return {"status": "ok"}
 
 
-# ── API: Text-to-Speech ─────────────────────────────────────────────────────
+# ── API: Text-to-Speech (full parameter exposure) ───────────────────────────
 @app.post("/api/tts")
-def generate_speech(voice: str = Form(...), text: str = Form(...)):
-    """Generate speech from text using the selected voice profile."""
+def generate_speech(
+    # ── Required fields ──
+    voice: str = Form(...),
+    text: str = Form(...),
+    # ── GPT-2 sampling parameters ──
+    temperature: float = Form(default=DEFAULTS["temperature"]),
+    top_p: float = Form(default=DEFAULTS["top_p"]),
+    top_k: int = Form(default=DEFAULTS["top_k"]),
+    do_sample: bool = Form(default=DEFAULTS["do_sample"]),
+    num_beams: int = Form(default=DEFAULTS["num_beams"]),
+    repetition_penalty: float = Form(default=DEFAULTS["repetition_penalty"]),
+    length_penalty: float = Form(default=DEFAULTS["length_penalty"]),
+    max_mel_tokens: int = Form(default=DEFAULTS["max_mel_tokens"]),
+    # ── Text segmentation ──
+    max_text_tokens_per_segment: int = Form(default=DEFAULTS["max_text_tokens_per_segment"]),
+    # ── Inference mode ──
+    fast_mode: bool = Form(default=DEFAULTS["fast_mode"]),
+    bucket_size: int = Form(default=DEFAULTS["bucket_size"]),
+):
+    """
+    Generate speech from text using the selected voice and generation parameters.
+
+    Returns a WAV audio file. All parameters except ``voice`` and ``text``
+    are optional and fall back to sensible defaults derived from IndexTTS
+    best-practice values.
+    """
     if tts_model is None:
         raise HTTPException(503, "TTS model is not loaded.")
 
@@ -176,21 +226,63 @@ def generate_speech(voice: str = Form(...), text: str = Form(...)):
     if not text:
         raise HTTPException(400, "Text cannot be empty.")
 
+    # ── Clamp parameters to safe ranges ──────────────────────────────────
+    temperature = max(0.05, min(2.0, temperature))
+    top_p = max(0.0, min(1.0, top_p))
+    top_k = max(0, min(100, top_k))
+    num_beams = max(1, min(10, num_beams))
+    repetition_penalty = max(0.1, min(20.0, repetition_penalty))
+    length_penalty = max(-2.0, min(2.0, length_penalty))
+    max_mel_tokens = max(50, min(2000, max_mel_tokens))
+    max_text_tokens_per_segment = max(20, min(300, max_text_tokens_per_segment))
+    bucket_size = max(1, min(8, bucket_size))
+
+    generation_kwargs = {
+        "do_sample": do_sample,
+        "top_p": top_p,
+        "top_k": top_k if top_k > 0 else None,
+        "temperature": temperature,
+        "length_penalty": length_penalty,
+        "num_beams": num_beams,
+        "repetition_penalty": repetition_penalty,
+        "max_mel_tokens": max_mel_tokens,
+    }
+
     unique_filename = f"{uuid.uuid4()}.wav"
     output_path = os.path.join(OUTPUT_DIR, unique_filename)
 
     try:
         start = time.perf_counter()
-        tts_model.infer(str(voice_path), text, output_path)
+
+        if fast_mode:
+            tts_model.infer_fast(
+                str(voice_path), text, output_path,
+                verbose=False,
+                max_text_tokens_per_segment=max_text_tokens_per_segment,
+                segments_bucket_max_size=bucket_size,
+                **generation_kwargs,
+            )
+        else:
+            tts_model.infer(
+                str(voice_path), text, output_path,
+                verbose=False,
+                max_text_tokens_per_segment=max_text_tokens_per_segment,
+                **generation_kwargs,
+            )
+
         duration = time.perf_counter() - start
 
         if not os.path.exists(output_path):
             raise RuntimeError("Output file was not created.")
 
         file_size = os.path.getsize(output_path)
+        mode_label = "fast" if fast_mode else "standard"
         logger.info(
-            "TTS OK: voice=%s len=%d dur=%.1fs size=%d",
-            voice, len(text), duration, file_size,
+            "TTS OK [%s]: voice=%s chars=%d dur=%.1fs size=%d "
+            "temp=%.2f top_p=%.2f top_k=%s beams=%d rep_pen=%.1f mel_tok=%d seg_tok=%d",
+            mode_label, voice, len(text), duration, file_size,
+            temperature, top_p, top_k, num_beams,
+            repetition_penalty, max_mel_tokens, max_text_tokens_per_segment,
         )
         return FileResponse(
             output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"

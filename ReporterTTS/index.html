@@ -47,7 +47,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 .dot-green{background:#4ade80}.dot-yellow{background:#fbbf24}.dot-red{background:#f87171}.dot-blue{background:#60a5fa}
 
 /* ── Layout ───────────────────────────────────────────────────────────────── */
-.container{max-width:860px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.container{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
 .card{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
   padding:1.5rem;margin-bottom:1.25rem;box-shadow:var(--shadow);
@@ -80,18 +80,67 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 .btn-sm{padding:.35rem .7rem;font-size:.8rem;border-radius:6px}
 .btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}
 .btn-outline:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.btn-ghost{background:transparent;border:none;color:var(--text2);padding:.35rem .5rem;font-size:.82rem}
+.btn-ghost:hover{color:var(--accent)}
 
 /* ── Forms ────────────────────────────────────────────────────────────────── */
 .form-row{display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-bottom:.75rem}
 .form-group{display:flex;flex-direction:column;gap:.25rem;flex:1;min-width:160px}
 .form-group label{font-size:.82rem;font-weight:500;color:var(--text2)}
-input[type="text"],input[type="file"],select,textarea{
+input[type="text"],input[type="number"],input[type="file"],select,textarea{
   border:1.5px solid var(--border);border-radius:8px;padding:.55rem .75rem;
   font-size:.9rem;font-family:inherit;color:var(--text);
   background:var(--surface);transition:border-color .15s;width:100%;
 }
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
 textarea{resize:vertical;min-height:100px}
+
+/* ── Range sliders ────────────────────────────────────────────────────────── */
+.param-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.75rem}
+.param-item{
+  background:#f8fafc;border:1px solid var(--border);border-radius:8px;
+  padding:.65rem .8rem;display:flex;flex-direction:column;gap:.3rem;
+}
+.param-item .param-head{display:flex;justify-content:space-between;align-items:center}
+.param-item label{font-size:.82rem;font-weight:500;color:var(--text2);margin:0}
+.param-item .param-val{
+  font-size:.82rem;font-weight:600;color:var(--accent);
+  font-family:'SF Mono',Consolas,monospace;min-width:3.5em;text-align:right;
+}
+.param-item input[type="range"]{width:100%;accent-color:var(--accent);margin:0;cursor:pointer}
+.param-item .param-hint{font-size:.72rem;color:var(--text3);line-height:1.3}
+
+/* ── Toggles ──────────────────────────────────────────────────────────────── */
+.toggle-row{display:flex;align-items:center;gap:.6rem;padding:.4rem 0}
+.toggle{position:relative;width:40px;height:22px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle .slider{
+  position:absolute;inset:0;background:#cbd5e1;border-radius:22px;cursor:pointer;
+  transition:.2s;
+}
+.toggle .slider::before{
+  content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;
+  background:#fff;border-radius:50%;transition:.2s;
+}
+.toggle input:checked+.slider{background:var(--accent)}
+.toggle input:checked+.slider::before{transform:translateX(18px)}
+.toggle-label{font-size:.88rem;font-weight:500}
+.toggle-hint{font-size:.78rem;color:var(--text3)}
+
+/* ── Collapsible ──────────────────────────────────────────────────────────── */
+.collapsible{
+  border:1px solid var(--border);border-radius:8px;margin-top:.75rem;overflow:hidden;
+}
+.collapsible-header{
+  display:flex;align-items:center;gap:.5rem;padding:.65rem .9rem;
+  background:#f8fafc;cursor:pointer;font-size:.92rem;font-weight:500;
+  transition:background .15s;user-select:none;
+}
+.collapsible-header:hover{background:var(--accent-light)}
+.collapsible-header .arrow{font-size:.7rem;transition:transform .2s;color:var(--text3)}
+.collapsible.open .collapsible-header .arrow{transform:rotate(90deg)}
+.collapsible-body{padding:0 .9rem;max-height:0;overflow:hidden;transition:max-height .3s ease,padding .3s ease}
+.collapsible.open .collapsible-body{max-height:2000px;padding:.75rem .9rem}
 
 /* ── Audio player ─────────────────────────────────────────────────────────── */
 .audio-area{
@@ -134,6 +183,10 @@ textarea{resize:vertical;min-height:100px}
 }
 .api-section code{font-family:'SF Mono',Consolas,monospace;font-size:.85rem}
 .api-desc{padding:.6rem .75rem;color:var(--text2);font-size:.88rem}
+.api-param-table{width:100%;font-size:.82rem;border-collapse:collapse;margin:.5rem 0}
+.api-param-table th{text-align:left;padding:.35rem .5rem;color:var(--text2);font-weight:500;border-bottom:1px solid var(--border)}
+.api-param-table td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
+.api-param-table code{background:#f1f5f9;padding:.1rem .35rem;border-radius:3px;font-size:.8rem}
 
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 .footer{text-align:center;padding:1.5rem;color:var(--text3);font-size:.82rem}
@@ -154,6 +207,7 @@ textarea{resize:vertical;min-height:100px}
   .header h1{font-size:1.5rem}
   .form-row{flex-direction:column}
   .form-group{min-width:100%}
+  .param-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -163,7 +217,7 @@ textarea{resize:vertical;min-height:100px}
 <div class="header">
   <h1>🎙️ ReporterTTS</h1>
   <p>基于 IndexTTS 的文字转语音服务</p>
-  <p class="subtitle">上传声纹 · 输入文字 · 生成语音</p>
+  <p class="subtitle">上传声纹 · 调整参数 · 生成高质量语音</p>
   <div class="sys-badges" id="sysBadges">
     <span class="badge"><span class="dot dot-blue"></span>加载中…</span>
   </div>
@@ -183,11 +237,99 @@ textarea{resize:vertical;min-height:100px}
     </div>
     <div class="form-group" style="margin-bottom:.75rem">
       <label for="ttsText">输入文字</label>
-      <textarea id="ttsText" placeholder="在这里输入你希望转为语音的文字…"></textarea>
+      <textarea id="ttsText" placeholder="在这里输入你希望转为语音的文字…&#10;&#10;支持中文、英文及混合文本。长文本会自动分句处理。"></textarea>
     </div>
-    <button class="btn btn-primary" id="ttsBtn" onclick="doTTS()">
-      ✨ 生成语音
-    </button>
+
+    <!-- ── Advanced Settings (Collapsible) ──────────────────────────── -->
+    <div class="collapsible" id="advancedPanel">
+      <div class="collapsible-header" onclick="toggleAdvanced()">
+        <span class="arrow">▸</span>
+        ⚙️ 高级生成参数
+        <span style="margin-left:auto;font-size:.78rem;color:var(--text3)">点击展开 / 折叠</span>
+      </div>
+      <div class="collapsible-body">
+        <!-- Toggle row: fast mode -->
+        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:.75rem">
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="fastMode" checked><span class="slider"></span></label>
+            <div>
+              <div class="toggle-label">快速推理模式</div>
+              <div class="toggle-hint">对长文本使用 batched-bucket 推理，可加速 2-10 倍</div>
+            </div>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" id="doSample" checked><span class="slider"></span></label>
+            <div>
+              <div class="toggle-label">随机采样</div>
+              <div class="toggle-hint">关闭后使用贪心 / 束搜索，输出更确定但多样性降低</div>
+            </div>
+          </div>
+        </div>
+
+        <p style="font-size:.82rem;font-weight:500;color:var(--text2);margin-bottom:.5rem">🎛️ GPT-2 采样参数</p>
+        <div class="param-grid">
+          <div class="param-item">
+            <div class="param-head"><label>Temperature</label><span class="param-val" id="val_temperature">1.0</span></div>
+            <input type="range" id="temperature" min="0.1" max="2.0" step="0.05" value="1.0" oninput="syncVal(this)">
+            <div class="param-hint">采样温度：越高越多样/随机，越低越稳定/保守。推荐 0.7–1.2</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>Top-P (Nucleus)</label><span class="param-val" id="val_top_p">0.8</span></div>
+            <input type="range" id="top_p" min="0.0" max="1.0" step="0.01" value="0.8" oninput="syncVal(this)">
+            <div class="param-hint">仅从累积概率前 P 的 token 中采样。越低越聚焦</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>Top-K</label><span class="param-val" id="val_top_k">30</span></div>
+            <input type="range" id="top_k" min="0" max="100" step="1" value="30" oninput="syncVal(this)">
+            <div class="param-hint">仅从概率最高的 K 个 token 中采样。0 = 不限制</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>Num Beams</label><span class="param-val" id="val_num_beams">3</span></div>
+            <input type="range" id="num_beams" min="1" max="10" step="1" value="3" oninput="syncVal(this)">
+            <div class="param-hint">束搜索宽度。1 = 无束搜索，越大越慢但可能更稳定</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>Repetition Penalty</label><span class="param-val" id="val_repetition_penalty">10.0</span></div>
+            <input type="range" id="repetition_penalty" min="1.0" max="20.0" step="0.5" value="10.0" oninput="syncVal(this)">
+            <div class="param-hint">重复惩罚：防止 mel-token 循环/重复。太低可能导致重复噪音</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>Length Penalty</label><span class="param-val" id="val_length_penalty">0.0</span></div>
+            <input type="range" id="length_penalty" min="-2.0" max="2.0" step="0.1" value="0.0" oninput="syncVal(this)">
+            <div class="param-hint">长度偏好：&gt;0 倾向更长输出，&lt;0 倾向更短</div>
+          </div>
+        </div>
+
+        <p style="font-size:.82rem;font-weight:500;color:var(--text2);margin:.75rem 0 .5rem">📐 分句与生成长度</p>
+        <div class="param-grid">
+          <div class="param-item">
+            <div class="param-head"><label>Max Mel Tokens</label><span class="param-val" id="val_max_mel_tokens">600</span></div>
+            <input type="range" id="max_mel_tokens" min="100" max="2000" step="50" value="600" oninput="syncVal(this)">
+            <div class="param-hint">单句生成 mel-token 上限。过小会截断音频，过大则增加推理时间</div>
+          </div>
+          <div class="param-item">
+            <div class="param-head"><label>每句最大 Token 数</label><span class="param-val" id="val_seg_tokens">120</span></div>
+            <input type="range" id="seg_tokens" min="20" max="300" step="5" value="120" oninput="syncVal(this)">
+            <div class="param-hint">文本分句粒度。80–200 较佳。过大过小均影响质量</div>
+          </div>
+          <div class="param-item" id="bucketSizeItem">
+            <div class="param-head"><label>Bucket Size (快速模式)</label><span class="param-val" id="val_bucket_size">4</span></div>
+            <input type="range" id="bucket_size" min="1" max="8" step="1" value="4" oninput="syncVal(this)">
+            <div class="param-hint">快速推理分桶大小。越大越快但占用更多显存</div>
+          </div>
+        </div>
+
+        <div style="margin-top:.75rem;text-align:right">
+          <button class="btn btn-ghost" onclick="resetDefaults()">↻ 恢复默认值</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:.85rem">
+      <button class="btn btn-primary" id="ttsBtn" onclick="doTTS()">
+        ✨ 生成语音
+      </button>
+    </div>
 
     <div class="audio-area" id="audioArea">
       <p style="font-size:.85rem;color:var(--text2);margin-bottom:.3rem">🎧 生成结果</p>
@@ -218,7 +360,7 @@ textarea{resize:vertical;min-height:100px}
       <button class="btn btn-primary" onclick="uploadVoice()">📤 上传</button>
     </div>
     <p style="font-size:.78rem;color:var(--text3);margin-top:.3rem">
-      提示：上传一段 5-15 秒的清晰语音作为声纹参考（.wav 格式）。名称仅允许字母、数字、连字符和下划线。
+      提示：上传一段 5–15 秒的清晰语音作为声纹参考（.wav 格式）。名称仅允许字母、数字、连字符和下划线。
     </p>
   </div>
 
@@ -230,21 +372,55 @@ textarea{resize:vertical;min-height:100px}
     </p>
 
     <details>
-      <summary><span class="method method-post">POST</span> <code>/api/tts</code> — 文字转语音</summary>
+      <summary><span class="method method-post">POST</span> <code>/api/tts</code> — 文字转语音（支持全部高级参数）</summary>
       <div class="api-desc">
-        发送表单数据，返回 WAV 音频文件。
+        发送表单数据，返回 WAV 音频文件。除 <code>voice</code> 和 <code>text</code> 外，其余参数均为可选。
       </div>
+      <table class="api-param-table">
+        <thead><tr><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>voice</code></td><td>string</td><td>—</td><td><strong>必填</strong>，声纹名称</td></tr>
+          <tr><td><code>text</code></td><td>string</td><td>—</td><td><strong>必填</strong>，要合成的文字</td></tr>
+          <tr><td><code>temperature</code></td><td>float</td><td>1.0</td><td>采样温度 (0.05–2.0)</td></tr>
+          <tr><td><code>top_p</code></td><td>float</td><td>0.8</td><td>Nucleus 采样概率 (0–1)</td></tr>
+          <tr><td><code>top_k</code></td><td>int</td><td>30</td><td>Top-K 采样 (0=不限)</td></tr>
+          <tr><td><code>do_sample</code></td><td>bool</td><td>true</td><td>是否随机采样</td></tr>
+          <tr><td><code>num_beams</code></td><td>int</td><td>3</td><td>束搜索宽度 (1–10)</td></tr>
+          <tr><td><code>repetition_penalty</code></td><td>float</td><td>10.0</td><td>重复惩罚 (0.1–20)</td></tr>
+          <tr><td><code>length_penalty</code></td><td>float</td><td>0.0</td><td>长度偏好 (-2–2)</td></tr>
+          <tr><td><code>max_mel_tokens</code></td><td>int</td><td>600</td><td>单句 mel-token 上限 (50–2000)</td></tr>
+          <tr><td><code>max_text_tokens_per_segment</code></td><td>int</td><td>120</td><td>分句粒度 (20–300)</td></tr>
+          <tr><td><code>fast_mode</code></td><td>bool</td><td>true</td><td>启用 batched-bucket 快速推理</td></tr>
+          <tr><td><code>bucket_size</code></td><td>int</td><td>4</td><td>快速推理分桶大小 (1–8)</td></tr>
+        </tbody>
+      </table>
       <pre>
-# 使用 curl
+# 基础调用
 curl -X POST http://HOST:8000/api/tts \
   -F "voice=reporter-zh" \
   -F "text=你好，欢迎使用语音合成服务。" \
   --output speech.wav
 
-# 使用 Python requests
+# 高级调用：低温度 + 高重复惩罚，生成更稳定的语音
+curl -X POST http://HOST:8000/api/tts \
+  -F "voice=reporter-zh" \
+  -F "text=各位观众大家好，欢迎收看今天的新闻。" \
+  -F "temperature=0.7" \
+  -F "top_p=0.9" \
+  -F "repetition_penalty=12.0" \
+  -F "max_mel_tokens=800" \
+  -F "fast_mode=true" \
+  --output news.wav
+
+# Python
 import requests
-resp = requests.post("http://HOST:8000/api/tts",
-    data={"voice": "reporter-zh", "text": "你好，世界！"})
+resp = requests.post("http://HOST:8000/api/tts", data={
+    "voice": "reporter-zh",
+    "text": "你好，世界！",
+    "temperature": 0.8,
+    "top_p": 0.85,
+    "fast_mode": True,
+})
 with open("speech.wav", "wb") as f:
     f.write(resp.content)</pre>
     </details>
@@ -252,16 +428,13 @@ with open("speech.wav", "wb") as f:
     <details>
       <summary><span class="method method-get">GET</span> <code>/api/voices</code> — 获取声纹列表</summary>
       <div class="api-desc">返回 JSON 数组，每个元素包含 <code>name</code>、<code>filename</code>、<code>size_kb</code>。</div>
-      <pre>
-curl http://HOST:8000/api/voices
-# [{"name":"reporter-zh","filename":"reporter-zh.wav","size_kb":245.3}]</pre>
+      <pre>curl http://HOST:8000/api/voices</pre>
     </details>
 
     <details>
       <summary><span class="method method-post">POST</span> <code>/api/voices</code> — 上传声纹</summary>
       <div class="api-desc">上传 .wav 文件并指定声纹名称（表单字段 <code>name</code> + <code>file</code>）。</div>
-      <pre>
-curl -X POST http://HOST:8000/api/voices \
+      <pre>curl -X POST http://HOST:8000/api/voices \
   -F "name=my-voice" \
   -F "file=@/path/to/voice.wav"</pre>
     </details>
@@ -269,22 +442,19 @@ curl -X POST http://HOST:8000/api/voices \
     <details>
       <summary><span class="method method-delete">DELETE</span> <code>/api/voices/{name}</code> — 删除声纹</summary>
       <div class="api-desc">按名称删除指定声纹。</div>
-      <pre>
-curl -X DELETE http://HOST:8000/api/voices/my-voice</pre>
+      <pre>curl -X DELETE http://HOST:8000/api/voices/my-voice</pre>
     </details>
 
     <details>
-      <summary><span class="method method-get">GET</span> <code>/api/system</code> — 系统信息</summary>
-      <div class="api-desc">返回设备类型、GPU 型号、CUDA 版本等信息。</div>
-      <pre>
-curl http://HOST:8000/api/system</pre>
+      <summary><span class="method method-get">GET</span> <code>/api/system</code> — 系统信息与默认参数</summary>
+      <div class="api-desc">返回设备类型、GPU 型号、CUDA 版本、模型状态，以及所有默认生成参数。</div>
+      <pre>curl http://HOST:8000/api/system</pre>
     </details>
 
     <details>
       <summary><span class="method method-get">GET</span> <code>/health</code> — 健康检查</summary>
       <div class="api-desc">返回 <code>{"status":"ok"}</code> 或 <code>{"status":"degraded"}</code>。</div>
-      <pre>
-curl http://HOST:8000/health</pre>
+      <pre>curl http://HOST:8000/health</pre>
     </details>
   </div>
 
@@ -300,6 +470,14 @@ curl http://HOST:8000/health</pre>
 
 <!-- ═══ JavaScript ════════════════════════════════════════════════════════ -->
 <script>
+// ── Defaults (will be overwritten from server) ──────────────────────────
+let DEFAULTS = {
+  temperature: 1.0, top_p: 0.8, top_k: 30, do_sample: true,
+  num_beams: 3, repetition_penalty: 10.0, length_penalty: 0.0,
+  max_mel_tokens: 600, max_text_tokens_per_segment: 120,
+  fast_mode: true, bucket_size: 4,
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 function toast(msg, type='info') {
   const c = document.getElementById('toastContainer');
@@ -310,6 +488,34 @@ function toast(msg, type='info') {
   setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 3500);
 }
 
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function syncVal(el) {
+  const display = document.getElementById('val_' + el.id);
+  if (display) display.textContent = el.value;
+}
+
+function toggleAdvanced() {
+  document.getElementById('advancedPanel').classList.toggle('open');
+}
+
+function resetDefaults() {
+  document.getElementById('temperature').value = DEFAULTS.temperature;
+  document.getElementById('top_p').value = DEFAULTS.top_p;
+  document.getElementById('top_k').value = DEFAULTS.top_k;
+  document.getElementById('doSample').checked = DEFAULTS.do_sample;
+  document.getElementById('num_beams').value = DEFAULTS.num_beams;
+  document.getElementById('repetition_penalty').value = DEFAULTS.repetition_penalty;
+  document.getElementById('length_penalty').value = DEFAULTS.length_penalty;
+  document.getElementById('max_mel_tokens').value = DEFAULTS.max_mel_tokens;
+  document.getElementById('seg_tokens').value = DEFAULTS.max_text_tokens_per_segment;
+  document.getElementById('fastMode').checked = DEFAULTS.fast_mode;
+  document.getElementById('bucket_size').value = DEFAULTS.bucket_size;
+  // sync displayed values
+  document.querySelectorAll('.param-item input[type=range]').forEach(el => syncVal(el));
+  toast('参数已恢复默认值', 'info');
+}
+
 // ── System Info ──────────────────────────────────────────────────────────
 async function loadSystemInfo() {
   try {
@@ -318,21 +524,21 @@ async function loadSystemInfo() {
     const el = document.getElementById('sysBadges');
     let html = '';
 
-    // Device badge
     const isGPU = d.device && d.device.includes('GPU');
     html += `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device}</span>`;
-
     if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
     if (d.gpu_memory) html += `<span class="badge"><span class="dot dot-blue"></span>显存 ${d.gpu_memory}</span>`;
     if (d.cuda_version) html += `<span class="badge"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
-
-    // Model status
     const mOk = d.model_loaded;
     html += `<span class="badge"><span class="dot ${mOk?'dot-green':'dot-red'}"></span>模型 ${mOk?'已就绪':'未加载'}</span>`;
-
     html += `<span class="badge"><span class="dot dot-blue"></span>${d.arch || ''} · Python ${d.python || ''}</span>`;
-
     el.innerHTML = html;
+
+    // Update defaults from server
+    if (d.defaults) {
+      DEFAULTS = d.defaults;
+      resetDefaults();
+    }
   } catch(e) {
     document.getElementById('sysBadges').innerHTML =
       '<span class="badge"><span class="dot dot-red"></span>无法连接服务</span>';
@@ -347,7 +553,6 @@ async function loadVoices() {
     const el = document.getElementById('voiceList');
     const sel = document.getElementById('ttsVoice');
 
-    // Populate table
     if (voices.length === 0) {
       el.innerHTML = '<p class="empty-msg">暂无声纹，请先上传一个 .wav 声纹文件。</p>';
     } else {
@@ -363,7 +568,6 @@ async function loadVoices() {
       el.innerHTML = html;
     }
 
-    // Populate select
     const prev = sel.value;
     sel.innerHTML = voices.length === 0
       ? '<option value="">— 请先上传声纹 —</option>'
@@ -428,6 +632,18 @@ async function doTTS() {
     const fd = new FormData();
     fd.append('voice', voice);
     fd.append('text', text);
+    // Advanced parameters
+    fd.append('temperature', document.getElementById('temperature').value);
+    fd.append('top_p', document.getElementById('top_p').value);
+    fd.append('top_k', document.getElementById('top_k').value);
+    fd.append('do_sample', document.getElementById('doSample').checked);
+    fd.append('num_beams', document.getElementById('num_beams').value);
+    fd.append('repetition_penalty', document.getElementById('repetition_penalty').value);
+    fd.append('length_penalty', document.getElementById('length_penalty').value);
+    fd.append('max_mel_tokens', document.getElementById('max_mel_tokens').value);
+    fd.append('max_text_tokens_per_segment', document.getElementById('seg_tokens').value);
+    fd.append('fast_mode', document.getElementById('fastMode').checked);
+    fd.append('bucket_size', document.getElementById('bucket_size').value);
 
     const r = await fetch('/api/tts', { method: 'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
@@ -452,9 +668,6 @@ async function doTTS() {
     btn.innerHTML = '✨ 生成语音';
   }
 }
-
-// ── Escape HTML ──────────────────────────────────────────────────────────
-function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
 // ── Init ─────────────────────────────────────────────────────────────────
 loadSystemInfo();
