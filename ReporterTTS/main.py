@@ -26,8 +26,9 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(me
 logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────────────
-OUTPUT_DIR = "output_audios"
-VOICES_DIR = os.getenv("VOICES_DIR", "voices")
+DATA_DIR = os.getenv("DATA_DIR", "/data")
+VOICES_DIR = os.path.join(DATA_DIR, "voices")
+OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
 
 
 # ── System Information ───────────────────────────────────────────────────────

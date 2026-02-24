@@ -35,9 +35,9 @@ RUN . "$HOME/.local/bin/env" \
 
 COPY . .
 
-VOLUME /app/index-tts/voices
+VOLUME /data
 
-ENV VOICES_DIR=/app/index-tts/voices \
+ENV DATA_DIR=/data \
     TZ="UTC"
 
 EXPOSE 8000
