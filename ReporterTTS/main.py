@@ -1,136 +1,78 @@
 #!/usr/bin/env python3
+"""
+ReporterTTS – Web-based Text-to-Speech service powered by IndexTTS.
+
+Features:
+  • Web portal for voice management and TTS generation
+  • REST API for programmatic access
+  • GPU / CPU auto-detection with system info display
+"""
+
 import os
 import uuid
 import time
-import signal
-import asyncio
+import shutil
 import logging
+import platform
+from pathlib import Path
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
-import uvloop
-from clickhouse_connect import get_client
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from indextts.infer import IndexTTS
 
-# === Logging setup ===
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(asctime)s %(message)s')
+# ── Logging ──────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# === Configuration ===
+# ── Configuration ────────────────────────────────────────────────────────────
 OUTPUT_DIR = "output_audios"
-# ClickHouse Logger Configuration (using the same env var names)
-CH_URL = os.getenv('CLICKHOUSE_URL', 'http://clickhouse:8123')
-CH_USER = os.getenv('CLICKHOUSE_USER', 'default')
-CH_PASS = os.getenv('CLICKHOUSE_PASSWORD', '')
-CH_DB = os.getenv('CLICKHOUSE_DATABASE', 'logs')
-CH_TABLE = os.getenv('CLICKHOUSE_TABLE', 'tts_requests')
-BATCH_SIZE = int(os.getenv('BATCH_SIZE', '1000'))
-FLUSH_INTERVAL = float(os.getenv('FLUSH_INTERVAL_SEC', '2'))
+VOICES_DIR = os.getenv("VOICES_DIR", "voices")
 
-# Columns in ClickHouse order for tts_requests table
-COLUMNS = [
-    'ts', 'request_id', 'client_ip', 'request_text', 'reference_voice',
-    'duration_ms', 'is_success', 'status_code', 'error_message',
-    'output_filesize_bytes', 'output_filename'
-]
 
-# === ClickHouse Async Logger ===
-class AsyncTTSLogger:
-    _instance = None
+# ── System Information ───────────────────────────────────────────────────────
+def get_system_info() -> dict:
+    """Detect hardware and return a summary dict."""
+    info: dict = {
+        "platform": platform.platform(),
+        "arch": platform.machine(),
+        "python": platform.python_version(),
+        "device": "CPU",
+        "gpu_name": None,
+        "gpu_count": 0,
+        "cuda_version": None,
+        "gpu_memory": None,
+    }
+    try:
+        import torch
 
-    def __init__(self):
-        self.queue = asyncio.Queue(maxsize=50000)
-        self.stop_event = asyncio.Event()
-        self.flusher_task = None
+        if torch.cuda.is_available():
+            info["device"] = "CUDA (GPU)"
+            info["gpu_name"] = torch.cuda.get_device_name(0)
+            info["gpu_count"] = torch.cuda.device_count()
+            info["cuda_version"] = torch.version.cuda
+            total = torch.cuda.get_device_properties(0).total_mem
+            info["gpu_memory"] = f"{total / (1024**3):.1f} GB"
+    except ImportError:
+        info["device"] = "CPU (PyTorch unavailable)"
+    return info
 
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
 
-    def create_ch_client(self):
-        secure = CH_URL.startswith('https')
-        parts = CH_URL.split('://')[-1].split(':')
-        host = parts[0]
-        port = int(parts[1]) if len(parts) > 1 else 8123
-        logger.debug("Creating ClickHouse client to %s:%d (secure=%s)", host, port, secure)
-        return get_client(host=host, port=port, username=CH_USER, password=CH_PASS, database=CH_DB, secure=secure)
-
-    async def flusher(self):
-        client = self.create_ch_client()
-        batch, last_flush = [], time.time()
-        while not self.stop_event.is_set():
-            try:
-                item = await asyncio.wait_for(self.queue.get(), timeout=FLUSH_INTERVAL)
-                batch.append(item)
-            except asyncio.TimeoutError:
-                pass # This is expected, to allow periodic flushing
-
-            now = time.time()
-            if batch and (len(batch) >= BATCH_SIZE or now - last_flush >= FLUSH_INTERVAL):
-                try:
-                    logger.info("Flushing %d TTS logs to ClickHouse", len(batch))
-                    client.insert(CH_TABLE, batch, column_names=COLUMNS)
-                except Exception as e:
-                    logger.error("ClickHouse insert failed: %s", e)
-                finally:
-                    batch.clear()
-                    last_flush = now
-        
-        # Final flush on shutdown
-        if batch:
-            try:
-                logger.info("Final flush of %d TTS logs", len(batch))
-                client.insert(CH_TABLE, batch, column_names=COLUMNS)
-            except Exception as e:
-                logger.error("Final ClickHouse insert failed: %s", e)
-
-    def log(self, record: dict):
-        """Formats and queues a log record."""
-        row = (
-            record.get('ts'),
-            record.get('request_id'),
-            record.get('client_ip', ''),
-            record.get('request_text', ''),
-            record.get('reference_voice', ''),
-            record.get('duration_ms', 0.0),
-            1 if record.get('is_success') else 0,
-            record.get('status_code', 500),
-            record.get('error_message', ''),
-            record.get('output_filesize_bytes', 0),
-            record.get('output_filename', '')
-        )
-        try:
-            self.queue.put_nowait(row)
-        except asyncio.QueueFull:
-            logger.warning("Log queue is full. Discarding TTS log.")
-
-    def start(self):
-        if not self.flusher_task:
-            loop = asyncio.get_event_loop()
-            self.flusher_task = loop.create_task(self.flusher())
-            logger.info("Async TTS logger started.")
-
-    async def shutdown(self):
-        if self.flusher_task:
-            logger.info("Shutting down async TTS logger...")
-            self.stop_event.set()
-            # Wait for the flusher to finish processing the queue
-            await self.flusher_task
-            logger.info("Async TTS logger shut down.")
-
-# === FastAPI Application ===
+# ── Application ──────────────────────────────────────────────────────────────
 tts_model = None
+system_info: dict = {}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    global tts_model
+    global tts_model, system_info
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logger.info("Creating or confirming directory: %s", OUTPUT_DIR)
+    os.makedirs(VOICES_DIR, exist_ok=True)
+
+    system_info = get_system_info()
+    logger.info("System info: %s", system_info)
+
     try:
         model_dir = "checkpoints"
         cfg_path = "checkpoints/config.yaml"
@@ -141,118 +83,126 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("IndexTTS model initialization failed: %s", e)
         tts_model = None
-    
-    # Start the logger
-    uvloop.install()
-    AsyncTTSLogger.get_instance().start()
-    
+
     yield
-    
-    # Shutdown
-    await AsyncTTSLogger.get_instance().shutdown()
 
-app = FastAPI(lifespan=lifespan)
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Middleware to log request details to ClickHouse."""
-    request_id = uuid.uuid4()
-    start_time = time.perf_counter()
-    
-    # --- MODIFICATION START ---
-    # Get real client IP from X-Forwarded-For header if behind a proxy
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    if x_forwarded_for:
-        # The first IP in the list is the original client
-        client_ip = x_forwarded_for.split(',')[0].strip()
-    else:
-        client_ip = request.client.host if request.client else "unknown"
-    # --- MODIFICATION END ---
+app = FastAPI(title="ReporterTTS", lifespan=lifespan)
 
-    # Initialize log info on request state
-    request.state.log_info = {
-        "ts": datetime.now(timezone.utc),
-        "request_id": request_id,
-        "client_ip": client_ip, # Use the derived client_ip
-    }
-    
-    response = await call_next(request)
-    
-    duration_ms = (time.perf_counter() - start_time) * 1000
-    
-    # The endpoint should have populated the rest of the log_info
-    log_payload = request.state.log_info
-    log_payload['duration_ms'] = duration_ms
-    log_payload['status_code'] = response.status_code
-    
-    # Send to the async logger
-    AsyncTTSLogger.get_instance().log(log_payload)
-    
-    return response
 
-@app.post("/tts")
-def generate_speech(request: Request, text: str):
-    """
-    Accepts a string, calls indextts to generate a speech file, and returns the file.
-    All relevant info is logged via middleware.
-    """
+# ── Serve Web Portal ─────────────────────────────────────────────────────────
+_html_cache: str | None = None
+
+
+def _load_html() -> str:
+    global _html_cache
+    if _html_cache is None:
+        html_path = Path(__file__).with_name("index.html")
+        _html_cache = html_path.read_text(encoding="utf-8")
+    return _html_cache
+
+
+@app.get("/", response_class=HTMLResponse)
+def web_portal():
+    """Serve the single-page web portal."""
+    return _load_html()
+
+
+# ── API: System Info ─────────────────────────────────────────────────────────
+@app.get("/api/system")
+def api_system():
+    """Return system / hardware information."""
+    return {**system_info, "model_loaded": tts_model is not None}
+
+
+# ── API: Voice Management ───────────────────────────────────────────────────
+@app.get("/api/voices")
+def list_voices():
+    """List all available voice profiles."""
+    voices = []
+    for f in sorted(Path(VOICES_DIR).glob("*.wav")):
+        voices.append(
+            {
+                "name": f.stem,
+                "filename": f.name,
+                "size_kb": round(f.stat().st_size / 1024, 1),
+            }
+        )
+    return voices
+
+
+@app.post("/api/voices")
+async def upload_voice(name: str = Form(...), file: UploadFile = File(...)):
+    """Upload a new voice profile (.wav file)."""
+    if not file.filename or not file.filename.lower().endswith(".wav"):
+        raise HTTPException(400, "Only .wav files are supported.")
+
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_").strip()
+    if not safe_name:
+        raise HTTPException(400, "Invalid voice name (use alphanumeric, dash, underscore).")
+
+    dest = Path(VOICES_DIR) / f"{safe_name}.wav"
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    logger.info("Voice uploaded: %s → %s", safe_name, dest)
+    return {"status": "ok", "name": safe_name}
+
+
+@app.delete("/api/voices/{name}")
+def delete_voice(name: str):
+    """Delete a voice profile by name."""
+    path = Path(VOICES_DIR) / f"{name}.wav"
+    if not path.exists():
+        raise HTTPException(404, "Voice not found.")
+    path.unlink()
+    logger.info("Voice deleted: %s", name)
+    return {"status": "ok"}
+
+
+# ── API: Text-to-Speech ─────────────────────────────────────────────────────
+@app.post("/api/tts")
+def generate_speech(voice: str = Form(...), text: str = Form(...)):
+    """Generate speech from text using the selected voice profile."""
     if tts_model is None:
-        request.state.log_info.update({
-            "is_success": False,
-            "error_message": "TTS service unavailable: model not initialized.",
-            "request_text": text,
-        })
-        raise HTTPException(status_code=503, detail="TTS service is currently unavailable, model initialization failed.")
+        raise HTTPException(503, "TTS model is not loaded.")
+
+    voice_path = Path(VOICES_DIR) / f"{voice}.wav"
+    if not voice_path.exists():
+        raise HTTPException(404, f"Voice '{voice}' not found.")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(400, "Text cannot be empty.")
 
     unique_filename = f"{uuid.uuid4()}.wav"
     output_path = os.path.join(OUTPUT_DIR, unique_filename)
-    voice = "input.wav"
-
-    if not os.path.exists(voice):
-        request.state.log_info.update({
-            "is_success": False,
-            "error_message": f"Reference audio file '{voice}' does not exist.",
-            "request_text": text,
-            "reference_voice": voice,
-        })
-        raise HTTPException(status_code=400, detail=f"Reference audio file '{voice}' does not exist.")
 
     try:
-        tts_model.infer(voice, text, output_path)
+        start = time.perf_counter()
+        tts_model.infer(str(voice_path), text, output_path)
+        duration = time.perf_counter() - start
 
         if not os.path.exists(output_path):
-            raise RuntimeError("Speech file generation failed, output file not found.")
-        
+            raise RuntimeError("Output file was not created.")
+
         file_size = os.path.getsize(output_path)
-
-        # Log success info to request.state for the middleware
-        request.state.log_info.update({
-            "is_success": True,
-            "error_message": "",
-            "request_text": text,
-            "reference_voice": voice,
-            "output_filesize_bytes": file_size,
-            "output_filename": unique_filename,
-        })
-        
-        return FileResponse(path=output_path, media_type="audio/wav", filename="speech.wav")
-
+        logger.info(
+            "TTS OK: voice=%s len=%d dur=%.1fs size=%d",
+            voice, len(text), duration, file_size,
+        )
+        return FileResponse(
+            output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log failure info to request.state for the middleware
-        request.state.log_info.update({
-            "is_success": False,
-            "error_message": str(e),
-            "request_text": text,
-            "reference_voice": voice,
-        })
-        logger.error("An error occurred during speech generation: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An error occurred during speech generation: {e}")
+        logger.error("TTS failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"Speech generation failed: {e}")
 
+
+# ── API: Health ──────────────────────────────────────────────────────────────
 @app.get("/health")
 def health_check():
-    """Health check endpoint to confirm if the service is running."""
-    status = "ok" if tts_model is not None else "degraded"
-    return JSONResponse(status_code=200, content={"status": status})
-
-# To run this app:
-# uvicorn your_filename:app --host 0.0.0.0 --port 8000
+    """Health check endpoint."""
+    return {"status": "ok" if tts_model is not None else "degraded"}

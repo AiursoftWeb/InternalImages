@@ -1,17 +1,13 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
-# 必要包：clickhouse-connect 做写入；tzdata 提供时区；watchdog/uvloop 可选
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git curl wget \
+        curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git wget \
         build-essential python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1
-
-# 【删除这一行】
-# RUN pip install clickhouse-connect==0.8.18 uvloop==0.21.0 watchdog==6.0.0
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
@@ -21,13 +17,11 @@ RUN git clone https://github.com/index-tts/index-tts.git
 
 WORKDIR /app/index-tts
 
-# 【修改这一段 RUN 命令】
-# 将所有依赖项统一用 uv 安装到虚拟环境中
 RUN . "$HOME/.local/bin/env" \
 	&& uv --version \
 	&& uv venv tts \
 	&& . "tts/bin/activate" \
-	&& uv pip install uvicorn fastapi clickhouse-connect uvloop \
+	&& uv pip install uvicorn fastapi python-multipart \
 	&& if [ "$(uname -m)" = "x86_64" ]; then \
 		uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118; \
 	else \
@@ -41,14 +35,9 @@ RUN . "$HOME/.local/bin/env" \
 
 COPY . .
 
-# 默认环境变量（可在 compose/Swarm 覆盖）
-ENV CLICKHOUSE_URL=http://clickhouse:8123 \
-    CLICKHOUSE_USER=default \
-    CLICKHOUSE_PASSWORD=123456 \
-    CLICKHOUSE_DATABASE=logs \
-    CLICKHOUSE_TABLE=tts_requests \
-    BATCH_SIZE=1000 \
-    FLUSH_INTERVAL_SEC=2 \
+VOLUME /app/index-tts/voices
+
+ENV VOICES_DIR=/app/index-tts/voices \
     TZ="UTC"
 
 EXPOSE 8000

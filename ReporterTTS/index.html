@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReporterTTS – Text-to-Speech Service</title>
+<style>
+/* ── Reset & Base ─────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f6f9;--surface:#fff;--border:#e2e6ec;
+  --text:#1e293b;--text2:#64748b;--text3:#94a3b8;
+  --accent:#6366f1;--accent-hover:#4f46e5;--accent-light:#eef2ff;
+  --danger:#ef4444;--danger-hover:#dc2626;
+  --success:#22c55e;--warn:#f59e0b;
+  --radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg:0 10px 25px rgba(0,0,0,.08);
+}
+html{font-size:15px;scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans SC",sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.header{
+  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a78bfa 100%);
+  color:#fff;padding:2.5rem 1.5rem 2rem;text-align:center;position:relative;overflow:hidden;
+}
+.header::before{
+  content:'';position:absolute;inset:0;
+  background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+.header h1{font-size:2rem;font-weight:700;margin-bottom:.35rem;position:relative}
+.header p{opacity:.88;font-size:1rem;position:relative}
+.header .subtitle{font-size:.9rem;opacity:.7;margin-top:.15rem;position:relative}
+
+/* ── System badges ────────────────────────────────────────────────────────── */
+.sys-badges{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:1.2rem;position:relative}
+.badge{
+  display:inline-flex;align-items:center;gap:.35rem;
+  background:rgba(255,255,255,.18);backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,.25);border-radius:999px;
+  padding:.3rem .85rem;font-size:.8rem;font-weight:500;color:#fff;
+  transition:background .2s;
+}
+.badge:hover{background:rgba(255,255,255,.28)}
+.badge .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-green{background:#4ade80}.dot-yellow{background:#fbbf24}.dot-red{background:#f87171}.dot-blue{background:#60a5fa}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.container{max-width:860px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.5rem;margin-bottom:1.25rem;box-shadow:var(--shadow);
+  transition:box-shadow .2s;
+}
+.card:hover{box-shadow:var(--shadow-lg)}
+.card h2{font-size:1.15rem;font-weight:600;margin-bottom:.9rem;display:flex;align-items:center;gap:.5rem}
+.card h2 .icon{font-size:1.25rem}
+
+/* ── Voice list ───────────────────────────────────────────────────────────── */
+.voice-table{width:100%;border-collapse:collapse;font-size:.9rem}
+.voice-table th{text-align:left;padding:.5rem .6rem;color:var(--text2);font-weight:500;border-bottom:2px solid var(--border)}
+.voice-table td{padding:.55rem .6rem;border-bottom:1px solid var(--border);vertical-align:middle}
+.voice-table tr:last-child td{border-bottom:none}
+.voice-table tr:hover td{background:var(--accent-light)}
+.empty-msg{color:var(--text3);text-align:center;padding:1.5rem 0;font-size:.92rem}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:.35rem;
+  border:none;border-radius:8px;padding:.55rem 1.1rem;
+  font-size:.88rem;font-weight:500;cursor:pointer;transition:all .15s;
+  text-decoration:none;
+}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover);transform:translateY(-1px)}
+.btn-primary:disabled{background:var(--text3);cursor:not-allowed;transform:none}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{background:var(--danger-hover)}
+.btn-sm{padding:.35rem .7rem;font-size:.8rem;border-radius:6px}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+
+/* ── Forms ────────────────────────────────────────────────────────────────── */
+.form-row{display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-bottom:.75rem}
+.form-group{display:flex;flex-direction:column;gap:.25rem;flex:1;min-width:160px}
+.form-group label{font-size:.82rem;font-weight:500;color:var(--text2)}
+input[type="text"],input[type="file"],select,textarea{
+  border:1.5px solid var(--border);border-radius:8px;padding:.55rem .75rem;
+  font-size:.9rem;font-family:inherit;color:var(--text);
+  background:var(--surface);transition:border-color .15s;width:100%;
+}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.12)}
+textarea{resize:vertical;min-height:100px}
+
+/* ── Audio player ─────────────────────────────────────────────────────────── */
+.audio-area{
+  margin-top:1rem;padding:1rem;background:#fafbfc;border-radius:var(--radius);
+  border:1px dashed var(--border);text-align:center;
+  display:none;
+}
+.audio-area.active{display:block}
+.audio-area audio{width:100%;margin:.6rem 0}
+.audio-actions{display:flex;gap:.5rem;justify-content:center;margin-top:.5rem}
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+.spinner{
+  display:inline-block;width:18px;height:18px;
+  border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;
+  animation:spin .6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── API Docs ─────────────────────────────────────────────────────────────── */
+.api-section details{margin-bottom:.75rem}
+.api-section summary{
+  cursor:pointer;font-weight:500;font-size:.92rem;padding:.5rem .75rem;
+  background:#f8fafc;border:1px solid var(--border);border-radius:8px;
+  transition:background .15s;list-style:none;display:flex;align-items:center;gap:.5rem;
+}
+.api-section summary::-webkit-details-marker{display:none}
+.api-section summary::before{content:'▸';font-size:.8rem;transition:transform .2s}
+.api-section details[open] summary::before{transform:rotate(90deg)}
+.api-section summary:hover{background:var(--accent-light)}
+.api-section .method{
+  display:inline-block;padding:.15rem .5rem;border-radius:4px;
+  font-size:.75rem;font-weight:700;font-family:'SF Mono',Consolas,monospace;color:#fff;margin-right:.3rem;
+}
+.method-get{background:#22c55e}.method-post{background:#3b82f6}.method-delete{background:#ef4444}
+.api-section pre{
+  background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:8px;
+  font-size:.82rem;line-height:1.5;overflow-x:auto;margin:.6rem 0;
+  font-family:'SF Mono',Consolas,'Liberation Mono',monospace;
+}
+.api-section code{font-family:'SF Mono',Consolas,monospace;font-size:.85rem}
+.api-desc{padding:.6rem .75rem;color:var(--text2);font-size:.88rem}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+.footer{text-align:center;padding:1.5rem;color:var(--text3);font-size:.82rem}
+.footer a{color:var(--accent);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+.toast-container{position:fixed;top:1rem;right:1rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem}
+.toast{
+  padding:.65rem 1.1rem;border-radius:8px;font-size:.88rem;font-weight:500;
+  color:#fff;box-shadow:var(--shadow-lg);animation:slideIn .3s ease;max-width:360px;
+}
+.toast-success{background:#22c55e}.toast-error{background:#ef4444}.toast-info{background:#6366f1}
+@keyframes slideIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+@media(max-width:600px){
+  .header h1{font-size:1.5rem}
+  .form-row{flex-direction:column}
+  .form-group{min-width:100%}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Header ════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <h1>🎙️ ReporterTTS</h1>
+  <p>基于 IndexTTS 的文字转语音服务</p>
+  <p class="subtitle">上传声纹 · 输入文字 · 生成语音</p>
+  <div class="sys-badges" id="sysBadges">
+    <span class="badge"><span class="dot dot-blue"></span>加载中…</span>
+  </div>
+</div>
+
+<!-- ═══ Main Content ══════════════════════════════════════════════════════ -->
+<div class="container">
+
+  <!-- ── TTS Generation ──────────────────────────────────────────────── -->
+  <div class="card">
+    <h2><span class="icon">🗣️</span> 文字转语音</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="ttsVoice">选择声纹</label>
+        <select id="ttsVoice"><option value="">— 请先上传声纹 —</option></select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label for="ttsText">输入文字</label>
+      <textarea id="ttsText" placeholder="在这里输入你希望转为语音的文字…"></textarea>
+    </div>
+    <button class="btn btn-primary" id="ttsBtn" onclick="doTTS()">
+      ✨ 生成语音
+    </button>
+
+    <div class="audio-area" id="audioArea">
+      <p style="font-size:.85rem;color:var(--text2);margin-bottom:.3rem">🎧 生成结果</p>
+      <audio id="audioPlayer" controls></audio>
+      <div class="audio-actions">
+        <a class="btn btn-outline btn-sm" id="downloadBtn" href="#" download="tts_output.wav">⬇ 下载 WAV</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Voice Management ────────────────────────────────────────────── -->
+  <div class="card">
+    <h2><span class="icon">🎭</span> 声纹管理</h2>
+
+    <div id="voiceList"></div>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
+    <p style="font-size:.88rem;font-weight:500;margin-bottom:.6rem;color:var(--text2)">上传新声纹</p>
+    <div class="form-row">
+      <div class="form-group" style="max-width:200px">
+        <label for="voiceName">声纹名称</label>
+        <input type="text" id="voiceName" placeholder="例: reporter-zh">
+      </div>
+      <div class="form-group">
+        <label for="voiceFile">WAV 文件</label>
+        <input type="file" id="voiceFile" accept=".wav">
+      </div>
+      <button class="btn btn-primary" onclick="uploadVoice()">📤 上传</button>
+    </div>
+    <p style="font-size:.78rem;color:var(--text3);margin-top:.3rem">
+      提示：上传一段 5-15 秒的清晰语音作为声纹参考（.wav 格式）。名称仅允许字母、数字、连字符和下划线。
+    </p>
+  </div>
+
+  <!-- ── API Documentation ───────────────────────────────────────────── -->
+  <div class="card api-section">
+    <h2><span class="icon">📡</span> API 文档</h2>
+    <p style="font-size:.88rem;color:var(--text2);margin-bottom:.9rem">
+      所有接口均无需身份验证，可直接通过 HTTP 调用。Base URL 即本服务地址。
+    </p>
+
+    <details>
+      <summary><span class="method method-post">POST</span> <code>/api/tts</code> — 文字转语音</summary>
+      <div class="api-desc">
+        发送表单数据，返回 WAV 音频文件。
+      </div>
+      <pre>
+# 使用 curl
+curl -X POST http://HOST:8000/api/tts \
+  -F "voice=reporter-zh" \
+  -F "text=你好，欢迎使用语音合成服务。" \
+  --output speech.wav
+
+# 使用 Python requests
+import requests
+resp = requests.post("http://HOST:8000/api/tts",
+    data={"voice": "reporter-zh", "text": "你好，世界！"})
+with open("speech.wav", "wb") as f:
+    f.write(resp.content)</pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-get">GET</span> <code>/api/voices</code> — 获取声纹列表</summary>
+      <div class="api-desc">返回 JSON 数组，每个元素包含 <code>name</code>、<code>filename</code>、<code>size_kb</code>。</div>
+      <pre>
+curl http://HOST:8000/api/voices
+# [{"name":"reporter-zh","filename":"reporter-zh.wav","size_kb":245.3}]</pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-post">POST</span> <code>/api/voices</code> — 上传声纹</summary>
+      <div class="api-desc">上传 .wav 文件并指定声纹名称（表单字段 <code>name</code> + <code>file</code>）。</div>
+      <pre>
+curl -X POST http://HOST:8000/api/voices \
+  -F "name=my-voice" \
+  -F "file=@/path/to/voice.wav"</pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-delete">DELETE</span> <code>/api/voices/{name}</code> — 删除声纹</summary>
+      <div class="api-desc">按名称删除指定声纹。</div>
+      <pre>
+curl -X DELETE http://HOST:8000/api/voices/my-voice</pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-get">GET</span> <code>/api/system</code> — 系统信息</summary>
+      <div class="api-desc">返回设备类型、GPU 型号、CUDA 版本等信息。</div>
+      <pre>
+curl http://HOST:8000/api/system</pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-get">GET</span> <code>/health</code> — 健康检查</summary>
+      <div class="api-desc">返回 <code>{"status":"ok"}</code> 或 <code>{"status":"degraded"}</code>。</div>
+      <pre>
+curl http://HOST:8000/health</pre>
+    </details>
+  </div>
+
+</div>
+
+<!-- ═══ Footer ════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  ReporterTTS · Powered by <a href="https://github.com/index-tts/index-tts" target="_blank">IndexTTS</a>
+</div>
+
+<!-- ═══ Toast container ═══════════════════════════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ═══ JavaScript ════════════════════════════════════════════════════════ -->
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────
+function toast(msg, type='info') {
+  const c = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 3500);
+}
+
+// ── System Info ──────────────────────────────────────────────────────────
+async function loadSystemInfo() {
+  try {
+    const r = await fetch('/api/system');
+    const d = await r.json();
+    const el = document.getElementById('sysBadges');
+    let html = '';
+
+    // Device badge
+    const isGPU = d.device && d.device.includes('GPU');
+    html += `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device}</span>`;
+
+    if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
+    if (d.gpu_memory) html += `<span class="badge"><span class="dot dot-blue"></span>显存 ${d.gpu_memory}</span>`;
+    if (d.cuda_version) html += `<span class="badge"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+
+    // Model status
+    const mOk = d.model_loaded;
+    html += `<span class="badge"><span class="dot ${mOk?'dot-green':'dot-red'}"></span>模型 ${mOk?'已就绪':'未加载'}</span>`;
+
+    html += `<span class="badge"><span class="dot dot-blue"></span>${d.arch || ''} · Python ${d.python || ''}</span>`;
+
+    el.innerHTML = html;
+  } catch(e) {
+    document.getElementById('sysBadges').innerHTML =
+      '<span class="badge"><span class="dot dot-red"></span>无法连接服务</span>';
+  }
+}
+
+// ── Voice List ───────────────────────────────────────────────────────────
+async function loadVoices() {
+  try {
+    const r = await fetch('/api/voices');
+    const voices = await r.json();
+    const el = document.getElementById('voiceList');
+    const sel = document.getElementById('ttsVoice');
+
+    // Populate table
+    if (voices.length === 0) {
+      el.innerHTML = '<p class="empty-msg">暂无声纹，请先上传一个 .wav 声纹文件。</p>';
+    } else {
+      let html = '<table class="voice-table"><thead><tr><th>名称</th><th>文件大小</th><th>操作</th></tr></thead><tbody>';
+      for (const v of voices) {
+        html += `<tr>
+          <td><strong>${esc(v.name)}</strong></td>
+          <td>${v.size_kb} KB</td>
+          <td><button class="btn btn-danger btn-sm" onclick="deleteVoice('${esc(v.name)}')">删除</button></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    }
+
+    // Populate select
+    const prev = sel.value;
+    sel.innerHTML = voices.length === 0
+      ? '<option value="">— 请先上传声纹 —</option>'
+      : voices.map(v => `<option value="${esc(v.name)}">${esc(v.name)}</option>`).join('');
+    if (prev && voices.some(v => v.name === prev)) sel.value = prev;
+  } catch(e) {
+    toast('加载声纹列表失败', 'error');
+  }
+}
+
+// ── Upload Voice ─────────────────────────────────────────────────────────
+async function uploadVoice() {
+  const name = document.getElementById('voiceName').value.trim();
+  const file = document.getElementById('voiceFile').files[0];
+  if (!name) { toast('请填写声纹名称', 'error'); return; }
+  if (!file)  { toast('请选择 WAV 文件', 'error'); return; }
+
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('file', file);
+
+  try {
+    const r = await fetch('/api/voices', { method: 'POST', body: fd });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+    toast(`声纹「${name}」上传成功`, 'success');
+    document.getElementById('voiceName').value = '';
+    document.getElementById('voiceFile').value = '';
+    loadVoices();
+  } catch(e) {
+    toast('上传失败: ' + e.message, 'error');
+  }
+}
+
+// ── Delete Voice ─────────────────────────────────────────────────────────
+async function deleteVoice(name) {
+  if (!confirm(`确定要删除声纹「${name}」吗？`)) return;
+  try {
+    const r = await fetch(`/api/voices/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+    toast(`声纹「${name}」已删除`, 'success');
+    loadVoices();
+  } catch(e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+// ── TTS Generation ───────────────────────────────────────────────────────
+async function doTTS() {
+  const voice = document.getElementById('ttsVoice').value;
+  const text  = document.getElementById('ttsText').value.trim();
+  if (!voice) { toast('请先选择一个声纹', 'error'); return; }
+  if (!text)  { toast('请输入要转换的文字', 'error'); return; }
+
+  const btn = document.getElementById('ttsBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 生成中…';
+
+  const area = document.getElementById('audioArea');
+  area.classList.remove('active');
+
+  try {
+    const fd = new FormData();
+    fd.append('voice', voice);
+    fd.append('text', text);
+
+    const r = await fetch('/api/tts', { method: 'POST', body: fd });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+
+    const player = document.getElementById('audioPlayer');
+    player.src = url;
+    player.play();
+
+    const dl = document.getElementById('downloadBtn');
+    dl.href = url;
+    dl.download = `tts_${voice}.wav`;
+
+    area.classList.add('active');
+    toast('语音生成成功', 'success');
+  } catch(e) {
+    toast('生成失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✨ 生成语音';
+  }
+}
+
+// ── Escape HTML ──────────────────────────────────────────────────────────
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ── Init ─────────────────────────────────────────────────────────────────
+loadSystemInfo();
+loadVoices();
+</script>
+</body>
+</html>
