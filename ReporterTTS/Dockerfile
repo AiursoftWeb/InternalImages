@@ -23,11 +23,11 @@ RUN . "$HOME/.local/bin/env" \
 	&& . "tts/bin/activate" \
 	&& uv pip install uvicorn fastapi python-multipart \
 	&& if [ "$(uname -m)" = "x86_64" ]; then \
-		uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126; \
+		uv pip install -e .; \
 	else \
-		uv pip install torch torchaudio; \
-	fi \
-	&& uv pip install -e .
+		uv pip install torch==2.8.0 torchaudio==2.8.0 \
+		&& uv pip install -e . --no-sources; \
+	fi
 
 RUN . "$HOME/.local/bin/env" \
 	&& . "tts/bin/activate" \
