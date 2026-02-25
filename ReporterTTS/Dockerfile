@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
 
-ADD "https://api.github.com/repos/index-tts/index-tts/commits?per_page=1" latest_commit
+ADD "https://git.aiursoft.com/api/v1/repos/PublicVault/index-tts/commits?limit=1" latest_commit
 RUN git clone https://git.aiursoft.com/PublicVault/index-tts.git
 
 WORKDIR /app/index-tts

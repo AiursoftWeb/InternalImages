@@ -16,6 +16,7 @@ import time
 import shutil
 import logging
 import platform
+import inspect
 from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -77,6 +78,50 @@ def get_system_info() -> dict:
     return info
 
 
+def sanitize_indextts_config(cfg_path: str) -> list[str]:
+    """Remove unsupported GPT config keys for current installed IndexTTS code."""
+    try:
+        import yaml
+    except Exception:
+        logger.warning("PyYAML is unavailable, cannot sanitize config: %s", cfg_path)
+        return []
+
+    if not os.path.exists(cfg_path):
+        return []
+
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    gpt_cfg = cfg.get("gpt")
+    if not isinstance(gpt_cfg, dict):
+        return []
+
+    try:
+        from indextts.gpt.model import UnifiedVoice
+    except Exception:
+        logger.warning("Cannot import indextts.gpt.model.UnifiedVoice, skip config sanitize.")
+        return []
+
+    supported_args = set(inspect.signature(UnifiedVoice.__init__).parameters)
+    supported_args.discard("self")
+
+    removed = [k for k in list(gpt_cfg.keys()) if k not in supported_args]
+    if not removed:
+        return []
+
+    for key in removed:
+        gpt_cfg.pop(key, None)
+
+    backup_path = f"{cfg_path}.bak"
+    if not os.path.exists(backup_path):
+        shutil.copyfile(cfg_path, backup_path)
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+
+    return removed
+
+
 # ── Application ──────────────────────────────────────────────────────────────
 tts_model: Optional[IndexTTS] = None
 system_info: dict = {}
@@ -97,7 +142,21 @@ async def lifespan(app: FastAPI):
         cfg_path = "checkpoints/config.yaml"
         if not os.path.exists(model_dir) or not os.path.exists(cfg_path):
             raise FileNotFoundError("Model directory or config file not found.")
-        tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
+        try:
+            tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
+        except TypeError as e:
+            if "unexpected keyword argument" in str(e):
+                removed_keys = sanitize_indextts_config(cfg_path)
+                if removed_keys:
+                    logger.warning(
+                        "Patched incompatible config keys: %s; retrying model init.",
+                        ", ".join(removed_keys),
+                    )
+                    tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
+                else:
+                    raise
+            else:
+                raise
         logger.info("IndexTTS model initialized successfully!")
         logger.info(
             "  device=%s  fp16=%s  cuda_kernel=%s",
