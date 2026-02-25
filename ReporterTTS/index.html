@@ -317,6 +317,11 @@ textarea{resize:vertical;min-height:100px}
             <input type="range" id="bucket_size" min="1" max="8" step="1" value="4" oninput="syncVal(this)">
             <div class="param-hint">快速推理分桶大小。越大越快但占用更多显存</div>
           </div>
+          <div class="param-item">
+            <div class="param-head"><label>语速倍率</label><span class="param-val" id="val_speech_rate">1.0</span></div>
+            <input type="range" id="speech_rate" min="0.5" max="2.0" step="0.05" value="1.0" oninput="syncVal(this)">
+            <div class="param-hint">输出语速倍率。&gt;1 更快，&lt;1 更慢（推荐 1.1–1.4）</div>
+          </div>
         </div>
 
         <div style="margin-top:.75rem;text-align:right">
@@ -392,6 +397,7 @@ textarea{resize:vertical;min-height:100px}
           <tr><td><code>max_text_tokens_per_segment</code></td><td>int</td><td>120</td><td>分句粒度 (20–300)</td></tr>
           <tr><td><code>fast_mode</code></td><td>bool</td><td>true</td><td>启用 batched-bucket 快速推理</td></tr>
           <tr><td><code>bucket_size</code></td><td>int</td><td>4</td><td>快速推理分桶大小 (1–8)</td></tr>
+          <tr><td><code>speech_rate</code></td><td>float</td><td>1.0</td><td>输出语速倍率 (0.5–2.0)</td></tr>
         </tbody>
       </table>
       <pre>
@@ -475,7 +481,7 @@ let DEFAULTS = {
   temperature: 1.0, top_p: 0.8, top_k: 30, do_sample: true,
   num_beams: 3, repetition_penalty: 10.0, length_penalty: 0.0,
   max_mel_tokens: 600, max_text_tokens_per_segment: 120,
-  fast_mode: true, bucket_size: 4,
+  fast_mode: true, bucket_size: 4, speech_rate: 1.0,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -511,6 +517,7 @@ function resetDefaults() {
   document.getElementById('seg_tokens').value = DEFAULTS.max_text_tokens_per_segment;
   document.getElementById('fastMode').checked = DEFAULTS.fast_mode;
   document.getElementById('bucket_size').value = DEFAULTS.bucket_size;
+  document.getElementById('speech_rate').value = DEFAULTS.speech_rate;
   // sync displayed values
   document.querySelectorAll('.param-item input[type=range]').forEach(el => syncVal(el));
   toast('参数已恢复默认值', 'info');
@@ -644,6 +651,7 @@ async function doTTS() {
     fd.append('max_text_tokens_per_segment', document.getElementById('seg_tokens').value);
     fd.append('fast_mode', document.getElementById('fastMode').checked);
     fd.append('bucket_size', document.getElementById('bucket_size').value);
+    fd.append('speech_rate', document.getElementById('speech_rate').value);
 
     const r = await fetch('/api/tts', { method: 'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }

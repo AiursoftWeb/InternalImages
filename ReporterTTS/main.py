@@ -17,6 +17,7 @@ import shutil
 import logging
 import platform
 import inspect
+import subprocess
 from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -48,6 +49,7 @@ DEFAULTS = {
     "max_text_tokens_per_segment": 120,  # Text segmentation granularity (tokens).
     "fast_mode": True,        # Use batched-bucket fast inference (2-10× speed-up).
     "bucket_size": 4,         # Max batch size per bucket in fast mode.
+    "speech_rate": 1.0,       # Output speaking rate multiplier (0.5–2.0).
 }
 
 
@@ -123,6 +125,36 @@ def sanitize_indextts_config(cfg_path: str) -> list[str]:
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
 
     return removed
+
+
+def _build_atempo_filter(rate: float) -> str:
+    """Build ffmpeg atempo chain for arbitrary rate."""
+    filters: list[str] = []
+    remain = rate
+    while remain > 2.0:
+        filters.append("atempo=2.0")
+        remain /= 2.0
+    while remain < 0.5:
+        filters.append("atempo=0.5")
+        remain /= 0.5
+    filters.append(f"atempo={remain:.4f}")
+    return ",".join(filters)
+
+
+def apply_speech_rate_inplace(wav_path: str, speech_rate: float) -> None:
+    """Adjust output WAV speaking speed in place using ffmpeg."""
+    if abs(speech_rate - 1.0) < 1e-3:
+        return
+
+    tmp_path = f"{wav_path}.rate.wav"
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", wav_path,
+        "-filter:a", _build_atempo_filter(speech_rate),
+        tmp_path,
+    ]
+    subprocess.run(cmd, check=True)
+    os.replace(tmp_path, wav_path)
 
 
 # ── Application ──────────────────────────────────────────────────────────────
@@ -269,6 +301,7 @@ def generate_speech(
     # ── Inference mode ──
     fast_mode: bool = Form(default=DEFAULTS["fast_mode"]),
     bucket_size: int = Form(default=DEFAULTS["bucket_size"]),
+    speech_rate: float = Form(default=DEFAULTS["speech_rate"]),
 ):
     """
     Generate speech from text using the selected voice and generation parameters.
@@ -298,6 +331,7 @@ def generate_speech(
     max_mel_tokens = max(50, min(2000, max_mel_tokens))
     max_text_tokens_per_segment = max(20, min(300, max_text_tokens_per_segment))
     bucket_size = max(1, min(8, bucket_size))
+    speech_rate = max(0.5, min(2.0, speech_rate))
 
     generation_kwargs = {
         "do_sample": do_sample,
@@ -334,6 +368,8 @@ def generate_speech(
 
         duration = time.perf_counter() - start
 
+        apply_speech_rate_inplace(output_path, speech_rate)
+
         if not os.path.exists(output_path):
             raise RuntimeError("Output file was not created.")
 
@@ -341,10 +377,10 @@ def generate_speech(
         mode_label = "fast" if fast_mode else "standard"
         logger.info(
             "TTS OK [%s]: voice=%s chars=%d dur=%.1fs size=%d "
-            "temp=%.2f top_p=%.2f top_k=%s beams=%d rep_pen=%.1f mel_tok=%d seg_tok=%d",
+            "temp=%.2f top_p=%.2f top_k=%s beams=%d rep_pen=%.1f mel_tok=%d seg_tok=%d rate=%.2f",
             mode_label, voice, len(text), duration, file_size,
             temperature, top_p, top_k, num_beams,
-            repetition_penalty, max_mel_tokens, max_text_tokens_per_segment,
+            repetition_penalty, max_mel_tokens, max_text_tokens_per_segment, speech_rate,
         )
         return FileResponse(
             output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"
