@@ -297,8 +297,8 @@ textarea{resize:vertical;min-height:100px}
             <div class="param-hint">仅从概率最高的 K 个 token 中采样。0 = 不限制</div>
           </div>
           <div class="param-item">
-            <div class="param-head"><label>Num Beams</label><span class="param-val" id="val_num_beams">3</span></div>
-            <input type="range" id="num_beams" min="1" max="10" step="1" value="3" oninput="syncVal(this)">
+            <div class="param-head"><label>Num Beams</label><span class="param-val" id="val_num_beams">2</span></div>
+            <input type="range" id="num_beams" min="1" max="10" step="1" value="2" oninput="syncVal(this)">
             <div class="param-hint">束搜索宽度。1 = 无束搜索，越大越慢但可能更稳定</div>
           </div>
           <div class="param-item">
@@ -316,8 +316,8 @@ textarea{resize:vertical;min-height:100px}
         <p style="font-size:.82rem;font-weight:500;color:var(--text2);margin:.75rem 0 .5rem">📐 分句与生成长度</p>
         <div class="param-grid">
           <div class="param-item">
-            <div class="param-head"><label>Max Mel Tokens</label><span class="param-val" id="val_max_mel_tokens">600</span></div>
-            <input type="range" id="max_mel_tokens" min="100" max="2000" step="50" value="600" oninput="syncVal(this)">
+            <div class="param-head"><label>Max Mel Tokens</label><span class="param-val" id="val_max_mel_tokens">300</span></div>
+            <input type="range" id="max_mel_tokens" min="100" max="2000" step="50" value="300" oninput="syncVal(this)">
             <div class="param-hint">单句生成 mel-token 上限。过小会截断音频，过大则增加推理时间</div>
           </div>
           <div class="param-item">
@@ -326,13 +326,13 @@ textarea{resize:vertical;min-height:100px}
             <div class="param-hint">文本分句粒度。80–200 较佳。过大过小均影响质量</div>
           </div>
           <div class="param-item" id="bucketSizeItem">
-            <div class="param-head"><label>Bucket Size (快速模式)</label><span class="param-val" id="val_bucket_size">4</span></div>
-            <input type="range" id="bucket_size" min="1" max="8" step="1" value="4" oninput="syncVal(this)">
+            <div class="param-head"><label>Bucket Size (快速模式)</label><span class="param-val" id="val_bucket_size">1</span></div>
+            <input type="range" id="bucket_size" min="1" max="8" step="1" value="1" oninput="syncVal(this)">
             <div class="param-hint">快速推理分桶大小。越大越快但占用更多显存</div>
           </div>
           <div class="param-item">
-            <div class="param-head"><label>语速倍率</label><span class="param-val" id="val_speech_rate">1.0</span></div>
-            <input type="range" id="speech_rate" min="0.5" max="2.0" step="0.05" value="1.0" oninput="syncVal(this)">
+            <div class="param-head"><label>语速倍率</label><span class="param-val" id="val_speech_rate">1.2</span></div>
+            <input type="range" id="speech_rate" min="0.5" max="2.0" step="0.05" value="1.2" oninput="syncVal(this)">
             <div class="param-hint">输出语速倍率。&gt;1 更快，&lt;1 更慢（推荐 1.1–1.4）</div>
           </div>
         </div>
@@ -403,14 +403,14 @@ textarea{resize:vertical;min-height:100px}
           <tr><td><code>top_p</code></td><td>float</td><td>0.8</td><td>Nucleus 采样概率 (0–1)</td></tr>
           <tr><td><code>top_k</code></td><td>int</td><td>30</td><td>Top-K 采样 (0=不限)</td></tr>
           <tr><td><code>do_sample</code></td><td>bool</td><td>true</td><td>是否随机采样</td></tr>
-          <tr><td><code>num_beams</code></td><td>int</td><td>3</td><td>束搜索宽度 (1–10)</td></tr>
+          <tr><td><code>num_beams</code></td><td>int</td><td>2</td><td>束搜索宽度 (1–10)</td></tr>
           <tr><td><code>repetition_penalty</code></td><td>float</td><td>10.0</td><td>重复惩罚 (0.1–20)</td></tr>
           <tr><td><code>length_penalty</code></td><td>float</td><td>0.0</td><td>长度偏好 (-2–2)</td></tr>
-          <tr><td><code>max_mel_tokens</code></td><td>int</td><td>600</td><td>单句 mel-token 上限 (50–2000)</td></tr>
+          <tr><td><code>max_mel_tokens</code></td><td>int</td><td>300</td><td>单句 mel-token 上限 (50–2000)</td></tr>
           <tr><td><code>max_text_tokens_per_segment</code></td><td>int</td><td>120</td><td>分句粒度 (20–300)</td></tr>
           <tr><td><code>fast_mode</code></td><td>bool</td><td>true</td><td>启用 batched-bucket 快速推理</td></tr>
-          <tr><td><code>bucket_size</code></td><td>int</td><td>4</td><td>快速推理分桶大小 (1–8)</td></tr>
-          <tr><td><code>speech_rate</code></td><td>float</td><td>1.0</td><td>输出语速倍率 (0.5–2.0)</td></tr>
+          <tr><td><code>bucket_size</code></td><td>int</td><td>1</td><td>快速推理分桶大小 (1–8)</td></tr>
+          <tr><td><code>speech_rate</code></td><td>float</td><td>1.2</td><td>输出语速倍率 (0.5–2.0)</td></tr>
         </tbody>
       </table>
       <pre>
@@ -511,9 +511,9 @@ let API_KEY = localStorage.getItem('tts_api_key') || '';
 // ── Defaults (will be overwritten from server) ──────────────────────────
 let DEFAULTS = {
   temperature: 1.0, top_p: 0.8, top_k: 30, do_sample: true,
-  num_beams: 3, repetition_penalty: 10.0, length_penalty: 0.0,
-  max_mel_tokens: 600, max_text_tokens_per_segment: 120,
-  fast_mode: true, bucket_size: 4, speech_rate: 1.0,
+  num_beams: 2, repetition_penalty: 10.0, length_penalty: 0.0,
+  max_mel_tokens: 300, max_text_tokens_per_segment: 120,
+  fast_mode: true, bucket_size: 1, speech_rate: 1.2,
 };
 
 function authHeaders() {

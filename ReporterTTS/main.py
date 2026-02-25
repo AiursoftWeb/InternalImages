@@ -52,14 +52,14 @@ DEFAULTS = {
     "top_p": 0.8,             # Nucleus sampling probability mass.
     "top_k": 30,              # Top-K sampling. 0 = disabled.
     "do_sample": True,        # Enable stochastic sampling. False = greedy / beam only.
-    "num_beams": 3,           # Beam search width. 1 = no beam search.
+    "num_beams": 2,           # Beam search width. 1 = no beam search.
     "repetition_penalty": 10.0,  # Penalise repeated mel-tokens strongly to avoid loops.
     "length_penalty": 0.0,    # Encourage longer (>0) or shorter (<0) sequences.
-    "max_mel_tokens": 600,    # Hard cap on generated mel tokens per segment.
+    "max_mel_tokens": 300,    # Hard cap on generated mel tokens per segment.
     "max_text_tokens_per_segment": 120,  # Text segmentation granularity (tokens).
     "fast_mode": True,        # Use batched-bucket fast inference (2-10× speed-up).
-    "bucket_size": 4,         # Max batch size per bucket in fast mode.
-    "speech_rate": 1.0,       # Output speaking rate multiplier (0.5–2.0).
+    "bucket_size": 1,         # Max batch size per bucket in fast mode.
+    "speech_rate": 1.2,       # Output speaking rate multiplier (0.5–2.0).
 }
 
 if LOW_VRAM_MODE:
