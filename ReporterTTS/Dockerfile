@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1
+	PIP_BREAK_SYSTEM_PACKAGES=1 \
+	PATH="/root/.local/bin:${PATH}"
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
@@ -18,8 +19,7 @@ RUN git clone https://git.aiursoft.com/PublicVault/index-tts.git
 
 WORKDIR /app/index-tts
 
-RUN . "$HOME/.local/bin/env" \
-	&& uv --version \
+RUN uv --version \
 	&& uv venv tts \
 	&& . "tts/bin/activate" \
 	&& uv pip install uvicorn fastapi python-multipart \
@@ -30,8 +30,7 @@ RUN . "$HOME/.local/bin/env" \
 		&& uv pip install -e . --no-sources; \
 	fi
 
-RUN . "$HOME/.local/bin/env" \
-	&& . "tts/bin/activate" \
+RUN . "tts/bin/activate" \
 	&& hf download IndexTeam/IndexTTS-1.5 config.yaml bigvgan_discriminator.pth bigvgan_generator.pth bpe.model dvae.pth gpt.pth unigram_12000.vocab --local-dir checkpoints
 
 COPY . .
