@@ -1,8 +1,9 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
+# 只需要在这里追加一个 libfst-dev
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git wget \
-        build-essential python3-dev \
+        build-essential python3-dev libfst-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
