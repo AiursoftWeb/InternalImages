@@ -71,7 +71,10 @@ def get_system_info() -> dict:
             info["gpu_name"] = torch.cuda.get_device_name(0)
             info["gpu_count"] = torch.cuda.device_count()
             info["cuda_version"] = torch.version.cuda
-            total = torch.cuda.get_device_properties(0).total_mem
+            props = torch.cuda.get_device_properties(0)
+            total = getattr(props, "total_memory", None)
+            if total is None:
+                total = getattr(props, "total_mem", 0)
             info["gpu_memory"] = f"{total / (1024**3):.1f} GB"
     except ImportError:
         info["device"] = "CPU (PyTorch unavailable)"
