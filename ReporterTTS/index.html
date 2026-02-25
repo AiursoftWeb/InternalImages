@@ -505,7 +505,7 @@ with open("speech.wav", "wb") as f:
 
 <!-- ═══ JavaScript ════════════════════════════════════════════════════════ -->
 <script>
-const AUTH_REQUIRED = __TTS_AUTH_REQUIRED__;
+const AUTH_REQUIRED = (typeof __TTS_AUTH_REQUIRED__ !== 'undefined') ? __TTS_AUTH_REQUIRED__ : false;
 let API_KEY = localStorage.getItem('tts_api_key') || '';
 
 // ── Defaults (will be overwritten from server) ──────────────────────────
