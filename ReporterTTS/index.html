@@ -413,67 +413,37 @@ textarea{resize:vertical;min-height:100px}
           <tr><td><code>speech_rate</code></td><td>float</td><td>1.2</td><td>输出语速倍率 (0.5–2.0)</td></tr>
         </tbody>
       </table>
-      <pre>
-# 基础调用
-curl -X POST http://HOST:8000/api/tts \
-  -F "voice=reporter-zh" \
-  -F "text=你好，欢迎使用语音合成服务。" \
-  --output speech.wav
-
-# 高级调用：低温度 + 高重复惩罚，生成更稳定的语音
-curl -X POST http://HOST:8000/api/tts \
-  -F "voice=reporter-zh" \
-  -F "text=各位观众大家好，欢迎收看今天的新闻。" \
-  -F "temperature=0.7" \
-  -F "top_p=0.9" \
-  -F "repetition_penalty=12.0" \
-  -F "max_mel_tokens=800" \
-  -F "fast_mode=true" \
-  --output news.wav
-
-# Python
-import requests
-resp = requests.post("http://HOST:8000/api/tts", data={
-    "voice": "reporter-zh",
-    "text": "你好，世界！",
-    "temperature": 0.8,
-    "top_p": 0.85,
-    "fast_mode": True,
-})
-with open("speech.wav", "wb") as f:
-    f.write(resp.content)</pre>
+      <pre id="apiTtsExample"></pre>
     </details>
 
     <details>
       <summary><span class="method method-get">GET</span> <code>/api/voices</code> — 获取声纹列表</summary>
       <div class="api-desc">返回 JSON 数组，每个元素包含 <code>name</code>、<code>filename</code>、<code>size_kb</code>。</div>
-      <pre>curl http://HOST:8000/api/voices</pre>
+      <pre id="apiVoicesGetExample"></pre>
     </details>
 
     <details>
       <summary><span class="method method-post">POST</span> <code>/api/voices</code> — 上传声纹</summary>
       <div class="api-desc">上传 .wav 文件并指定声纹名称（表单字段 <code>name</code> + <code>file</code>）。</div>
-      <pre>curl -X POST http://HOST:8000/api/voices \
-  -F "name=my-voice" \
-  -F "file=@/path/to/voice.wav"</pre>
+        <pre id="apiVoicesPostExample"></pre>
     </details>
 
     <details>
       <summary><span class="method method-delete">DELETE</span> <code>/api/voices/{name}</code> — 删除声纹</summary>
       <div class="api-desc">按名称删除指定声纹。</div>
-      <pre>curl -X DELETE http://HOST:8000/api/voices/my-voice</pre>
+      <pre id="apiVoicesDeleteExample"></pre>
     </details>
 
     <details>
       <summary><span class="method method-get">GET</span> <code>/api/system</code> — 系统信息与默认参数</summary>
       <div class="api-desc">返回设备类型、GPU 型号、CUDA 版本、模型状态，以及所有默认生成参数。</div>
-      <pre>curl http://HOST:8000/api/system</pre>
+      <pre id="apiSystemExample"></pre>
     </details>
 
     <details>
       <summary><span class="method method-get">GET</span> <code>/health</code> — 健康检查</summary>
       <div class="api-desc">返回 <code>{"status":"ok"}</code> 或 <code>{"status":"degraded"}</code>。</div>
-      <pre>curl http://HOST:8000/health</pre>
+      <pre id="apiHealthExample"></pre>
     </details>
   </div>
 
@@ -518,6 +488,98 @@ let DEFAULTS = {
 
 function authHeaders() {
   return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+}
+
+function renderApiExamples() {
+  const baseUrl = window.location.origin;
+
+  const ttsEl = document.getElementById('apiTtsExample');
+  if (ttsEl) {
+    ttsEl.textContent = `# 先设置当前服务地址和访问令牌（若未启用鉴权，可删除 -H 那一行）
+BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+
+# 基础调用
+curl -X POST "$BASE_URL/api/tts" \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -F "voice=reporter-zh" \\
+  -F "text=你好，欢迎使用语音合成服务。" \\
+  --output speech.wav
+
+# 高级调用：低温度 + 高重复惩罚，生成更稳定的语音
+curl -X POST "$BASE_URL/api/tts" \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -F "voice=reporter-zh" \\
+  -F "text=各位观众大家好，欢迎收看今天的新闻。" \\
+  -F "temperature=0.7" \\
+  -F "top_p=0.9" \\
+  -F "repetition_penalty=12.0" \\
+  -F "max_mel_tokens=800" \\
+  -F "fast_mode=true" \\
+  --output news.wav
+
+# Python
+import requests
+
+base_url = "${baseUrl}"
+token = "<YOUR_TTS_ACCESS_TOKEN>"
+resp = requests.post(
+    f"{base_url}/api/tts",
+    data={
+        "voice": "reporter-zh",
+        "text": "你好，世界！",
+        "temperature": 0.8,
+        "top_p": 0.85,
+        "fast_mode": True,
+    },
+    headers={"Authorization": f"Bearer {token}"},
+)
+resp.raise_for_status()
+with open("speech.wav", "wb") as f:
+    f.write(resp.content)`;
+  }
+
+  const voicesGetEl = document.getElementById('apiVoicesGetExample');
+  if (voicesGetEl) {
+    voicesGetEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl "$BASE_URL/api/voices" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
+
+  const voicesPostEl = document.getElementById('apiVoicesPostExample');
+  if (voicesPostEl) {
+    voicesPostEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl -X POST "$BASE_URL/api/voices" \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -F "name=my-voice" \\
+  -F "file=@/path/to/voice.wav"`;
+  }
+
+  const voicesDeleteEl = document.getElementById('apiVoicesDeleteExample');
+  if (voicesDeleteEl) {
+    voicesDeleteEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl -X DELETE "$BASE_URL/api/voices/my-voice" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
+
+  const systemEl = document.getElementById('apiSystemExample');
+  if (systemEl) {
+    systemEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl "$BASE_URL/api/system" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
+
+  const healthEl = document.getElementById('apiHealthExample');
+  if (healthEl) {
+    healthEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl "$BASE_URL/health" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
 }
 
 async function apiFetch(url, options = {}) {
@@ -785,6 +847,7 @@ async function bootApp() {
 }
 
 (async () => {
+  renderApiExamples();
   const ready = await ensureAuthReady();
   if (ready) await bootApp();
 })();
