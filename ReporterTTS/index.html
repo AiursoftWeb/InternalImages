@@ -202,6 +202,19 @@ textarea{resize:vertical;min-height:100px}
 .toast-success{background:#22c55e}.toast-error{background:#ef4444}.toast-info{background:#6366f1}
 @keyframes slideIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
 
+/* ── Auth Overlay ─────────────────────────────────────────────────────────── */
+.auth-overlay{
+  position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.92);
+  display:flex;align-items:center;justify-content:center;padding:1rem;
+}
+.auth-card{
+  width:min(520px,100%);background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:1.25rem;box-shadow:var(--shadow-lg);
+}
+.auth-card h3{font-size:1.1rem;margin-bottom:.4rem}
+.auth-card p{font-size:.9rem;color:var(--text2);margin-bottom:.8rem}
+.auth-error{font-size:.85rem;color:var(--danger);margin-top:.55rem;min-height:1.2em}
+
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @media(max-width:600px){
   .header h1{font-size:1.5rem}
@@ -474,8 +487,27 @@ with open("speech.wav", "wb") as f:
 <!-- ═══ Toast container ═══════════════════════════════════════════════════ -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- ═══ Auth Overlay ═══════════════════════════════════════════════════════ -->
+<div class="auth-overlay" id="authOverlay" style="display:none">
+  <div class="auth-card">
+    <h3>🔐 请输入访问密钥</h3>
+    <p>当前服务启用了 API Key 保护。请输入 Bearer Token 对应的密钥后继续。</p>
+    <div class="form-group">
+      <label for="apiKeyInput">TTS API Key</label>
+      <input type="text" id="apiKeyInput" placeholder="输入密钥后点击验证">
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:.8rem">
+      <button class="btn btn-primary" id="apiKeyBtn" onclick="submitApiKey()">验证并进入</button>
+    </div>
+    <div class="auth-error" id="authError"></div>
+  </div>
+</div>
+
 <!-- ═══ JavaScript ════════════════════════════════════════════════════════ -->
 <script>
+const AUTH_REQUIRED = __TTS_AUTH_REQUIRED__;
+let API_KEY = localStorage.getItem('tts_api_key') || '';
+
 // ── Defaults (will be overwritten from server) ──────────────────────────
 let DEFAULTS = {
   temperature: 1.0, top_p: 0.8, top_k: 30, do_sample: true,
@@ -483,6 +515,68 @@ let DEFAULTS = {
   max_mel_tokens: 600, max_text_tokens_per_segment: 120,
   fast_mode: true, bucket_size: 4, speech_rate: 1.0,
 };
+
+function authHeaders() {
+  return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}), ...authHeaders() };
+  return fetch(url, { ...options, headers });
+}
+
+function setAuthOverlayVisible(visible) {
+  const overlay = document.getElementById('authOverlay');
+  overlay.style.display = visible ? 'flex' : 'none';
+}
+
+async function submitApiKey() {
+  const input = document.getElementById('apiKeyInput');
+  const err = document.getElementById('authError');
+  const btn = document.getElementById('apiKeyBtn');
+  const key = input.value.trim();
+  if (!key) {
+    err.textContent = '请输入有效密钥。';
+    return;
+  }
+  btn.disabled = true;
+  err.textContent = '';
+  try {
+    API_KEY = key;
+    const r = await apiFetch('/health');
+    if (!r.ok) throw new Error('密钥无效');
+    localStorage.setItem('tts_api_key', key);
+    setAuthOverlayVisible(false);
+    await bootApp();
+  } catch {
+    API_KEY = '';
+    err.textContent = '密钥无效，请重试。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function ensureAuthReady() {
+  if (!AUTH_REQUIRED) {
+    setAuthOverlayVisible(false);
+    return true;
+  }
+  if (!API_KEY) {
+    setAuthOverlayVisible(true);
+    return false;
+  }
+  try {
+    const r = await apiFetch('/health');
+    if (!r.ok) throw new Error('unauthorized');
+    setAuthOverlayVisible(false);
+    return true;
+  } catch {
+    API_KEY = '';
+    localStorage.removeItem('tts_api_key');
+    setAuthOverlayVisible(true);
+    return false;
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function toast(msg, type='info') {
@@ -526,7 +620,7 @@ function resetDefaults() {
 // ── System Info ──────────────────────────────────────────────────────────
 async function loadSystemInfo() {
   try {
-    const r = await fetch('/api/system');
+    const r = await apiFetch('/api/system');
     const d = await r.json();
     const el = document.getElementById('sysBadges');
     let html = '';
@@ -555,7 +649,7 @@ async function loadSystemInfo() {
 // ── Voice List ───────────────────────────────────────────────────────────
 async function loadVoices() {
   try {
-    const r = await fetch('/api/voices');
+    const r = await apiFetch('/api/voices');
     const voices = await r.json();
     const el = document.getElementById('voiceList');
     const sel = document.getElementById('ttsVoice');
@@ -597,7 +691,7 @@ async function uploadVoice() {
   fd.append('file', file);
 
   try {
-    const r = await fetch('/api/voices', { method: 'POST', body: fd });
+    const r = await apiFetch('/api/voices', { method: 'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
     toast(`声纹「${name}」上传成功`, 'success');
     document.getElementById('voiceName').value = '';
@@ -612,7 +706,7 @@ async function uploadVoice() {
 async function deleteVoice(name) {
   if (!confirm(`确定要删除声纹「${name}」吗？`)) return;
   try {
-    const r = await fetch(`/api/voices/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const r = await apiFetch(`/api/voices/${encodeURIComponent(name)}`, { method: 'DELETE' });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
     toast(`声纹「${name}」已删除`, 'success');
     loadVoices();
@@ -653,7 +747,7 @@ async function doTTS() {
     fd.append('bucket_size', document.getElementById('bucket_size').value);
     fd.append('speech_rate', document.getElementById('speech_rate').value);
 
-    const r = await fetch('/api/tts', { method: 'POST', body: fd });
+    const r = await apiFetch('/api/tts', { method: 'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
 
     const blob = await r.blob();
@@ -678,8 +772,15 @@ async function doTTS() {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────
-loadSystemInfo();
-loadVoices();
+async function bootApp() {
+  await loadSystemInfo();
+  await loadVoices();
+}
+
+(async () => {
+  const ready = await ensureAuthReady();
+  if (ready) await bootApp();
+})();
 </script>
 </body>
 </html>
