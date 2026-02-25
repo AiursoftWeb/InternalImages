@@ -35,6 +35,16 @@ DATA_DIR = os.getenv("DATA_DIR", "/data")
 VOICES_DIR = os.path.join(DATA_DIR, "voices")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+LOW_VRAM_MODE = _env_flag("LOW_VRAM_MODE", False)
+
 # ── Default generation parameters (IndexTTS best-practice values) ────────────
 # These match the defaults used in IndexTTS's own WebUI / source code.
 DEFAULTS = {
@@ -51,6 +61,18 @@ DEFAULTS = {
     "bucket_size": 4,         # Max batch size per bucket in fast mode.
     "speech_rate": 1.0,       # Output speaking rate multiplier (0.5–2.0).
 }
+
+if LOW_VRAM_MODE:
+    DEFAULTS.update(
+        {
+            "do_sample": False,
+            "num_beams": 1,
+            "max_mel_tokens": 360,
+            "max_text_tokens_per_segment": 80,
+            "fast_mode": False,
+            "bucket_size": 1,
+        }
+    )
 
 
 # ── System Information ───────────────────────────────────────────────────────
@@ -157,41 +179,82 @@ def apply_speech_rate_inplace(wav_path: str, speech_rate: float) -> None:
     os.replace(tmp_path, wav_path)
 
 
+def _is_cuda_oom(error: Exception) -> bool:
+    message = str(error).lower()
+    return "out of memory" in message and "cuda" in message
+
+
 # ── Application ──────────────────────────────────────────────────────────────
 tts_model: Optional[IndexTTS] = None
 system_info: dict = {}
+model_runtime_device: Optional[str] = None
+cuda_fallback_to_cpu: bool = False
+model_init_error: Optional[str] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global tts_model, system_info
+    global tts_model, system_info, model_runtime_device, cuda_fallback_to_cpu, model_init_error
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(VOICES_DIR, exist_ok=True)
 
     system_info = get_system_info()
     logger.info("System info: %s", system_info)
+    model_runtime_device = None
+    cuda_fallback_to_cpu = False
+    model_init_error = None
 
     try:
         model_dir = "checkpoints"
         cfg_path = "checkpoints/config.yaml"
         if not os.path.exists(model_dir) or not os.path.exists(cfg_path):
             raise FileNotFoundError("Model directory or config file not found.")
-        try:
-            tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
-        except TypeError as e:
-            if "unexpected keyword argument" in str(e):
-                removed_keys = sanitize_indextts_config(cfg_path)
-                if removed_keys:
-                    logger.warning(
-                        "Patched incompatible config keys: %s; retrying model init.",
-                        ", ".join(removed_keys),
-                    )
-                    tts_model = IndexTTS(model_dir=model_dir, cfg_path=cfg_path)
-                else:
-                    raise
-            else:
+
+        def _init_tts(init_kwargs: dict) -> IndexTTS:
+            try:
+                return IndexTTS(**init_kwargs)
+            except TypeError as e:
+                if "unexpected keyword argument" in str(e):
+                    removed_keys = sanitize_indextts_config(cfg_path)
+                    if removed_keys:
+                        logger.warning(
+                            "Patched incompatible config keys: %s; retrying model init.",
+                            ", ".join(removed_keys),
+                        )
+                        return IndexTTS(**init_kwargs)
                 raise
+
+        def _is_cuda_init_error(error: Exception) -> bool:
+            msg = str(error).lower()
+            tokens = ["cuda", "cudnn", "cublas", "nvml", "nvidia", "driver"]
+            return any(token in msg for token in tokens)
+
+        base_kwargs = {
+            "model_dir": model_dir,
+            "cfg_path": cfg_path,
+            "use_cuda_kernel": False if LOW_VRAM_MODE else None,
+        }
+
+        if system_info.get("device", "").startswith("CUDA"):
+            gpu_kwargs = {**base_kwargs, "device": "cuda", "use_fp16": True}
+            try:
+                tts_model = _init_tts(gpu_kwargs)
+                model_runtime_device = "cuda"
+            except Exception as cuda_error:
+                if not _is_cuda_init_error(cuda_error):
+                    raise
+                logger.warning("CUDA initialization failed, fallback to CPU. reason=%s", cuda_error)
+                cpu_kwargs = {**base_kwargs, "device": "cpu", "use_fp16": False, "use_cuda_kernel": False}
+                tts_model = _init_tts(cpu_kwargs)
+                model_runtime_device = "cpu"
+                cuda_fallback_to_cpu = True
+                model_init_error = str(cuda_error)
+        else:
+            cpu_kwargs = {**base_kwargs, "device": "cpu", "use_fp16": False, "use_cuda_kernel": False}
+            tts_model = _init_tts(cpu_kwargs)
+            model_runtime_device = "cpu"
+
         logger.info("IndexTTS model initialized successfully!")
         logger.info(
             "  device=%s  fp16=%s  cuda_kernel=%s",
@@ -199,6 +262,7 @@ async def lifespan(app: FastAPI):
         )
     except Exception as e:
         logger.error("IndexTTS model initialization failed: %s", e)
+        model_init_error = str(e)
         tts_model = None
 
     yield
@@ -232,6 +296,10 @@ def api_system():
     return {
         **system_info,
         "model_loaded": tts_model is not None,
+        "model_runtime_device": model_runtime_device,
+        "cuda_fallback_to_cpu": cuda_fallback_to_cpu,
+        "model_init_error": model_init_error,
+        "low_vram_mode": LOW_VRAM_MODE,
         "defaults": DEFAULTS,
     }
 
@@ -350,21 +418,45 @@ def generate_speech(
     try:
         start = time.perf_counter()
 
-        if fast_mode:
-            tts_model.infer_fast(
-                str(voice_path), text, output_path,
-                verbose=False,
-                max_text_tokens_per_segment=max_text_tokens_per_segment,
-                segments_bucket_max_size=bucket_size,
-                **generation_kwargs,
+        def _run_infer(use_fast: bool, seg_tokens: int, bucket: int, kwargs: dict) -> None:
+            if use_fast:
+                tts_model.infer_fast(
+                    str(voice_path), text, output_path,
+                    verbose=False,
+                    max_text_tokens_per_segment=seg_tokens,
+                    segments_bucket_max_size=bucket,
+                    **kwargs,
+                )
+            else:
+                tts_model.infer(
+                    str(voice_path), text, output_path,
+                    verbose=False,
+                    max_text_tokens_per_segment=seg_tokens,
+                    **kwargs,
+                )
+
+        try:
+            _run_infer(fast_mode, max_text_tokens_per_segment, bucket_size, generation_kwargs)
+        except Exception as infer_error:
+            if not _is_cuda_oom(infer_error):
+                raise
+            logger.warning("CUDA OOM detected, retrying with low-VRAM fallback settings.")
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+            fallback_kwargs = dict(generation_kwargs)
+            fallback_kwargs.update(
+                {
+                    "do_sample": False,
+                    "num_beams": 1,
+                    "max_mel_tokens": min(max_mel_tokens, 280),
+                }
             )
-        else:
-            tts_model.infer(
-                str(voice_path), text, output_path,
-                verbose=False,
-                max_text_tokens_per_segment=max_text_tokens_per_segment,
-                **generation_kwargs,
-            )
+            _run_infer(False, min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
 
         duration = time.perf_counter() - start
 

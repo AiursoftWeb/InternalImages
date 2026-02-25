@@ -630,6 +630,13 @@ async function loadSystemInfo() {
     if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
     if (d.gpu_memory) html += `<span class="badge"><span class="dot dot-blue"></span>显存 ${d.gpu_memory}</span>`;
     if (d.cuda_version) html += `<span class="badge"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+    const lowVram = !!d.low_vram_mode;
+    html += `<span class="badge"><span class="dot ${lowVram?'dot-yellow':'dot-green'}"></span>低显存模式 ${lowVram?'已开启':'关闭'}</span>`;
+    const fallback = !!d.cuda_fallback_to_cpu;
+    if (fallback) {
+      const reason = d.model_init_error ? esc(String(d.model_init_error)).slice(0, 120) : 'CUDA 初始化失败';
+      html += `<span class="badge" title="${reason}"><span class="dot dot-red"></span>CUDA失败→CPU回退</span>`;
+    }
     const mOk = d.model_loaded;
     html += `<span class="badge"><span class="dot ${mOk?'dot-green':'dot-red'}"></span>模型 ${mOk?'已就绪':'未加载'}</span>`;
     html += `<span class="badge"><span class="dot dot-blue"></span>${d.arch || ''} · Python ${d.python || ''}</span>`;
