@@ -15,6 +15,7 @@ import uuid
 import time
 import shutil
 import logging
+import secrets
 import platform
 import inspect
 import subprocess
@@ -22,7 +23,7 @@ from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from indextts.infer import IndexTTS
 
@@ -44,6 +45,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 LOW_VRAM_MODE = _env_flag("LOW_VRAM_MODE", False)
+TTS_ACCESS_TOKEN = os.getenv("TTS_ACCESS_TOKEN", "").strip()
+AUTH_REQUIRED = bool(TTS_ACCESS_TOKEN)
 
 # ── Default generation parameters (IndexTTS best-practice values) ────────────
 # These match the defaults used in IndexTTS's own WebUI / source code.
@@ -271,6 +274,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ReporterTTS", lifespan=lifespan)
 
 
+def _is_authorized_bearer(authorization: str | None) -> bool:
+    if not AUTH_REQUIRED:
+        return True
+    if not authorization:
+        return False
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+    return secrets.compare_digest(token, TTS_ACCESS_TOKEN)
+
+
+@app.middleware("http")
+async def access_token_middleware(request: Request, call_next):
+    path = request.url.path
+    is_api_call = path.startswith("/api/") or path == "/health"
+    if is_api_call and not _is_authorized_bearer(request.headers.get("Authorization")):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
+
 # ── Serve Web Portal ─────────────────────────────────────────────────────────
 _html_cache: str | None = None
 
@@ -286,7 +309,15 @@ def _load_html() -> str:
 @app.get("/", response_class=HTMLResponse)
 def web_portal():
     """Serve the single-page web portal."""
-    return _load_html()
+    html = _load_html()
+    auth_flag_script = (
+        "<script>const __TTS_AUTH_REQUIRED__ = "
+        f"{'true' if AUTH_REQUIRED else 'false'};"
+        "</script>"
+    )
+    if "</head>" in html:
+        html = html.replace("</head>", f"{auth_flag_script}</head>", 1)
+    return html
 
 
 # ── API: System Info ─────────────────────────────────────────────────────────
@@ -300,6 +331,7 @@ def api_system():
         "cuda_fallback_to_cpu": cuda_fallback_to_cpu,
         "model_init_error": model_init_error,
         "low_vram_mode": LOW_VRAM_MODE,
+        "auth_required": AUTH_REQUIRED,
         "defaults": DEFAULTS,
     }
 

@@ -386,7 +386,7 @@ textarea{resize:vertical;min-height:100px}
   <div class="card api-section">
     <h2><span class="icon">📡</span> API 文档</h2>
     <p style="font-size:.88rem;color:var(--text2);margin-bottom:.9rem">
-      所有接口均无需身份验证，可直接通过 HTTP 调用。Base URL 即本服务地址。
+      默认无需身份验证；若配置环境变量 <code>TTS_ACCESS_TOKEN</code>，则所有 API 调用都必须带 <code>Authorization: Bearer &lt;token&gt;</code>。Base URL 即本服务地址。
     </p>
 
     <details>
