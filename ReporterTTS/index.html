@@ -543,7 +543,7 @@ async function submitApiKey() {
   err.textContent = '';
   try {
     API_KEY = key;
-    const r = await apiFetch('/health');
+    const r = await apiFetch('/api/system');
     if (!r.ok) throw new Error('密钥无效');
     localStorage.setItem('tts_api_key', key);
     setAuthOverlayVisible(false);
@@ -566,7 +566,7 @@ async function ensureAuthReady() {
     return false;
   }
   try {
-    const r = await apiFetch('/health');
+    const r = await apiFetch('/api/system');
     if (!r.ok) throw new Error('unauthorized');
     setAuthOverlayVisible(false);
     return true;

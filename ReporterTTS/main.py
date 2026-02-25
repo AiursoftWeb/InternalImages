@@ -288,7 +288,7 @@ def _is_authorized_bearer(authorization: str | None) -> bool:
 @app.middleware("http")
 async def access_token_middleware(request: Request, call_next):
     path = request.url.path
-    is_api_call = path.startswith("/api/") or path == "/health"
+    is_api_call = path.startswith("/api/")
     if is_api_call and not _is_authorized_bearer(request.headers.get("Authorization")):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
