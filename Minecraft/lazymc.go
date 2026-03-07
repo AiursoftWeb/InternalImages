@@ -122,6 +122,46 @@ func monitorInactivity() {
 	}
 }
 
+// writeVarInt writes a VarInt to a writer.
+func writeVarInt(w io.Writer, val int) {
+	for {
+		b := byte(val & 0x7F)
+		val >>= 7
+		if val != 0 {
+			b |= 0x80
+		}
+		w.Write([]byte{b})
+		if val == 0 {
+			break
+		}
+	}
+}
+
+// sendFakeMOTD sends a minimal Minecraft status response indicating the server is sleeping.
+func sendFakeMOTD(conn net.Conn) {
+	const jsonStr = `{"version":{"name":"1.19.3","protocol":761},"players":{"max":500,"online":0,"sample":[]},"description":{"text":"\u00a7e服务器正在休眠，连接后将自动唤醒..."}}`
+	jsonBytes := []byte(jsonStr)
+
+	var packetContent bytes.Buffer
+	writeVarInt(&packetContent, 0x00)
+	writeVarInt(&packetContent, len(jsonBytes))
+	packetContent.Write(jsonBytes)
+
+	var packet bytes.Buffer
+	writeVarInt(&packet, packetContent.Len())
+	packet.Write(packetContent.Bytes())
+
+	conn.Write(packet.Bytes())
+
+	// Echo ping packet back so the client shows latency correctly
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	pingBuf := make([]byte, 32)
+	n, err := conn.Read(pingBuf)
+	if err == nil && n > 0 {
+		conn.Write(pingBuf[:n])
+	}
+}
+
 // bufReader helper to read bytes from conn and write to buffer
 type bufReader struct {
 	r io.Reader
@@ -201,39 +241,55 @@ func handleConnection(conn net.Conn) {
 	// 3. Parse Handshake
 	// Format: [Packet ID] [Protocol Ver] [Address] [Port] [Next State]
 	dataReader := bytes.NewReader(packetData)
-	
-	// Packet ID (VarInt)
+	nextState := -1
+
 	packetID, _, err := ReadVarInt(dataReader)
 	if err == nil && packetID == 0x00 {
 		// Protocol Version (VarInt)
 		_, _, err = ReadVarInt(dataReader)
-		
+
 		// Server Address (String)
 		if err == nil {
-			addrLen, _, err := ReadVarInt(dataReader)
-			if err == nil {
-				// Skip address bytes
-				if int(dataReader.Size()) - int(dataReader.Len()) + addrLen <= len(packetData) {
+			addrLen, _, err2 := ReadVarInt(dataReader)
+			if err2 == nil {
+				if int(dataReader.Size())-int(dataReader.Len())+addrLen <= len(packetData) {
 					dataReader.Seek(int64(addrLen), io.SeekCurrent)
-					
-					// Server Port (Unsigned Short)
-					dataReader.Seek(2, io.SeekCurrent)
-					
-					// Next State (VarInt)
-					nextState, _, err := ReadVarInt(dataReader)
-					if err == nil {
-						if nextState == 1 {
-							log.Printf("Ignoring Status Ping (State 1) from %s", conn.RemoteAddr())
-							return // Ignore, close connection
-						} else if nextState == 2 {
-							log.Printf("Login Request (State 2) from %s. Waking server.", conn.RemoteAddr())
-						}
+					dataReader.Seek(2, io.SeekCurrent) // Server Port
+					ns, _, err3 := ReadVarInt(dataReader)
+					if err3 == nil {
+						nextState = ns
 					}
 				}
 			}
 		}
 	} else {
 		log.Printf("Non-handshake packet (ID 0x%X) from %s. Proceeding.", packetID, conn.RemoteAddr())
+	}
+
+	if nextState == 1 {
+		// Status ping: forward to backend if running, otherwise send fake MOTD.
+		log.Printf("Status Ping (State 1) from %s", conn.RemoteAddr())
+		if hasSession("mc") {
+			log.Printf("服务器运行中，转发 status ping 来自 %s", conn.RemoteAddr())
+			backend, err := net.Dial("tcp", "127.0.0.1:25566")
+			if err != nil {
+				log.Println("连接 Minecraft 服务失败，发送假 MOTD：", err)
+				sendFakeMOTD(conn)
+				return
+			}
+			defer backend.Close()
+			backend.Write(forwardBuffer.Bytes())
+			go io.Copy(backend, conn)
+			io.Copy(conn, backend)
+		} else {
+			log.Printf("服务器休眠中，向 %s 发送假 MOTD", conn.RemoteAddr())
+			sendFakeMOTD(conn)
+		}
+		return
+	}
+
+	if nextState == 2 {
+		log.Printf("Login Request (State 2) from %s. Waking server.", conn.RemoteAddr())
 	}
 
 	if err := startMinecraft(); err != nil {
