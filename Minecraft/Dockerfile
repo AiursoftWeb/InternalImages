@@ -102,21 +102,6 @@ RUN unzip /tmp/sty.zip -d /datapacks/structory
 #RUN unzip /tmp/tcr.zip -d /datapacks/tcr
 
 #============================
-#       lazyMC Builder
-#============================
-FROM hub.aiursoft.com/golang:1.21.5 AS lazymc-builder
-WORKDIR /src
-# 将 lazymc.go 放置在与 Dockerfile 同目录
-COPY lazymc.go .
-
-# Create go.mod
-RUN go mod init lazymc
-# go get github.com/mcstatus-io/mcutil/v4
-RUN go get github.com/mcstatus-io/mcutil/v4
-RUN go build -o lazymc .
-
-
-#============================
 #       Final image
 #============================
 FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
@@ -125,17 +110,15 @@ WORKDIR /app
 COPY --from=minecraft-builder /app /app
 COPY --from=minecraft-builder /datapacks /datapacks
 COPY init-commands.sh /app/init-commands.sh
+COPY entrypoint.sh /entrypoint.sh
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl wget jq unzip openjdk-25-jre-headless tmux && \
     rm -rf /var/lib/apt/lists/*
 
-RUN chmod +x /app/init-commands.sh && \
+RUN chmod +x /app/init-commands.sh /entrypoint.sh && \
     mkdir -p /var/log/mc && \
     touch /var/log/mc/mc.log
-
-# 将 lazymc 二进制拷贝到镜像中
-COPY --from=lazymc-builder /src/lazymc /app/lazymc
 
 VOLUME /app/world
 VOLUME /app/world_nether
@@ -149,12 +132,4 @@ EXPOSE 8123
 # Run paper once to download the latest version
 RUN java -jar /app/papermc.jar --nojline --nogui --version
 
-# ENTRYPOINT [ "sh", "-c", \
-#  "cp -r /datapacks/* /app/world/datapacks/ && \
-#  tmux new-session -d -s mc 'java -XX:+UseG1GC -Xms4G -Xmx12G -jar /app/papermc.jar --nojline --nogui > /var/log/mc/mc.log 2>&1' \
-#  & tail -f /var/log/mc/mc.log \
-#  & sleep 60 && bash /app/init-commands.sh \
-#  & wait" ]
-
-ENTRYPOINT ["sh", "-c", \
-    "cp -r /datapacks/* /app/world/datapacks/ && /app/lazymc"]
+ENTRYPOINT ["/entrypoint.sh"]
