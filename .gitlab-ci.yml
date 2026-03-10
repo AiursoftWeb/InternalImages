@@ -138,3 +138,12 @@ deploy_reportertts:
     IMAGE_NAME: "reportertts"
     CONTEXT: "./ReporterTTS"
     PLATFORMS: "linux/amd64"
+
+deploy_paddleocr:
+  extends: .deploy_template
+  needs:
+    - deploy_ubuntu
+  variables:
+    IMAGE_NAME: "paddleocr"
+    CONTEXT: "./PaddleOCR"
+    PLATFORMS: "linux/amd64"
