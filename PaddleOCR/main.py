@@ -53,9 +53,8 @@ async def lifespan(app: FastAPI):
     
     try:
         # Initialize PaddleOCR with CPU mode (v3 API)
-        # Note: use_gpu is moved to internal common args or detected automatically by binary type.
-        # use_angle_cls is replaced by use_textline_orientation.
-        ocr_model = PaddleOCR(use_textline_orientation=True, lang="ch")
+        # We explicitly disable mkldnn due to a known bug with pir::ArrayAttribute in recent builds
+        ocr_model = PaddleOCR(use_textline_orientation=True, lang="ch", enable_mkldnn=False)
         logger.info("PaddleOCR model (CPU) initialized successfully!")
     except Exception as e:
         logger.error("PaddleOCR initialization failed: %s", e)
@@ -114,17 +113,27 @@ async def do_ocr(file: UploadFile = File(...)):
             raise HTTPException(400, "Invalid image file.")
             
         start_time = time.perf_counter()
-        result = ocr_model.ocr(img, cls=True)
+        
+        # In PaddleOCR v3 (paddlex), we use predict() and it returns an iterator of OCRResult
+        result_gen = ocr_model.predict(img)
+        result = list(result_gen)
         duration = time.perf_counter() - start_time
         
         # Flatten and clean the result for JSON response
         formatted_res = []
-        if result and result[0]:
-            for line in result[0]:
+        if result and len(result) > 0:
+            res_item = result[0]
+            # Provide fallbacks as not all images will contain text
+            texts = res_item['rec_texts'] if 'rec_texts' in res_item else []
+            scores = res_item['rec_scores'] if 'rec_scores' in res_item else []
+            polys = res_item['rec_polys'] if 'rec_polys' in res_item else []
+            
+            for i in range(len(texts)):
+                poly = polys[i]
                 formatted_res.append({
-                    "points": line[0],
-                    "text": line[1][0],
-                    "confidence": float(line[1][1])
+                    "points": poly.tolist() if hasattr(poly, 'tolist') else poly,
+                    "text": texts[i],
+                    "confidence": float(scores[i])
                 })
         
         logger.info("OCR OK: file=%s dur=%.3fs lines=%d", file.filename, duration, len(formatted_res))
