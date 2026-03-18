@@ -176,6 +176,13 @@ input:focus{border-color:var(--accent)}
       </div>
     </details>
     <details>
+      <summary><span class="method method-post">POST</span> <code>/api/ocr/base64</code> — Base64 模式识别</summary>
+      <div style="padding:1rem;color:var(--text2);font-size:.9rem">
+        <p>以 JSON 格式提交 Base64 编码的图片，返回识别结果。</p>
+        <pre id="apiOcrBase64Example"></pre>
+      </div>
+    </details>
+    <details>
       <summary><span class="method method-get">GET</span> <code>/api/system</code> — 获取系统状态</summary>
       <div style="padding:1rem;color:var(--text2);font-size:.9rem">
         <p>获取当前硬件设备、CUDA 版本及模型加载状态。</p>
@@ -293,6 +300,9 @@ window.onload = () => {
   loadSystemInfo();
   document.getElementById('apiOcrExample').textContent = `curl -X POST "${window.location.origin}/api/ocr" \\
   -F "file=@image.jpg"`;
+  document.getElementById('apiOcrBase64Example').textContent = `curl -X POST "${window.location.origin}/api/ocr/base64" \\
+  -H "Content-Type: application/json" \\
+  -d '{"base64": "iVBORw0KGgoAAAANSUhEUgAA..."}'`;
   document.getElementById('apiSysExample').textContent = `curl "${window.location.origin}/api/system"`;
 };
 </script>
