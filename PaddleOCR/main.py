@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
+"""
+PaddleOCR – Web-based OCR service powered by PaddlePaddle (v3 / paddlex API).
+"""
+
 import os
 import time
 import secrets
 import logging
+import platform
+from typing import Optional, List
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -12,39 +18,76 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from paddleocr import PaddleOCR
 
+# ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# ── Configuration ────────────────────────────────────────────────────────────
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None: return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+USE_GPU = _env_flag("USE_GPU", False)
 OCR_ACCESS_TOKEN = os.getenv("OCR_ACCESS_TOKEN", "").strip()
 AUTH_REQUIRED = bool(OCR_ACCESS_TOKEN)
 
-ocr_model = None
+# ── Application ──────────────────────────────────────────────────────────────
+ocr_model: Optional[PaddleOCR] = None
+system_info: dict = {}
+model_runtime_device: str = "CPU"
+
+def get_system_info() -> dict:
+    """Detect hardware and return a summary dict."""
+    info = {
+        "platform": platform.platform(),
+        "arch": platform.machine(),
+        "python": platform.python_version(),
+        "device": "CPU",
+        "gpu_name": None,
+        "gpu_count": 0,
+        "cuda_version": None,
+    }
+    try:
+        import paddle
+        if paddle.is_compiled_with_cuda() and paddle.device.is_compiled_with_cuda():
+            info["gpu_count"] = paddle.device.cuda.device_count()
+            if info["gpu_count"] > 0:
+                info["gpu_name"] = paddle.device.cuda.get_device_name(0)
+            info["cuda_version"] = paddle.version.cuda()
+            info["device"] = "CUDA (GPU)"
+    except Exception:
+        pass
+    return info
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global ocr_model
-    # Exhaustive attempts to initialize whatever PaddleOCR class this is
-    configs = [
-        {"lang": "ch", "use_gpu": True, "use_angle_cls": True},
-        {"lang": "ch", "use_gpu": True},
-        {"lang": "ch"},
-        {}
-    ]
+    global ocr_model, model_runtime_device, system_info
+    system_info = get_system_info()
     
-    for cfg in configs:
-        try:
-            logger.info("Attempting PaddleOCR init with: %s", cfg)
-            ocr_model = PaddleOCR(**cfg)
-            logger.info("PaddleOCR initialized successfully with: %s", cfg)
-            break
-        except Exception as e:
-            logger.warning("Failed with %s: %s", cfg, e)
-    
-    if ocr_model is None:
-        logger.error("All PaddleOCR initialization attempts failed.")
+    try:
+        # Detect if hardware supports CUDA before trying to use it
+        use_gpu = False
+        if USE_GPU and system_info["device"].startswith("CUDA"):
+            use_gpu = True
+        
+        # Initialize PaddleOCR
+        # We explicitly disable mkldnn and ir_optim to avoid SIGILL on some CPUs
+        ocr_model = PaddleOCR(
+            use_textline_orientation=True, 
+            lang="ch", 
+            use_gpu=use_gpu,
+            enable_mkldnn=False,
+            ir_optim=False
+        )
+        model_runtime_device = "GPU" if use_gpu else "CPU"
+        logger.info("PaddleOCR model initialized on: %s", model_runtime_device)
+    except Exception as e:
+        logger.error("PaddleOCR initialization failed: %s", e)
+        ocr_model = None
     yield
 
-app = FastAPI(title="PaddleOCR-API-GPU", lifespan=lifespan)
+app = FastAPI(title="PaddleOCR-API", lifespan=lifespan)
 
 def _is_authorized_bearer(authorization: str | None) -> bool:
     if not AUTH_REQUIRED: return True
@@ -63,7 +106,18 @@ async def access_token_middleware(request: Request, call_next):
 def web_portal():
     html_path = Path(__file__).with_name("index.html")
     html = html_path.read_text(encoding="utf-8") if html_path.exists() else "<h1>PaddleOCR API</h1>"
-    return html.replace("</head>", f"<script>const __OCR_AUTH_REQUIRED__ = {'true' if AUTH_REQUIRED else 'false'};</script></head>", 1)
+    auth_flag_script = f"<script>const __OCR_AUTH_REQUIRED__ = {'true' if AUTH_REQUIRED else 'false'};</script>"
+    return html.replace("</head>", f"{auth_flag_script}</head>", 1)
+
+@app.get("/api/system")
+def api_system():
+    return {
+        **system_info,
+        "model_loaded": ocr_model is not None,
+        "model_runtime_device": model_runtime_device,
+        "use_gpu_config": USE_GPU,
+        "auth_required": AUTH_REQUIRED,
+    }
 
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
@@ -75,38 +129,17 @@ async def do_ocr(file: UploadFile = File(...)):
         if img is None: raise HTTPException(400, "Invalid image file.")
         
         start_time = time.perf_counter()
-        # Some versions use ocr(), some use predict()
-        result = None
-        for method_name in ["ocr", "predict"]:
-            method = getattr(ocr_model, method_name, None)
-            if method:
-                try:
-                    result = method(img, cls=True) if method_name == "ocr" else list(method(img))
-                    break
-                except Exception as e:
-                    logger.warning("Method %s failed: %s", method_name, e)
-        
+        result = ocr_model.ocr(img, cls=True)
         duration = time.perf_counter() - start_time
-        if result is None: raise HTTPException(500, "Failed to run inference.")
         
         formatted_res = []
-        # Basic parsing for typical PaddleOCR output
-        if isinstance(result, list) and len(result) > 0:
-            res_data = result[0]
-            if isinstance(res_data, list): # Standard paddleocr [ [[box], [text, score]], ... ]
-                for line in res_data:
-                    box, (text, score) = line
-                    formatted_res.append({"points": box, "text": text, "confidence": float(score)})
-            elif isinstance(res_data, dict): # paddlex / newer format
-                texts = res_data.get('rec_texts', [])
-                scores = res_data.get('rec_scores', [])
-                polys = res_data.get('rec_polys', [])
-                for i in range(len(texts)):
-                    formatted_res.append({"points": polys[i].tolist() if hasattr(polys[i], 'tolist') else polys[i], 
-                                         "text": texts[i], "confidence": float(scores[i])})
-
-        logger.info("OCR OK: dur=%.3fs lines=%d", duration, len(formatted_res))
-        return {"status": "ok", "duration_s": duration, "results": formatted_res}
+        if result and len(result) > 0 and result[0]:
+            for line in result[0]:
+                box, (text, score) = line
+                formatted_res.append({"points": box, "text": text, "confidence": float(score)})
+        
+        logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
+        return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
     except Exception as e:
         logger.error("OCR failed: %s", e, exc_info=True)
         raise HTTPException(500, f"OCR processing failed: {e}")
