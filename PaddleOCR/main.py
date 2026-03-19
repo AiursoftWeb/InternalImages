@@ -14,8 +14,10 @@ from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
+import base64
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 from paddleocr import PaddleOCR
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -119,27 +121,57 @@ def api_system():
         "auth_required": AUTH_REQUIRED,
     }
 
+class Base64Request(BaseModel):
+    base64: str
+
+def _run_ocr_on_image(img: np.ndarray):
+    if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
+    start_time = time.perf_counter()
+    result = ocr_model.ocr(img, cls=True)
+    duration = time.perf_counter() - start_time
+    
+    formatted_res = []
+    if result and len(result) > 0 and result[0]:
+        for line in result[0]:
+            box, (text, score) = line
+            formatted_res.append({"points": box, "text": text, "confidence": float(score)})
+    
+    logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
+    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
-    if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     try:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image file.")
         
-        start_time = time.perf_counter()
-        result = ocr_model.ocr(img, cls=True)
-        duration = time.perf_counter() - start_time
+        return _run_ocr_on_image(img)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("OCR failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"OCR processing failed: {e}")
+
+@app.post("/api/ocr/base64")
+async def do_ocr_base64(req: Base64Request):
+    try:
+        b64_data = req.base64
+        if b64_data.startswith("data:image"):
+            if "," in b64_data:
+                b64_data = b64_data.split(",", 1)[1]
+            else:
+                raise HTTPException(400, "Invalid base64 data URI.")
         
-        formatted_res = []
-        if result and len(result) > 0 and result[0]:
-            for line in result[0]:
-                box, (text, score) = line
-                formatted_res.append({"points": box, "text": text, "confidence": float(score)})
+        contents = base64.b64decode(b64_data)
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: raise HTTPException(400, "Invalid image base64.")
         
-        logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
-        return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+        return _run_ocr_on_image(img)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("OCR failed: %s", e, exc_info=True)
         raise HTTPException(500, f"OCR processing failed: {e}")
