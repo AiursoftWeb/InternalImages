@@ -390,6 +390,31 @@ textarea{resize:vertical;min-height:100px}
     </p>
 
     <details>
+      <summary><span class="method method-post">POST</span> <code>/v1/audio/speech</code> — OpenAI 兼容接口</summary>
+      <div class="api-desc">
+        完全模拟 OpenAI TTS API 规范。可直接用于 Open WebUI、ChatGPT-Next-Web 等应用。
+      </div>
+      <table class="api-param-table">
+        <thead><tr><th>参数</th><th>类型</th><th>默认值</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>model</code></td><td>string</td><td>tts-1</td><td>模型名称（可忽略）</td></tr>
+          <tr><td><code>input</code></td><td>string</td><td>—</td><td><strong>必填</strong>，要合成的文本</td></tr>
+          <tr><td><code>voice</code></td><td>string</td><td>—</td><td><strong>必填</strong>，声纹名称。若不存在则自动回退到第一个可用声纹</td></tr>
+          <tr><td><code>response_format</code></td><td>string</td><td>mp3</td><td>格式：mp3, opus, aac, flac, wav, pcm</td></tr>
+          <tr><td><code>speed</code></td><td>float</td><td>1.0</td><td>语速 (0.25–4.0)</td></tr>
+        </tbody>
+      </table>
+      <div class="api-desc" style="margin-top:.5rem;background:var(--accent-light);border-radius:6px;padding:.75rem">
+        <strong>💡 在 Open WebUI 中使用：</strong><br>
+        1. <strong>TTS Engine:</strong> 选择 <code>OpenAI</code><br>
+        2. <strong>API Base URL:</strong> 填写 <code>http://&lt;IP&gt;:8000/v1</code><br>
+        3. <strong>API Key:</strong> 填写本服务的 <code>TTS_ACCESS_TOKEN</code> (若未开启则随便填)<br>
+        4. <strong>TTS Voice:</strong> 填写上方声纹列表中的名称（如 <code>reporter-zh</code>）
+      </div>
+      <pre id="apiOpenAiExample"></pre>
+    </details>
+
+    <details>
       <summary><span class="method method-post">POST</span> <code>/api/tts</code> — 文字转语音（支持全部高级参数）</summary>
       <div class="api-desc">
         发送表单数据，返回 WAV 音频文件。除 <code>voice</code> 和 <code>text</code> 外，其余参数均为可选。
@@ -492,6 +517,20 @@ function authHeaders() {
 
 function renderApiExamples() {
   const baseUrl = window.location.origin;
+
+  const openAiEl = document.getElementById('apiOpenAiExample');
+  if (openAiEl) {
+    openAiEl.textContent = `curl -X POST "${baseUrl}/v1/audio/speech" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer <YOUR_TOKEN>" \\
+  -d '{
+    "model": "tts-1",
+    "input": "这里是需要转换成语音的文本内容。",
+    "voice": "reporter-zh",
+    "response_format": "mp3",
+    "speed": 1.0
+  }' --output output.mp3`;
+  }
 
   const ttsEl = document.getElementById('apiTtsExample');
   if (ttsEl) {
