@@ -19,12 +19,13 @@ import secrets
 import platform
 import inspect
 import subprocess
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request, Header, BackgroundTasks
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 from indextts.infer import IndexTTS
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -35,6 +36,16 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 VOICES_DIR = os.path.join(DATA_DIR, "voices")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
+
+# ── OpenAI Compatibility Models ───────────────────────────────────────────────
+class OpenAI_TTSRequest(BaseModel):
+    model: str = "tts-1"
+    input: str
+    voice: str
+    response_format: Optional[str] = "mp3"
+    speed: Optional[float] = 1.0
+
+# ── System Information ───────────────────────────────────────────────────────
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -182,6 +193,41 @@ def apply_speech_rate_inplace(wav_path: str, speech_rate: float) -> None:
     os.replace(tmp_path, wav_path)
 
 
+def convert_audio(input_path: str, output_path: str, format: str):
+    """Convert audio file to requested format using ffmpeg."""
+    # OpenAI: mp3, opus, aac, flac, wav, pcm
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", input_path]
+    if format == "mp3":
+        cmd.extend(["-codec:a", "libmp3lame", "-qscale:a", "2"])
+    elif format == "opus":
+        cmd.extend(["-codec:a", "libopus"])
+    elif format == "aac":
+        cmd.extend(["-codec:a", "aac"])
+    elif format == "flac":
+        cmd.extend(["-codec:a", "flac"])
+    elif format == "wav":
+        pass  # Already wav
+    elif format == "pcm":
+        cmd.extend(["-f", "s16le", "-acodec", "pcm_s16le"])
+    else:
+        # Fallback to simple conversion based on extension
+        pass
+
+    cmd.append(output_path)
+    subprocess.run(cmd, check=True)
+
+
+def cleanup_output_audios():
+    """Delete files older than 1 hour in OUTPUT_DIR to prevent disk leakage."""
+    try:
+        now = time.time()
+        for f in Path(OUTPUT_DIR).iterdir():
+            if f.is_file() and (now - f.stat().st_mtime > 3600):
+                f.unlink()
+    except Exception as e:
+        logger.error("Cleanup of %s failed: %s", OUTPUT_DIR, e)
+
+
 def _is_cuda_oom(error: Exception) -> bool:
     message = str(error).lower()
     return "out of memory" in message and "cuda" in message
@@ -288,8 +334,8 @@ def _is_authorized_bearer(authorization: str | None) -> bool:
 @app.middleware("http")
 async def access_token_middleware(request: Request, call_next):
     path = request.url.path
-    is_api_call = path.startswith("/api/")
-    if is_api_call and not _is_authorized_bearer(request.headers.get("Authorization")):
+    is_protected_call = path.startswith("/api/") or path.startswith("/v1/")
+    if is_protected_call and not _is_authorized_bearer(request.headers.get("Authorization")):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
 
@@ -382,34 +428,23 @@ def delete_voice(name: str):
 
 
 # ── API: Text-to-Speech (full parameter exposure) ───────────────────────────
-@app.post("/api/tts")
-def generate_speech(
-    # ── Required fields ──
-    voice: str = Form(...),
-    text: str = Form(...),
-    # ── GPT-2 sampling parameters ──
-    temperature: float = Form(default=DEFAULTS["temperature"]),
-    top_p: float = Form(default=DEFAULTS["top_p"]),
-    top_k: int = Form(default=DEFAULTS["top_k"]),
-    do_sample: bool = Form(default=DEFAULTS["do_sample"]),
-    num_beams: int = Form(default=DEFAULTS["num_beams"]),
-    repetition_penalty: float = Form(default=DEFAULTS["repetition_penalty"]),
-    length_penalty: float = Form(default=DEFAULTS["length_penalty"]),
-    max_mel_tokens: int = Form(default=DEFAULTS["max_mel_tokens"]),
-    # ── Text segmentation ──
-    max_text_tokens_per_segment: int = Form(default=DEFAULTS["max_text_tokens_per_segment"]),
-    # ── Inference mode ──
-    fast_mode: bool = Form(default=DEFAULTS["fast_mode"]),
-    bucket_size: int = Form(default=DEFAULTS["bucket_size"]),
-    speech_rate: float = Form(default=DEFAULTS["speech_rate"]),
-):
-    """
-    Generate speech from text using the selected voice and generation parameters.
-
-    Returns a WAV audio file. All parameters except ``voice`` and ``text``
-    are optional and fall back to sensible defaults derived from IndexTTS
-    best-practice values.
-    """
+def _perform_tts(
+    voice: str,
+    text: str,
+    temperature: float = DEFAULTS["temperature"],
+    top_p: float = DEFAULTS["top_p"],
+    top_k: int = DEFAULTS["top_k"],
+    do_sample: bool = DEFAULTS["do_sample"],
+    num_beams: int = DEFAULTS["num_beams"],
+    repetition_penalty: float = DEFAULTS["repetition_penalty"],
+    length_penalty: float = DEFAULTS["length_penalty"],
+    max_mel_tokens: int = DEFAULTS["max_mel_tokens"],
+    max_text_tokens_per_segment: int = DEFAULTS["max_text_tokens_per_segment"],
+    fast_mode: bool = DEFAULTS["fast_mode"],
+    bucket_size: int = DEFAULTS["bucket_size"],
+    speech_rate: float = DEFAULTS["speech_rate"],
+) -> str:
+    """Core TTS generation logic. Returns path to the generated WAV file."""
     if tts_model is None:
         raise HTTPException(503, "TTS model is not loaded.")
 
@@ -448,8 +483,6 @@ def generate_speech(
     output_path = os.path.join(OUTPUT_DIR, unique_filename)
 
     try:
-        start = time.perf_counter()
-
         def _run_infer(use_fast: bool, seg_tokens: int, bucket: int, kwargs: dict) -> None:
             if use_fast:
                 tts_model.infer_fast(
@@ -467,6 +500,7 @@ def generate_speech(
                     **kwargs,
                 )
 
+        start = time.perf_counter()
         try:
             _run_infer(fast_mode, max_text_tokens_per_segment, bucket_size, generation_kwargs)
         except Exception as infer_error:
@@ -491,7 +525,6 @@ def generate_speech(
             _run_infer(False, min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
 
         duration = time.perf_counter() - start
-
         apply_speech_rate_inplace(output_path, speech_rate)
 
         if not os.path.exists(output_path):
@@ -506,14 +539,107 @@ def generate_speech(
             temperature, top_p, top_k, num_beams,
             repetition_penalty, max_mel_tokens, max_text_tokens_per_segment, speech_rate,
         )
-        return FileResponse(
-            output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"
-        )
+        return output_path
     except HTTPException:
         raise
     except Exception as e:
         logger.error("TTS failed: %s", e, exc_info=True)
         raise HTTPException(500, f"Speech generation failed: {e}")
+
+
+@app.post("/api/tts")
+def api_tts(
+    background_tasks: BackgroundTasks,
+    # ── Required fields ──
+    voice: str = Form(...),
+    text: str = Form(...),
+    # ... rest of params ...
+    temperature: float = Form(default=DEFAULTS["temperature"]),
+    top_p: float = Form(default=DEFAULTS["top_p"]),
+    top_k: int = Form(default=DEFAULTS["top_k"]),
+    do_sample: bool = Form(default=DEFAULTS["do_sample"]),
+    num_beams: int = Form(default=DEFAULTS["num_beams"]),
+    repetition_penalty: float = Form(default=DEFAULTS["repetition_penalty"]),
+    length_penalty: float = Form(default=DEFAULTS["length_penalty"]),
+    max_mel_tokens: int = Form(default=DEFAULTS["max_mel_tokens"]),
+    # ── Text segmentation ──
+    max_text_tokens_per_segment: int = Form(default=DEFAULTS["max_text_tokens_per_segment"]),
+    # ── Inference mode ──
+    fast_mode: bool = Form(default=DEFAULTS["fast_mode"]),
+    bucket_size: int = Form(default=DEFAULTS["bucket_size"]),
+    speech_rate: float = Form(default=DEFAULTS["speech_rate"]),
+):
+    """
+    Generate speech from text using the selected voice and generation parameters.
+    Returns a WAV audio file.
+    """
+    background_tasks.add_task(cleanup_output_audios)
+    output_path = _perform_tts(
+        voice, text, temperature, top_p, top_k, do_sample, num_beams,
+        repetition_penalty, length_penalty, max_mel_tokens,
+        max_text_tokens_per_segment, fast_mode, bucket_size, speech_rate,
+    )
+    return FileResponse(
+        output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"
+    )
+
+
+# ── API: OpenAI Compatible Speech ─────────────────────────────────────────────
+@app.post("/v1/audio/speech")
+async def openai_speech(request: OpenAI_TTSRequest, background_tasks: BackgroundTasks):
+    """
+    OpenAI-compatible TTS endpoint.
+    See: https://platform.openai.com/docs/api-reference/audio/createSpeech
+    """
+    background_tasks.add_task(cleanup_output_audios)
+    # 1. Voice mapping
+    available_voices = [f.stem for f in Path(VOICES_DIR).glob("*.wav")]
+    if not available_voices:
+        raise HTTPException(503, "No voice profiles available on this server.")
+
+    selected_voice = request.voice
+    # If the requested voice doesn't exist, try case-insensitive or fallback
+    if selected_voice not in available_voices:
+        for v in available_voices:
+            if v.lower() == selected_voice.lower():
+                selected_voice = v
+                break
+        else:
+            selected_voice = available_voices[0]
+            logger.info("OpenAI API: Requested voice '%s' not found, using fallback: %s", request.voice, selected_voice)
+
+    # 2. Perform TTS (using defaults for parameters not in OpenAI spec)
+    wav_path = _perform_tts(
+        voice=selected_voice,
+        text=request.input,
+        speech_rate=request.speed or 1.0,
+    )
+
+    # 3. Format conversion
+    fmt = (request.response_format or "mp3").lower()
+    if fmt == "wav":
+        return FileResponse(wav_path, media_type="audio/wav")
+
+    # For other formats, convert using ffmpeg
+    ext = fmt if fmt != "pcm" else "raw"
+    converted_path = f"{wav_path}.{ext}"
+    try:
+        convert_audio(wav_path, converted_path, fmt)
+    except Exception as e:
+        logger.error("Format conversion failed: %s", e)
+        raise HTTPException(500, f"Audio conversion to {fmt} failed.")
+
+    # MIME types
+    mime_map = {
+        "mp3": "audio/mpeg",
+        "opus": "audio/opus",
+        "aac": "audio/aac",
+        "flac": "audio/flac",
+        "pcm": "audio/l16",
+    }
+    media_type = mime_map.get(fmt, f"audio/{fmt}")
+
+    return FileResponse(converted_path, media_type=media_type)
 
 
 # ── API: Health ──────────────────────────────────────────────────────────────
