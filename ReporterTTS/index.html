@@ -350,7 +350,7 @@ textarea{resize:vertical;min-height:100px}
     </div>
 
     <div class="audio-area" id="audioArea">
-      <p style="font-size:.85rem;color:var(--text2);margin-bottom:.3rem">🎧 生成结果</p>
+      <p style="font-size:.85rem;color:var(--text2);margin-bottom:.3rem">🎧 生成结果 <span id="cacheHitBadge" style="display:none;font-size:.75rem;padding:.15rem .5rem;border-radius:4px;font-weight:600;margin-left:.5rem"></span></p>
       <audio id="audioPlayer" controls></audio>
       <div class="audio-actions">
         <a class="btn btn-outline btn-sm" id="downloadBtn" href="#" download="tts_output.wav">⬇ 下载 WAV</a>
@@ -380,6 +380,18 @@ textarea{resize:vertical;min-height:100px}
     <p style="font-size:.78rem;color:var(--text3);margin-top:.3rem">
       提示：上传一段 5–15 秒的清晰语音作为声纹参考（.wav 格式）。名称仅允许字母、数字、连字符和下划线。
     </p>
+  </div>
+
+  <!-- ── Cache Management ──────────────────────────────────────────── -->
+  <div class="card">
+    <h2><span class="icon">💾</span> 缓存管理</h2>
+    <p style="font-size:.88rem;color:var(--text2);margin-bottom:.8rem">
+      相同声纹 + 相同文本 + 相同参数的请求将直接返回缓存音频，无需重新生成。
+    </p>
+    <div id="cacheStats" style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.8rem">
+      <span class="badge" style="font-size:.85rem"><span class="dot dot-blue"></span>加载中…</span>
+    </div>
+    <button class="btn btn-danger btn-sm" onclick="clearCache()">🗑️ 清空全部缓存</button>
   </div>
 
   <!-- ── API Documentation ───────────────────────────────────────────── -->
@@ -463,6 +475,18 @@ textarea{resize:vertical;min-height:100px}
       <summary><span class="method method-get">GET</span> <code>/api/system</code> — 系统信息与默认参数</summary>
       <div class="api-desc">返回设备类型、GPU 型号、CUDA 版本、模型状态，以及所有默认生成参数。</div>
       <pre id="apiSystemExample"></pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-get">GET</span> <code>/api/cache</code> — 缓存统计</summary>
+      <div class="api-desc">返回 TTS 缓存统计信息，包含缓存文件数量和总大小。</div>
+      <pre id="apiCacheGetExample"></pre>
+    </details>
+
+    <details>
+      <summary><span class="method method-delete">DELETE</span> <code>/api/cache</code> — 清空缓存</summary>
+      <div class="api-desc">删除所有缓存的 TTS 音频文件。</div>
+      <pre id="apiCacheDeleteExample"></pre>
     </details>
 
     <details>
@@ -619,6 +643,22 @@ TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
 curl "$BASE_URL/health" \\
   -H "Authorization: Bearer $TOKEN"`;
   }
+
+  const cacheGetEl = document.getElementById('apiCacheGetExample');
+  if (cacheGetEl) {
+    cacheGetEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl "$BASE_URL/api/cache" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
+
+  const cacheDeleteEl = document.getElementById('apiCacheDeleteExample');
+  if (cacheDeleteEl) {
+    cacheDeleteEl.textContent = `BASE_URL="${baseUrl}"
+TOKEN="<YOUR_TTS_ACCESS_TOKEN>"
+curl -X DELETE "$BASE_URL/api/cache" \\
+  -H "Authorization: Bearer $TOKEN"`;
+  }
 }
 
 async function apiFetch(url, options = {}) {
@@ -741,7 +781,13 @@ async function loadSystemInfo() {
     const mOk = d.model_loaded;
     html += `<span class="badge"><span class="dot ${mOk?'dot-green':'dot-red'}"></span>模型 ${mOk?'已就绪':'未加载'}</span>`;
     html += `<span class="badge"><span class="dot dot-blue"></span>${d.arch || ''} · Python ${d.python || ''}</span>`;
+    if (d.cache) {
+      const cEnabled = d.cache.enabled;
+      html += `<span class="badge"><span class="dot ${cEnabled?'dot-green':'dot-yellow'}"></span>缓存 ${cEnabled?'已启用':'已禁用'}</span>`;
+    }
     el.innerHTML = html;
+    // Also update cache stats panel
+    if (d.cache) updateCacheStatsUI(d.cache);
 
     // Update defaults from server
     if (d.defaults) {
@@ -858,6 +904,9 @@ async function doTTS() {
     const r = await apiFetch('/api/tts', { method: 'POST', body: fd });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
 
+    const cacheStatus = r.headers.get('X-TTS-Cache');
+    const isCacheHit = cacheStatus === 'hit';
+
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
 
@@ -869,8 +918,25 @@ async function doTTS() {
     dl.href = url;
     dl.download = `tts_${voice}.wav`;
 
+    // Show cache hit/miss badge
+    const cacheBadge = document.getElementById('cacheHitBadge');
+    if (cacheBadge) {
+      cacheBadge.style.display = 'inline';
+      if (isCacheHit) {
+        cacheBadge.textContent = '⚡ 缓存命中';
+        cacheBadge.style.background = '#dcfce7';
+        cacheBadge.style.color = '#166534';
+      } else {
+        cacheBadge.textContent = '🆕 新生成';
+        cacheBadge.style.background = '#dbeafe';
+        cacheBadge.style.color = '#1e40af';
+      }
+    }
+
     area.classList.add('active');
-    toast('语音生成成功', 'success');
+    toast(isCacheHit ? '语音生成成功（缓存命中）' : '语音生成成功', 'success');
+    // Refresh cache stats
+    loadCacheStats();
   } catch(e) {
     toast('生成失败: ' + e.message, 'error');
   } finally {
@@ -879,10 +945,46 @@ async function doTTS() {
   }
 }
 
+// ── Cache Management ─────────────────────────────────────────────────────
+function updateCacheStatsUI(stats) {
+  const el = document.getElementById('cacheStats');
+  if (!el) return;
+  const enabled = stats.enabled;
+  el.innerHTML = `
+    <span class="badge" style="font-size:.85rem"><span class="dot ${enabled?'dot-green':'dot-yellow'}"></span>${enabled?'已启用':'已禁用'}</span>
+    <span class="badge" style="font-size:.85rem"><span class="dot dot-blue"></span>缓存文件 ${stats.total_files} 个</span>
+    <span class="badge" style="font-size:.85rem"><span class="dot dot-blue"></span>占用 ${stats.total_size_mb} MB</span>
+  `;
+}
+
+async function loadCacheStats() {
+  try {
+    const r = await apiFetch('/api/cache');
+    const stats = await r.json();
+    updateCacheStatsUI(stats);
+  } catch(e) {
+    console.warn('Failed to load cache stats', e);
+  }
+}
+
+async function clearCache() {
+  if (!confirm('确定要清空所有 TTS 缓存吗？')) return;
+  try {
+    const r = await apiFetch('/api/cache', { method: 'DELETE' });
+    if (!r.ok) throw new Error('清空失败');
+    const d = await r.json();
+    toast(`已清空 ${d.deleted} 个缓存文件`, 'success');
+    loadCacheStats();
+  } catch(e) {
+    toast('清空缓存失败: ' + e.message, 'error');
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────
 async function bootApp() {
   await loadSystemInfo();
   await loadVoices();
+  await loadCacheStats();
 }
 
 (async () => {

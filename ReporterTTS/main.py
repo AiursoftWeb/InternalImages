@@ -13,6 +13,8 @@ Features:
 import os
 import uuid
 import time
+import json
+import hashlib
 import shutil
 import logging
 import secrets
@@ -32,10 +34,20 @@ from indextts.infer import IndexTTS
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 # ── Configuration ────────────────────────────────────────────────────────────
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 VOICES_DIR = os.path.join(DATA_DIR, "voices")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
+CACHE_DIR = os.path.join(DATA_DIR, "tts_cache")
+CACHE_ENABLED = _env_flag("TTS_CACHE_ENABLED", True)
 
 # ── OpenAI Compatibility Models ───────────────────────────────────────────────
 class OpenAI_TTSRequest(BaseModel):
@@ -45,14 +57,82 @@ class OpenAI_TTSRequest(BaseModel):
     response_format: Optional[str] = "mp3"
     speed: Optional[float] = 1.0
 
-# ── System Information ───────────────────────────────────────────────────────
+# ── TTS Cache ────────────────────────────────────────────────────────────────
+def _build_cache_key(
+    voice: str,
+    text: str,
+    temperature: float,
+    top_p: float,
+    top_k: int,
+    do_sample: bool,
+    num_beams: int,
+    repetition_penalty: float,
+    length_penalty: float,
+    max_mel_tokens: int,
+    max_text_tokens_per_segment: int,
+    fast_mode: bool,
+    bucket_size: int,
+    speech_rate: float,
+) -> str:
+    """Build a deterministic SHA-256 cache key from all generation parameters."""
+    payload = json.dumps(
+        {
+            "voice": voice,
+            "text": text,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "do_sample": do_sample,
+            "num_beams": num_beams,
+            "repetition_penalty": repetition_penalty,
+            "length_penalty": length_penalty,
+            "max_mel_tokens": max_mel_tokens,
+            "max_text_tokens_per_segment": max_text_tokens_per_segment,
+            "fast_mode": fast_mode,
+            "bucket_size": bucket_size,
+            "speech_rate": speech_rate,
+        },
+        sort_keys=True,
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+def _get_cached_audio(cache_key: str) -> Optional[str]:
+    """Return the path to the cached WAV file if it exists, else None."""
+    if not CACHE_ENABLED:
+        return None
+    cached_path = os.path.join(CACHE_DIR, f"{cache_key}.wav")
+    if os.path.isfile(cached_path):
+        return cached_path
+    return None
+
+
+def _store_in_cache(cache_key: str, source_path: str) -> Optional[str]:
+    """Copy a generated WAV into the cache directory. Returns cached path."""
+    if not CACHE_ENABLED:
+        return None
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cached_path = os.path.join(CACHE_DIR, f"{cache_key}.wav")
+    try:
+        shutil.copy2(source_path, cached_path)
+        return cached_path
+    except Exception as e:
+        logger.warning("Failed to store TTS cache entry %s: %s", cache_key[:12], e)
+        return None
+
+
+def _get_cache_stats() -> dict:
+    """Return cache directory statistics."""
+    if not os.path.isdir(CACHE_DIR):
+        return {"enabled": CACHE_ENABLED, "total_files": 0, "total_size_mb": 0.0}
+    files = list(Path(CACHE_DIR).glob("*.wav"))
+    total_size = sum(f.stat().st_size for f in files)
+    return {
+        "enabled": CACHE_ENABLED,
+        "total_files": len(files),
+        "total_size_mb": round(total_size / (1024 * 1024), 2),
+    }
 
 
 LOW_VRAM_MODE = _env_flag("LOW_VRAM_MODE", False)
@@ -247,6 +327,7 @@ async def lifespan(app: FastAPI):
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(VOICES_DIR, exist_ok=True)
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
     system_info = get_system_info()
     logger.info("System info: %s", system_info)
@@ -379,6 +460,7 @@ def api_system():
         "low_vram_mode": LOW_VRAM_MODE,
         "auth_required": AUTH_REQUIRED,
         "defaults": DEFAULTS,
+        "cache": _get_cache_stats(),
     }
 
 
@@ -443,8 +525,8 @@ def _perform_tts(
     fast_mode: bool = DEFAULTS["fast_mode"],
     bucket_size: int = DEFAULTS["bucket_size"],
     speech_rate: float = DEFAULTS["speech_rate"],
-) -> str:
-    """Core TTS generation logic. Returns path to the generated WAV file."""
+) -> tuple[str, bool]:
+    """Core TTS generation logic. Returns (path_to_WAV, cache_hit)."""
     if tts_model is None:
         raise HTTPException(503, "TTS model is not loaded.")
 
@@ -467,6 +549,20 @@ def _perform_tts(
     max_text_tokens_per_segment = max(20, min(300, max_text_tokens_per_segment))
     bucket_size = max(1, min(8, bucket_size))
     speech_rate = max(0.5, min(2.0, speech_rate))
+
+    # ── Cache lookup ─────────────────────────────────────────────────────
+    cache_key = _build_cache_key(
+        voice, text, temperature, top_p, top_k, do_sample, num_beams,
+        repetition_penalty, length_penalty, max_mel_tokens,
+        max_text_tokens_per_segment, fast_mode, bucket_size, speech_rate,
+    )
+    cached = _get_cached_audio(cache_key)
+    if cached is not None:
+        logger.info(
+            "TTS CACHE HIT: voice=%s chars=%d key=%s",
+            voice, len(text), cache_key[:12],
+        )
+        return cached, True
 
     generation_kwargs = {
         "do_sample": do_sample,
@@ -539,7 +635,11 @@ def _perform_tts(
             temperature, top_p, top_k, num_beams,
             repetition_penalty, max_mel_tokens, max_text_tokens_per_segment, speech_rate,
         )
-        return output_path
+
+        # ── Store result in cache ────────────────────────────────────────
+        _store_in_cache(cache_key, output_path)
+
+        return output_path, False
     except HTTPException:
         raise
     except Exception as e:
@@ -574,13 +674,16 @@ def api_tts(
     Returns a WAV audio file.
     """
     background_tasks.add_task(cleanup_output_audios)
-    output_path = _perform_tts(
+    output_path, cache_hit = _perform_tts(
         voice, text, temperature, top_p, top_k, do_sample, num_beams,
         repetition_penalty, length_penalty, max_mel_tokens,
         max_text_tokens_per_segment, fast_mode, bucket_size, speech_rate,
     )
     return FileResponse(
-        output_path, media_type="audio/wav", filename=f"tts_{voice}.wav"
+        output_path,
+        media_type="audio/wav",
+        filename=f"tts_{voice}.wav",
+        headers={"X-TTS-Cache": "hit" if cache_hit else "miss"},
     )
 
 
@@ -609,7 +712,7 @@ async def openai_speech(request: OpenAI_TTSRequest, background_tasks: Background
             logger.info("OpenAI API: Requested voice '%s' not found, using fallback: %s", request.voice, selected_voice)
 
     # 2. Perform TTS (using defaults for parameters not in OpenAI spec)
-    wav_path = _perform_tts(
+    wav_path, _cache_hit = _perform_tts(
         voice=selected_voice,
         text=request.input,
         speech_rate=request.speed or 1.0,
@@ -640,6 +743,30 @@ async def openai_speech(request: OpenAI_TTSRequest, background_tasks: Background
     media_type = mime_map.get(fmt, f"audio/{fmt}")
 
     return FileResponse(converted_path, media_type=media_type)
+
+
+# ── API: Cache Management ────────────────────────────────────────────────────
+@app.get("/api/cache")
+def api_cache_stats():
+    """Return TTS cache statistics."""
+    return _get_cache_stats()
+
+
+@app.delete("/api/cache")
+def api_cache_clear():
+    """Clear all cached TTS audio files."""
+    if not os.path.isdir(CACHE_DIR):
+        return {"status": "ok", "deleted": 0}
+    files = list(Path(CACHE_DIR).glob("*.wav"))
+    count = 0
+    for f in files:
+        try:
+            f.unlink()
+            count += 1
+        except Exception as e:
+            logger.warning("Failed to delete cache file %s: %s", f.name, e)
+    logger.info("Cache cleared: %d files deleted.", count)
+    return {"status": "ok", "deleted": count}
 
 
 # ── API: Health ──────────────────────────────────────────────────────────────
