@@ -42,6 +42,7 @@ ocr_model: Optional[PaddleOCR] = None
 system_info: dict = {}
 model_runtime_device: str = "CPU"
 ocr_lock = threading.Lock()
+pdf_executor = ThreadPoolExecutor(max_workers=4)
 
 def get_system_info() -> dict:
     """Detect hardware and return a summary dict."""
@@ -152,9 +153,15 @@ def _run_ocr_on_image(img: np.ndarray, page_num: Optional[int] = None):
 
 def _run_ocr_on_pdf(contents: bytes):
     start_time = time.perf_counter()
-    doc = fitz.open(stream=contents, filetype="pdf")
-    num_pages = len(doc)
-    doc.close()
+    try:
+        doc = fitz.open(stream=contents, filetype="pdf")
+        num_pages = len(doc)
+        doc.close()
+    except Exception:
+        raise HTTPException(400, "Invalid or corrupted PDF file.")
+
+    if num_pages > 50:
+        raise HTTPException(400, "PDF has too many pages. Maximum allowed is 50 pages.")
 
     def process_page(page_index: int):
         thread_doc = fitz.open(stream=contents, filetype="pdf")
@@ -170,11 +177,17 @@ def _run_ocr_on_pdf(contents: bytes):
             img_data = pix.tobytes("png")
             nparr = np.frombuffer(img_data, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            res = _run_ocr_on_image(img, page_num=page_index + 1)
+            if img is not None:
+                page_res = _run_ocr_on_image(img, page_num=page_index + 1)
+                scale = 150 / 72.0
+                for item in page_res:
+                    new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
+                    item["points"] = new_points
+                    res.append(item)
         else:
             blocks = page.get_text("dict")["blocks"]
             for b in blocks:
-                if "lines" in b:
+                if b.get("type") == 0 and "lines" in b:
                     for line in b["lines"]:
                         line_text = "".join([span["text"] for span in line["spans"]])
                         if line_text.strip():
@@ -186,14 +199,30 @@ def _run_ocr_on_pdf(contents: bytes):
                                 "confidence": 1.0,
                                 "page_num": page_index + 1
                             })
+                elif b.get("type") == 1:
+                    clip_rect = fitz.Rect(b["bbox"])
+                    pix = page.get_pixmap(clip=clip_rect, dpi=150)
+                    img_data = pix.tobytes("png")
+                    nparr = np.frombuffer(img_data, np.uint8)
+                    block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if block_img is not None:
+                        block_res = _run_ocr_on_image(block_img, page_num=page_index + 1)
+                        scale = 150 / 72.0
+                        for item in block_res:
+                            new_points = []
+                            for pt in item["points"]:
+                                nx = clip_rect.x0 + (pt[0] / scale)
+                                ny = clip_rect.y0 + (pt[1] / scale)
+                                new_points.append([nx, ny])
+                            item["points"] = new_points
+                            res.append(item)
         thread_doc.close()
         return res
 
     all_results = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(process_page, i) for i in range(num_pages)]
-        for future in futures:
-            all_results.extend(future.result())
+    futures = [pdf_executor.submit(process_page, i) for i in range(num_pages)]
+    for future in futures:
+        all_results.extend(future.result())
 
     duration = time.perf_counter() - start_time
     logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
