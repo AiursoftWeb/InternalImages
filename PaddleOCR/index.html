@@ -146,8 +146,8 @@ input:focus{border-color:var(--accent)}
       <h2>🖼️ 上传图片</h2>
       <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <span class="icon">📁</span>
-        <p>点击或拖拽图片到这里进行 OCR 识别</p>
-        <input type="file" id="fileInput" hidden accept="image/*" onchange="handleFile(this.files[0])">
+        <p>点击或拖拽图片或PDF文件到这里进行识别</p>
+        <input type="file" id="fileInput" hidden accept="image/*,application/pdf" onchange="handleFile(this.files[0])">
       </div>
       <div class="preview-area" id="previewArea">
         <img id="previewImg" src="">

@@ -31,6 +31,7 @@ RUN uv pip install \
     loguru \
     setuptools \
     requests \
+    pymupdf \
     nvidia-cudnn-cu12==8.9.2.26 \
     nvidia-cublas-cu12 \
     nvidia-cuda-runtime-cu12 \

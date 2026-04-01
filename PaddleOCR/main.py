@@ -15,6 +15,9 @@ from contextlib import asynccontextmanager
 import cv2
 import numpy as np
 import base64
+import fitz
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -38,6 +41,7 @@ AUTH_REQUIRED = bool(OCR_ACCESS_TOKEN)
 ocr_model: Optional[PaddleOCR] = None
 system_info: dict = {}
 model_runtime_device: str = "CPU"
+ocr_lock = threading.Lock()
 
 def get_system_info() -> dict:
     """Detect hardware and return a summary dict."""
@@ -124,30 +128,91 @@ def api_system():
 class Base64Request(BaseModel):
     base64: str
 
-def _run_ocr_on_image(img: np.ndarray):
+def _run_ocr_on_image(img: np.ndarray, page_num: Optional[int] = None):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     start_time = time.perf_counter()
-    result = ocr_model.ocr(img, cls=True)
+    with ocr_lock:
+        result = ocr_model.ocr(img, cls=True)
     duration = time.perf_counter() - start_time
     
     formatted_res = []
     if result and len(result) > 0 and result[0]:
         for line in result[0]:
             box, (text, score) = line
-            formatted_res.append({"points": box, "text": text, "confidence": float(score)})
+            item = {"points": box, "text": text, "confidence": float(score)}
+            if page_num is not None:
+                item["page_num"] = page_num
+            formatted_res.append(item)
     
-    logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
-    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+    if page_num is None:
+        logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
+        return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+    else:
+        return formatted_res
+
+def _run_ocr_on_pdf(contents: bytes):
+    start_time = time.perf_counter()
+    doc = fitz.open(stream=contents, filetype="pdf")
+    num_pages = len(doc)
+    doc.close()
+
+    def process_page(page_index: int):
+        thread_doc = fitz.open(stream=contents, filetype="pdf")
+        page = thread_doc.load_page(page_index)
+        
+        # Check if scanned
+        text = page.get_text("text").strip()
+        is_scanned = len(text) < 10
+        
+        res = []
+        if is_scanned:
+            pix = page.get_pixmap(dpi=150)
+            img_data = pix.tobytes("png")
+            nparr = np.frombuffer(img_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            res = _run_ocr_on_image(img, page_num=page_index + 1)
+        else:
+            blocks = page.get_text("dict")["blocks"]
+            for b in blocks:
+                if "lines" in b:
+                    for line in b["lines"]:
+                        line_text = "".join([span["text"] for span in line["spans"]])
+                        if line_text.strip():
+                            x0, y0, x1, y1 = line["bbox"]
+                            box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                            res.append({
+                                "points": box,
+                                "text": line_text.strip(),
+                                "confidence": 1.0,
+                                "page_num": page_index + 1
+                            })
+        thread_doc.close()
+        return res
+
+    all_results = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(process_page, i) for i in range(num_pages)]
+        for future in futures:
+            all_results.extend(future.result())
+
+    duration = time.perf_counter() - start_time
+    logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
+    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": all_results}
+
+def process_bytes(contents: bytes):
+    if contents.startswith(b"%PDF-"):
+        return _run_ocr_on_pdf(contents)
+    else:
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: raise HTTPException(400, "Invalid image data.")
+        return _run_ocr_on_image(img)
 
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None: raise HTTPException(400, "Invalid image file.")
-        
-        return _run_ocr_on_image(img)
+        return process_bytes(contents)
     except HTTPException:
         raise
     except Exception as e:
@@ -158,18 +223,14 @@ async def do_ocr(file: UploadFile = File(...)):
 async def do_ocr_base64(req: Base64Request):
     try:
         b64_data = req.base64
-        if b64_data.startswith("data:image"):
+        if b64_data.startswith("data:"):
             if "," in b64_data:
                 b64_data = b64_data.split(",", 1)[1]
             else:
                 raise HTTPException(400, "Invalid base64 data URI.")
         
         contents = base64.b64decode(b64_data)
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None: raise HTTPException(400, "Invalid image base64.")
-        
-        return _run_ocr_on_image(img)
+        return process_bytes(contents)
     except HTTPException:
         raise
     except Exception as e:
