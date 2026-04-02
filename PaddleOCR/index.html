@@ -143,10 +143,10 @@ input:focus{border-color:var(--accent)}
   <div class="main-grid">
     <!-- Left: Upload & Preview -->
     <div class="card">
-      <h2>🖼️ 上传图片</h2>
+      <h2>🖼️ 上传图片 / PDF</h2>
       <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <span class="icon">📁</span>
-        <p>点击或拖拽图片或PDF文件到这里进行识别</p>
+        <p>点击或拖拽图片或 PDF 文件到这里进行 OCR 识别</p>
         <input type="file" id="fileInput" hidden accept="image/*,application/pdf" onchange="handleFile(this.files[0])">
       </div>
       <div class="preview-area" id="previewArea">
@@ -173,6 +173,13 @@ input:focus{border-color:var(--accent)}
       <div style="padding:1rem;color:var(--text2);font-size:.9rem">
         <p>上传图片文件，返回识别出的文字内容及其位置坐标。</p>
         <pre id="apiOcrExample"></pre>
+      </div>
+    </details>
+    <details>
+      <summary><span class="method method-post">POST</span> <code>/api/ocr/pdf</code> — 执行 PDF 识别</summary>
+      <div style="padding:1rem;color:var(--text2);font-size:.9rem">
+        <p>上传 PDF 文件，返回识别出的文字及其位置坐标（最大支持50页）。</p>
+        <pre id="apiOcrPdfExample"></pre>
       </div>
     </details>
     <details>
@@ -257,24 +264,40 @@ function submitAuth() {
 async function handleFile(file) {
   if (!file) return;
   const preview = document.getElementById('previewArea');
-  const reader = new FileReader();
-  reader.onload = e => { 
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      preview.innerHTML = `<embed src="${e.target.result}" type="application/pdf" width="100%" height="500px" style="border:none" />`;
-    } else {
-      preview.innerHTML = `<img id="previewImg" src="${e.target.result}" style="width:100%;display:block;">`;
+  const previewImg = document.getElementById('previewImg');
+  
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  
+  if (isPdf) {
+    previewImg.style.display = 'none';
+    let pdfHint = document.getElementById('pdfPreviewHint');
+    if (!pdfHint) {
+      pdfHint = document.createElement('div');
+      pdfHint.id = 'pdfPreviewHint';
+      pdfHint.style.padding = '2rem 1rem';
+      pdfHint.style.textAlign = 'center';
+      preview.appendChild(pdfHint);
     }
-    preview.classList.add('active'); 
-  };
-  reader.readAsDataURL(file);
+    pdfHint.textContent = `📄 选中的文件: ${file.name}`;
+    preview.classList.add('active');
+  } else {
+    const pdfHint = document.getElementById('pdfPreviewHint');
+    if (pdfHint) pdfHint.remove();
+    previewImg.style.display = 'block';
+    const reader = new FileReader();
+    reader.onload = e => { previewImg.src = e.target.result; preview.classList.add('active'); };
+    reader.readAsDataURL(file);
+  }
 
   document.getElementById('resultArea').textContent = '识别中...';
   const fd = new FormData();
   fd.append('file', file);
   
+  const apiUrl = isPdf ? '/api/ocr/pdf' : '/api/ocr';
+  
   try {
     const t0 = performance.now();
-    const r = await fetch('/api/ocr', { method: 'POST', body: fd, headers: getHeaders() });
+    const r = await fetch(apiUrl, { method: 'POST', body: fd, headers: getHeaders() });
     const d = await r.json();
     const t1 = performance.now();
     
@@ -306,6 +329,10 @@ window.onload = () => {
   loadSystemInfo();
   document.getElementById('apiOcrExample').textContent = `curl -X POST "${window.location.origin}/api/ocr" \\
   -F "file=@image.jpg"`;
+  if (document.getElementById('apiOcrPdfExample')) {
+    document.getElementById('apiOcrPdfExample').textContent = `curl -X POST "${window.location.origin}/api/ocr/pdf" \\
+  -F "file=@document.pdf"`;
+  }
   document.getElementById('apiOcrBase64Example').textContent = `curl -X POST "${window.location.origin}/api/ocr/base64" \\
   -H "Content-Type: application/json" \\
   -d '{"base64": "iVBORw0KGgoAAAANSUhEUgAA..."}'`;

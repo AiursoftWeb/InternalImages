@@ -129,27 +129,37 @@ def api_system():
 class Base64Request(BaseModel):
     base64: str
 
-def _run_ocr_on_image(img: np.ndarray, page_num: Optional[int] = None):
+def _run_ocr_on_image(img: np.ndarray):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     start_time = time.perf_counter()
-    with ocr_lock:
-        result = ocr_model.ocr(img, cls=True)
+    result = ocr_model.ocr(img, cls=True)
     duration = time.perf_counter() - start_time
     
     formatted_res = []
     if result and len(result) > 0 and result[0]:
         for line in result[0]:
             box, (text, score) = line
-            item = {"points": box, "text": text, "confidence": float(score)}
-            if page_num is not None:
-                item["page_num"] = page_num
-            formatted_res.append(item)
+            formatted_res.append({"points": box, "text": text, "confidence": float(score)})
     
-    if page_num is None:
-        logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
-        return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
-    else:
-        return formatted_res
+    logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
+    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+
+def _run_ocr_on_pdf_page(img: np.ndarray, page_num: int):
+    if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
+    with ocr_lock:
+        result = ocr_model.ocr(img, cls=True)
+    
+    formatted_res = []
+    if result and len(result) > 0 and result[0]:
+        for line in result[0]:
+            box, (text, score) = line
+            formatted_res.append({
+                "points": box,
+                "text": text,
+                "confidence": float(score),
+                "page_num": page_num
+            })
+    return formatted_res
 
 def _run_ocr_on_pdf(contents: bytes):
     start_time = time.perf_counter()
@@ -178,7 +188,7 @@ def _run_ocr_on_pdf(contents: bytes):
             nparr = np.frombuffer(img_data, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             if img is not None:
-                page_res = _run_ocr_on_image(img, page_num=page_index + 1)
+                page_res = _run_ocr_on_pdf_page(img, page_num=page_index + 1)
                 scale = 150 / 72.0
                 for item in page_res:
                     new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
@@ -215,7 +225,7 @@ def _run_ocr_on_pdf(contents: bytes):
                     nparr = np.frombuffer(img_data, np.uint8)
                     block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if block_img is not None:
-                        block_res = _run_ocr_on_image(block_img, page_num=page_index + 1)
+                        block_res = _run_ocr_on_pdf_page(block_img, page_num=page_index + 1)
                         scale = 150 / 72.0
                         for item in block_res:
                             new_points = []
@@ -237,20 +247,15 @@ def _run_ocr_on_pdf(contents: bytes):
     logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
     return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": all_results}
 
-def process_bytes(contents: bytes):
-    if contents.startswith(b"%PDF-"):
-        return _run_ocr_on_pdf(contents)
-    else:
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img is None: raise HTTPException(400, "Invalid image data.")
-        return _run_ocr_on_image(img)
-
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
     try:
         contents = await file.read()
-        return process_bytes(contents)
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: raise HTTPException(400, "Invalid image file.")
+        
+        return _run_ocr_on_image(img)
     except HTTPException:
         raise
     except Exception as e:
@@ -261,6 +266,41 @@ async def do_ocr(file: UploadFile = File(...)):
 async def do_ocr_base64(req: Base64Request):
     try:
         b64_data = req.base64
+        if b64_data.startswith("data:image"):
+            if "," in b64_data:
+                b64_data = b64_data.split(",", 1)[1]
+            else:
+                raise HTTPException(400, "Invalid base64 data URI.")
+        
+        contents = base64.b64decode(b64_data)
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None: raise HTTPException(400, "Invalid image base64.")
+        
+        return _run_ocr_on_image(img)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("OCR failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"OCR processing failed: {e}")
+
+@app.post("/api/ocr/pdf")
+async def do_ocr_pdf(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        if not contents.startswith(b"%PDF-"):
+            raise HTTPException(400, "Not a valid PDF file.")
+        return _run_ocr_on_pdf(contents)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("PDF OCR failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"PDF processing failed: {e}")
+
+@app.post("/api/ocr/pdf/base64")
+async def do_ocr_pdf_base64(req: Base64Request):
+    try:
+        b64_data = req.base64
         if b64_data.startswith("data:"):
             if "," in b64_data:
                 b64_data = b64_data.split(",", 1)[1]
@@ -268,12 +308,14 @@ async def do_ocr_base64(req: Base64Request):
                 raise HTTPException(400, "Invalid base64 data URI.")
         
         contents = base64.b64decode(b64_data)
-        return process_bytes(contents)
+        if not contents.startswith(b"%PDF-"):
+            raise HTTPException(400, "Not a valid PDF file.")
+        return _run_ocr_on_pdf(contents)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("OCR failed: %s", e, exc_info=True)
-        raise HTTPException(500, f"OCR processing failed: {e}")
+        logger.error("PDF OCR failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"PDF processing failed: {e}")
 
 @app.get("/health")
 def health_check():
