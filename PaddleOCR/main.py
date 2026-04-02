@@ -189,7 +189,16 @@ def _run_ocr_on_pdf(contents: bytes):
             for b in blocks:
                 if b.get("type") == 0 and "lines" in b:
                     for line in b["lines"]:
-                        line_text = "".join([span["text"] for span in line["spans"]])
+                        line_text = ""
+                        last_span = None
+                        for span in line["spans"]:
+                            if last_span is not None:
+                                gap = span["bbox"][0] - last_span["bbox"][2]
+                                if gap > span.get("size", 10) * 0.2:
+                                    line_text += " "
+                            line_text += span["text"]
+                            last_span = span
+                            
                         if line_text.strip():
                             x0, y0, x1, y1 = line["bbox"]
                             box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
