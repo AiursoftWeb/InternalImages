@@ -20,6 +20,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from paddleocr import PaddleOCR
 
@@ -164,9 +165,8 @@ def _run_ocr_on_pdf_page(img: np.ndarray, page_num: int):
 def _run_ocr_on_pdf(contents: bytes):
     start_time = time.perf_counter()
     try:
-        doc = fitz.open(stream=contents, filetype="pdf")
-        num_pages = len(doc)
-        doc.close()
+        with fitz.open(stream=contents, filetype="pdf") as doc:
+            num_pages = len(doc)
     except Exception:
         raise HTTPException(400, "Invalid or corrupted PDF file.")
 
@@ -174,69 +174,68 @@ def _run_ocr_on_pdf(contents: bytes):
         raise HTTPException(400, "PDF has too many pages. Maximum allowed is 50 pages.")
 
     def process_page(page_index: int):
-        thread_doc = fitz.open(stream=contents, filetype="pdf")
-        page = thread_doc.load_page(page_index)
-        
-        # Check if scanned
-        text = page.get_text("text").strip()
-        is_scanned = len(text) < 10
-        
-        res = []
-        if is_scanned:
-            pix = page.get_pixmap(dpi=150)
-            img_data = pix.tobytes("png")
-            nparr = np.frombuffer(img_data, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is not None:
-                page_res = _run_ocr_on_pdf_page(img, page_num=page_index + 1)
-                scale = 150 / 72.0
-                for item in page_res:
-                    new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
-                    item["points"] = new_points
-                    res.append(item)
-        else:
-            blocks = page.get_text("dict")["blocks"]
-            for b in blocks:
-                if b.get("type") == 0 and "lines" in b:
-                    for line in b["lines"]:
-                        line_text = ""
-                        last_span = None
-                        for span in line["spans"]:
-                            if last_span is not None:
-                                gap = span["bbox"][0] - last_span["bbox"][2]
-                                if gap > span.get("size", 10) * 0.2:
-                                    line_text += " "
-                            line_text += span["text"]
-                            last_span = span
-                            
-                        if line_text.strip():
-                            x0, y0, x1, y1 = line["bbox"]
-                            box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
-                            res.append({
-                                "points": box,
-                                "text": line_text.strip(),
-                                "confidence": 1.0,
-                                "page_num": page_index + 1
-                            })
-                elif b.get("type") == 1:
-                    clip_rect = fitz.Rect(b["bbox"])
-                    pix = page.get_pixmap(clip=clip_rect, dpi=150)
-                    img_data = pix.tobytes("png")
-                    nparr = np.frombuffer(img_data, np.uint8)
-                    block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if block_img is not None:
-                        block_res = _run_ocr_on_pdf_page(block_img, page_num=page_index + 1)
-                        scale = 150 / 72.0
-                        for item in block_res:
-                            new_points = []
-                            for pt in item["points"]:
-                                nx = clip_rect.x0 + (pt[0] / scale)
-                                ny = clip_rect.y0 + (pt[1] / scale)
-                                new_points.append([nx, ny])
-                            item["points"] = new_points
-                            res.append(item)
-        thread_doc.close()
-        return res
+        with fitz.open(stream=contents, filetype="pdf") as thread_doc:
+            page = thread_doc.load_page(page_index)
+            
+            # Check if scanned
+            text = page.get_text("text").strip()
+            is_scanned = len(text) < 10
+            
+            res = []
+            if is_scanned:
+                pix = page.get_pixmap(dpi=150)
+                img_data = pix.tobytes("png")
+                nparr = np.frombuffer(img_data, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    page_res = _run_ocr_on_pdf_page(img, page_num=page_index + 1)
+                    scale = 150 / 72.0
+                    for item in page_res:
+                        new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
+                        item["points"] = new_points
+                        res.append(item)
+            else:
+                blocks = page.get_text("dict")["blocks"]
+                for b in blocks:
+                    if b.get("type") == 0 and "lines" in b:
+                        for line in b["lines"]:
+                            line_text = ""
+                            last_span = None
+                            for span in line["spans"]:
+                                if last_span is not None:
+                                    gap = span["bbox"][0] - last_span["bbox"][2]
+                                    if gap > span.get("size", 10) * 0.2:
+                                        line_text += " "
+                                line_text += span["text"]
+                                last_span = span
+                                
+                            if line_text.strip():
+                                x0, y0, x1, y1 = line["bbox"]
+                                box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                                res.append({
+                                    "points": box,
+                                    "text": line_text.strip(),
+                                    "confidence": 1.0,
+                                    "page_num": page_index + 1
+                                })
+                    elif b.get("type") == 1:
+                        clip_rect = fitz.Rect(b["bbox"])
+                        pix = page.get_pixmap(clip=clip_rect, dpi=150)
+                        img_data = pix.tobytes("png")
+                        nparr = np.frombuffer(img_data, np.uint8)
+                        block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if block_img is not None:
+                            block_res = _run_ocr_on_pdf_page(block_img, page_num=page_index + 1)
+                            scale = 150 / 72.0
+                            for item in block_res:
+                                new_points = []
+                                for pt in item["points"]:
+                                    nx = clip_rect.x0 + (pt[0] / scale)
+                                    ny = clip_rect.y0 + (pt[1] / scale)
+                                    new_points.append([nx, ny])
+                                item["points"] = new_points
+                                res.append(item)
+            return res
 
     all_results = []
     futures = [pdf_executor.submit(process_page, i) for i in range(num_pages)]
@@ -255,7 +254,7 @@ async def do_ocr(file: UploadFile = File(...)):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image file.")
         
-        return _run_ocr_on_image(img)
+        return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
     except Exception as e:
@@ -277,7 +276,7 @@ async def do_ocr_base64(req: Base64Request):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image base64.")
         
-        return _run_ocr_on_image(img)
+        return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
     except Exception as e:
@@ -290,7 +289,7 @@ async def do_ocr_pdf(file: UploadFile = File(...)):
         contents = await file.read()
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        return _run_ocr_on_pdf(contents)
+        return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
     except Exception as e:
@@ -310,7 +309,7 @@ async def do_ocr_pdf_base64(req: Base64Request):
         contents = base64.b64decode(b64_data)
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        return _run_ocr_on_pdf(contents)
+        return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
     except Exception as e:
