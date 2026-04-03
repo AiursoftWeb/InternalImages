@@ -501,11 +501,14 @@ async def upload_voice(name: str = Form(...), file: UploadFile = File(...)):
 @app.delete("/api/voices/{name}")
 def delete_voice(name: str):
     """Delete a voice profile by name."""
-    path = Path(VOICES_DIR) / f"{name}.wav"
+    safe_name = "".join(c for c in name if c.isalnum() or c in "-_").strip()
+    if not safe_name:
+        raise HTTPException(400, "Invalid voice name (use alphanumeric, dash, underscore).")
+    path = Path(VOICES_DIR) / f"{safe_name}.wav"
     if not path.exists():
         raise HTTPException(404, "Voice not found.")
     path.unlink()
-    logger.info("Voice deleted: %s", name)
+    logger.info("Voice deleted: %s", safe_name)
     return {"status": "ok"}
 
 
@@ -530,9 +533,13 @@ def _perform_tts(
     if tts_model is None:
         raise HTTPException(503, "TTS model is not loaded.")
 
-    voice_path = Path(VOICES_DIR) / f"{voice}.wav"
+    safe_voice = "".join(c for c in voice if c.isalnum() or c in "-_").strip()
+    if not safe_voice:
+        raise HTTPException(400, "Invalid voice name (use alphanumeric, dash, underscore).")
+
+    voice_path = Path(VOICES_DIR) / f"{safe_voice}.wav"
     if not voice_path.exists():
-        raise HTTPException(404, f"Voice '{voice}' not found.")
+        raise HTTPException(404, f"Voice '{safe_voice}' not found.")
 
     text = text.strip()
     if not text:
@@ -552,7 +559,7 @@ def _perform_tts(
 
     # ── Cache lookup ─────────────────────────────────────────────────────
     cache_key = _build_cache_key(
-        voice, text, temperature, top_p, top_k, do_sample, num_beams,
+        safe_voice, text, temperature, top_p, top_k, do_sample, num_beams,
         repetition_penalty, length_penalty, max_mel_tokens,
         max_text_tokens_per_segment, fast_mode, bucket_size, speech_rate,
     )
@@ -560,7 +567,7 @@ def _perform_tts(
     if cached is not None:
         logger.info(
             "TTS CACHE HIT: voice=%s chars=%d key=%s",
-            voice, len(text), cache_key[:12],
+            safe_voice, len(text), cache_key[:12],
         )
         return cached, True
 
@@ -631,7 +638,7 @@ def _perform_tts(
         logger.info(
             "TTS OK [%s]: voice=%s chars=%d dur=%.1fs size=%d "
             "temp=%.2f top_p=%.2f top_k=%s beams=%d rep_pen=%.1f mel_tok=%d seg_tok=%d rate=%.2f",
-            mode_label, voice, len(text), duration, file_size,
+            mode_label, safe_voice, len(text), duration, file_size,
             temperature, top_p, top_k, num_beams,
             repetition_penalty, max_mel_tokens, max_text_tokens_per_segment, speech_rate,
         )
