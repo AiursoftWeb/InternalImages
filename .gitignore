@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Test / temporary files
+test_image.*
+*.tmp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
