@@ -21,6 +21,7 @@ import secrets
 import platform
 import inspect
 import subprocess
+import threading
 from typing import Optional, List
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -48,6 +49,10 @@ VOICES_DIR = os.path.join(DATA_DIR, "voices")
 OUTPUT_DIR = os.path.join(DATA_DIR, "output_audios")
 CACHE_DIR = os.path.join(DATA_DIR, "tts_cache")
 CACHE_ENABLED = _env_flag("TTS_CACHE_ENABLED", True)
+CACHE_MAX_SIZE = max(1, int(os.getenv("TTS_CACHE_MAX_SIZE", "2000")))
+
+_LRU_INDEX_PATH = os.path.join(CACHE_DIR, "lru_index.json")
+_cache_lock = threading.Lock()
 
 # ── OpenAI Compatibility Models ───────────────────────────────────────────────
 class OpenAI_TTSRequest(BaseModel):
@@ -57,7 +62,7 @@ class OpenAI_TTSRequest(BaseModel):
     response_format: Optional[str] = "mp3"
     speed: Optional[float] = 1.0
 
-# ── TTS Cache ────────────────────────────────────────────────────────────────
+# ── TTS Cache (LRU) ──────────────────────────────────────────────────────────
 def _build_cache_key(
     voice: str,
     text: str,
@@ -98,38 +103,97 @@ def _build_cache_key(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _load_lru_index() -> list[str]:
+    """Load the persisted LRU key list (oldest first) from disk.
+    Must be called while holding _cache_lock."""
+    try:
+        with open(_LRU_INDEX_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return []
+
+
+def _save_lru_index(keys: list[str]) -> None:
+    """Persist the LRU key list to disk.
+    Must be called while holding _cache_lock."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    tmp = _LRU_INDEX_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(keys, f)
+        os.replace(tmp, _LRU_INDEX_PATH)
+    except Exception as e:
+        logger.warning("Failed to persist LRU index: %s", e)
+
+
 def _get_cached_audio(cache_key: str) -> Optional[str]:
-    """Return the path to the cached WAV file if it exists, else None."""
+    """Return the cached WAV path on a hit and promote it to MRU position."""
     if not CACHE_ENABLED:
         return None
     cached_path = os.path.join(CACHE_DIR, f"{cache_key}.wav")
-    if os.path.isfile(cached_path):
-        return cached_path
-    return None
+    if not os.path.isfile(cached_path):
+        return None
+    # Promote to most-recently-used position
+    with _cache_lock:
+        keys = _load_lru_index()
+        if cache_key in keys:
+            keys.remove(cache_key)
+        keys.append(cache_key)
+        _save_lru_index(keys)
+    return cached_path
 
 
 def _store_in_cache(cache_key: str, source_path: str) -> Optional[str]:
-    """Copy a generated WAV into the cache directory. Returns cached path."""
+    """Copy a generated WAV into the cache dir and enforce LRU size limit."""
     if not CACHE_ENABLED:
         return None
     os.makedirs(CACHE_DIR, exist_ok=True)
     cached_path = os.path.join(CACHE_DIR, f"{cache_key}.wav")
     try:
         shutil.copy2(source_path, cached_path)
-        return cached_path
     except Exception as e:
         logger.warning("Failed to store TTS cache entry %s: %s", cache_key[:12], e)
         return None
+
+    with _cache_lock:
+        keys = _load_lru_index()
+        # Remove if already present (overwrite scenario)
+        if cache_key in keys:
+            keys.remove(cache_key)
+        keys.append(cache_key)
+        # Evict oldest entries until within size limit
+        while len(keys) > CACHE_MAX_SIZE:
+            oldest = keys.pop(0)
+            old_file = os.path.join(CACHE_DIR, f"{oldest}.wav")
+            try:
+                os.remove(old_file)
+                logger.info("LRU evicted cache entry: %s", oldest[:12])
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                logger.warning("Failed to evict cache file %s: %s", oldest[:12], e)
+        _save_lru_index(keys)
+
+    return cached_path
 
 
 def _get_cache_stats() -> dict:
     """Return cache directory statistics."""
     if not os.path.isdir(CACHE_DIR):
-        return {"enabled": CACHE_ENABLED, "total_files": 0, "total_size_mb": 0.0}
+        return {
+            "enabled": CACHE_ENABLED,
+            "max_size": CACHE_MAX_SIZE,
+            "total_files": 0,
+            "total_size_mb": 0.0,
+        }
     files = list(Path(CACHE_DIR).glob("*.wav"))
     total_size = sum(f.stat().st_size for f in files)
     return {
         "enabled": CACHE_ENABLED,
+        "max_size": CACHE_MAX_SIZE,
         "total_files": len(files),
         "total_size_mb": round(total_size / (1024 * 1024), 2),
     }
@@ -761,7 +825,7 @@ def api_cache_stats():
 
 @app.delete("/api/cache")
 def api_cache_clear():
-    """Clear all cached TTS audio files."""
+    """Clear all cached TTS audio files and reset the LRU index."""
     if not os.path.isdir(CACHE_DIR):
         return {"status": "ok", "deleted": 0}
     files = list(Path(CACHE_DIR).glob("*.wav"))
@@ -772,6 +836,13 @@ def api_cache_clear():
             count += 1
         except Exception as e:
             logger.warning("Failed to delete cache file %s: %s", f.name, e)
+    with _cache_lock:
+        try:
+            os.remove(_LRU_INDEX_PATH)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning("Failed to delete LRU index: %s", e)
     logger.info("Cache cleared: %d files deleted.", count)
     return {"status": "ok", "deleted": count}
 
