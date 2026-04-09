@@ -11,6 +11,7 @@ import platform
 from typing import Optional, List
 from pathlib import Path
 from contextlib import asynccontextmanager
+import asyncio
 
 import cv2
 import numpy as np
@@ -44,6 +45,7 @@ system_info: dict = {}
 model_runtime_device: str = "CPU"
 ocr_lock = threading.Lock()
 pdf_executor = ThreadPoolExecutor(max_workers=4)
+gpu_semaphore = asyncio.Semaphore(1)
 
 def get_system_info() -> dict:
     """Detect hardware and return a summary dict."""
@@ -238,9 +240,8 @@ def _run_ocr_on_pdf(contents: bytes):
             return res
 
     all_results = []
-    futures = [pdf_executor.submit(process_page, i) for i in range(num_pages)]
-    for future in futures:
-        all_results.extend(future.result())
+    for i in range(num_pages):
+        all_results.extend(process_page(i))
 
     duration = time.perf_counter() - start_time
     logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
@@ -254,7 +255,8 @@ async def do_ocr(file: UploadFile = File(...)):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image file.")
         
-        return await run_in_threadpool(_run_ocr_on_image, img)
+        async with gpu_semaphore:
+            return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
     except Exception as e:
@@ -276,7 +278,8 @@ async def do_ocr_base64(req: Base64Request):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image base64.")
         
-        return await run_in_threadpool(_run_ocr_on_image, img)
+        async with gpu_semaphore:
+            return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
     except Exception as e:
@@ -289,7 +292,8 @@ async def do_ocr_pdf(file: UploadFile = File(...)):
         contents = await file.read()
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        return await run_in_threadpool(_run_ocr_on_pdf, contents)
+        async with gpu_semaphore:
+            return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
     except Exception as e:
@@ -309,7 +313,8 @@ async def do_ocr_pdf_base64(req: Base64Request):
         contents = base64.b64decode(b64_data)
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        return await run_in_threadpool(_run_ocr_on_pdf, contents)
+        async with gpu_semaphore:
+            return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
     except Exception as e:
