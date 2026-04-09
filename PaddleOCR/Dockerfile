@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    FLAGS_fraction_of_gpu_memory_to_use=0.4 \
+    FLAGS_allocator_strategy=naive_best_fit
 
 # 安装 uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
