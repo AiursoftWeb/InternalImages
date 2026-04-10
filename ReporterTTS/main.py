@@ -11,9 +11,11 @@ Features:
 """
 
 import os
+import re
 import uuid
 import time
 import json
+import wave
 import hashlib
 import shutil
 import logging
@@ -213,7 +215,7 @@ DEFAULTS = {
     "num_beams": 2,           # Beam search width. 1 = no beam search.
     "repetition_penalty": 10.0,  # Penalise repeated mel-tokens strongly to avoid loops.
     "length_penalty": 0.0,    # Encourage longer (>0) or shorter (<0) sequences.
-    "max_mel_tokens": 300,    # Hard cap on generated mel tokens per segment.
+    "max_mel_tokens": 600,    # Hard cap on generated mel tokens per segment.
     "max_text_tokens_per_segment": 120,  # Text segmentation granularity (tokens).
     "fast_mode": True,        # Use batched-bucket fast inference (2-10× speed-up).
     "bucket_size": 1,         # Max batch size per bucket in fast mode.
@@ -375,6 +377,64 @@ def cleanup_output_audios():
 def _is_cuda_oom(error: Exception) -> bool:
     message = str(error).lower()
     return "out of memory" in message and "cuda" in message
+
+
+# ── Text chunking for robust long-text TTS ────────────────────────────────────
+# Split on Chinese/English sentence-ending punctuation.
+# The lookbehind keeps the punctuation attached to the preceding sentence.
+_SENT_BOUNDARY_RE = re.compile(
+    r'(?<=[。！？!?；;])\s*'   # after Chinese / English sentence-enders
+    r'|(?<=\.)\s+'              # after English period followed by whitespace
+    r'|\n+'                     # on newlines
+)
+
+
+def _split_text_into_chunks(text: str, max_chars: int = 120) -> list[str]:
+    """
+    Split *text* at natural sentence boundaries for chunked TTS generation.
+    Punctuation stays attached to the preceding sentence so prosody is preserved.
+    Short adjacent fragments are merged up to *max_chars* to avoid over-splitting.
+    """
+    raw_parts = _SENT_BOUNDARY_RE.split(text)
+    chunks: list[str] = []
+    current = ""
+    for part in raw_parts:
+        part = part.strip()
+        if not part:
+            continue
+        if not current:
+            current = part
+        elif len(current) + len(part) <= max_chars:
+            # Merge short fragments into one chunk
+            current += part
+        else:
+            chunks.append(current)
+            current = part
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _concat_wav_files(wav_paths: list[str], output_path: str) -> None:
+    """
+    Concatenate one or more WAV files into *output_path* using the stdlib wave
+    module (no ffmpeg dependency, no re-encoding).
+    All input files must share the same sample rate / channels / width.
+    """
+    if not wav_paths:
+        raise ValueError("No WAV files to concatenate.")
+    if len(wav_paths) == 1:
+        shutil.copy2(wav_paths[0], output_path)
+        return
+
+    with wave.open(wav_paths[0], "rb") as first:
+        params = first.getparams()
+
+    with wave.open(output_path, "wb") as out_wav:
+        out_wav.setparams(params)
+        for path in wav_paths:
+            with wave.open(path, "rb") as w:
+                out_wav.writeframes(w.readframes(w.getnframes()))
 
 
 # ── Application ──────────────────────────────────────────────────────────────
@@ -649,27 +709,30 @@ def _perform_tts(
     unique_filename = f"{uuid.uuid4()}.wav"
     output_path = os.path.join(OUTPUT_DIR, unique_filename)
 
-    try:
-        def _run_infer(use_fast: bool, seg_tokens: int, bucket: int, kwargs: dict) -> None:
-            if use_fast:
-                tts_model.infer_fast(
-                    str(voice_path), text, output_path,
-                    verbose=False,
-                    max_text_tokens_per_segment=seg_tokens,
-                    segments_bucket_max_size=bucket,
-                    **kwargs,
-                )
-            else:
-                tts_model.infer(
-                    str(voice_path), text, output_path,
-                    verbose=False,
-                    max_text_tokens_per_segment=seg_tokens,
-                    **kwargs,
-                )
+    # ── Helper: infer a single text chunk → wav_path ─────────────────────
+    def _run_infer(chunk_text: str, dest_path: str, use_fast: bool, seg_tokens: int,
+                   bucket: int, kwargs: dict) -> None:
+        if use_fast:
+            tts_model.infer_fast(
+                str(voice_path), chunk_text, dest_path,
+                verbose=False,
+                max_text_tokens_per_segment=seg_tokens,
+                segments_bucket_max_size=bucket,
+                **kwargs,
+            )
+        else:
+            tts_model.infer(
+                str(voice_path), chunk_text, dest_path,
+                verbose=False,
+                max_text_tokens_per_segment=seg_tokens,
+                **kwargs,
+            )
 
-        start = time.perf_counter()
+    def _infer_with_oom_fallback(chunk_text: str, dest_path: str) -> None:
+        """Run inference for one chunk, falling back to low-VRAM settings on OOM."""
         try:
-            _run_infer(fast_mode, max_text_tokens_per_segment, bucket_size, generation_kwargs)
+            _run_infer(chunk_text, dest_path, fast_mode, max_text_tokens_per_segment,
+                       bucket_size, generation_kwargs)
         except Exception as infer_error:
             if not _is_cuda_oom(infer_error):
                 raise
@@ -680,18 +743,54 @@ def _perform_tts(
                     torch.cuda.empty_cache()
             except Exception:
                 pass
-
             fallback_kwargs = dict(generation_kwargs)
-            fallback_kwargs.update(
-                {
-                    "do_sample": False,
-                    "num_beams": 1,
-                    "max_mel_tokens": min(max_mel_tokens, 280),
-                }
-            )
-            _run_infer(False, min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
+            fallback_kwargs.update({
+                "do_sample": False,
+                "num_beams": 1,
+                "max_mel_tokens": min(max_mel_tokens, 280),
+            })
+            _run_infer(chunk_text, dest_path, False,
+                       min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
+
+    try:
+        # ── Split text into sentence-level chunks ────────────────────────
+        chunks = _split_text_into_chunks(text)
+        logger.info(
+            "TTS split: voice=%s total_chars=%d chunks=%d",
+            safe_voice, len(text), len(chunks),
+        )
+
+        start = time.perf_counter()
+
+        if len(chunks) <= 1:
+            # Fast path: single chunk, write directly to output_path
+            _infer_with_oom_fallback(chunks[0] if chunks else text, output_path)
+        else:
+            # Multi-chunk path: generate each chunk to a temp file, then concat
+            chunk_paths: list[str] = []
+            try:
+                for i, chunk in enumerate(chunks):
+                    chunk_path = os.path.join(OUTPUT_DIR, f"{uuid.uuid4()}.chunk{i}.wav")
+                    _infer_with_oom_fallback(chunk, chunk_path)
+                    if not os.path.exists(chunk_path):
+                        raise RuntimeError(f"Chunk {i} output file was not created: {chunk!r}")
+                    chunk_paths.append(chunk_path)
+                    logger.info(
+                        "TTS chunk %d/%d OK: chars=%d file=%s",
+                        i + 1, len(chunks), len(chunk), os.path.basename(chunk_path),
+                    )
+                _concat_wav_files(chunk_paths, output_path)
+            finally:
+                # Always clean up temp chunk files
+                for p in chunk_paths:
+                    try:
+                        os.remove(p)
+                    except FileNotFoundError:
+                        pass
 
         duration = time.perf_counter() - start
+
+        # speech_rate applied once on the final concatenated file
         apply_speech_rate_inplace(output_path, speech_rate)
 
         if not os.path.exists(output_path):
@@ -700,9 +799,9 @@ def _perform_tts(
         file_size = os.path.getsize(output_path)
         mode_label = "fast" if fast_mode else "standard"
         logger.info(
-            "TTS OK [%s]: voice=%s chars=%d dur=%.1fs size=%d "
+            "TTS OK [%s]: voice=%s chars=%d chunks=%d dur=%.1fs size=%d "
             "temp=%.2f top_p=%.2f top_k=%s beams=%d rep_pen=%.1f mel_tok=%d seg_tok=%d rate=%.2f",
-            mode_label, safe_voice, len(text), duration, file_size,
+            mode_label, safe_voice, len(text), len(chunks), duration, file_size,
             temperature, top_p, top_k, num_beams,
             repetition_penalty, max_mel_tokens, max_text_tokens_per_segment, speech_rate,
         )
