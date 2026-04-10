@@ -44,6 +44,9 @@ def _env_flag(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+GPU_MEMORY_FRACTION = float(os.getenv("GPU_MEMORY_FRACTION", "0.0"))
+tts_lock = threading.Lock()
+
 
 # ── Configuration ────────────────────────────────────────────────────────────
 DATA_DIR = os.getenv("DATA_DIR", "/data")
@@ -251,6 +254,8 @@ def get_system_info() -> dict:
     try:
         import torch
         if torch.cuda.is_available():
+            if GPU_MEMORY_FRACTION > 0.0 and GPU_MEMORY_FRACTION <= 1.0:
+                torch.cuda.set_per_process_memory_fraction(GPU_MEMORY_FRACTION)
             info["device"] = "CUDA (GPU)"
             info["gpu_name"] = torch.cuda.get_device_name(0)
             info["gpu_count"] = torch.cuda.device_count()
@@ -493,6 +498,9 @@ async def lifespan(app: FastAPI):
         if system_info.get("device", "").startswith("CUDA"):
             gpu_kwargs = {**base_kwargs, "device": "cuda", "use_fp16": True}
             try:
+                if GPU_MEMORY_FRACTION > 0.0 and GPU_MEMORY_FRACTION <= 1.0:
+                    import torch
+                    torch.cuda.set_per_process_memory_fraction(GPU_MEMORY_FRACTION)
                 tts_model = _init_tts(gpu_kwargs)
                 model_runtime_device = "cuda"
             except Exception as cuda_error:
@@ -731,8 +739,9 @@ def _perform_tts(
     def _infer_with_oom_fallback(chunk_text: str, dest_path: str) -> None:
         """Run inference for one chunk, falling back to low-VRAM settings on OOM."""
         try:
-            _run_infer(chunk_text, dest_path, fast_mode, max_text_tokens_per_segment,
-                       bucket_size, generation_kwargs)
+            with tts_lock:
+                _run_infer(chunk_text, dest_path, fast_mode, max_text_tokens_per_segment,
+                           bucket_size, generation_kwargs)
         except Exception as infer_error:
             if not _is_cuda_oom(infer_error):
                 raise
@@ -749,8 +758,9 @@ def _perform_tts(
                 "num_beams": 1,
                 "max_mel_tokens": min(max_mel_tokens, 280),
             })
-            _run_infer(chunk_text, dest_path, False,
-                       min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
+            with tts_lock:
+                _run_infer(chunk_text, dest_path, False,
+                           min(max_text_tokens_per_segment, 64), 1, fallback_kwargs)
 
     try:
         # ── Split text into sentence-level chunks ────────────────────────
