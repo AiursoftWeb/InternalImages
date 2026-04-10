@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
+    GPU_MEMORY_FRACTION=0.4 \
     PIP_NO_CACHE_DIR=1 \
 	PIP_BREAK_SYSTEM_PACKAGES=1 \
 	PATH="/root/.local/bin:${PATH}"
