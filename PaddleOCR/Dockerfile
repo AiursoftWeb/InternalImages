@@ -47,6 +47,12 @@ RUN find /opt/venv/lib -name "*.so.*" -exec sh -c 'ln -s $(basename {}) $(dirnam
 # 动态设置 LD_LIBRARY_PATH
 ENV LD_LIBRARY_PATH="/opt/venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cublas/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/opt/venv/lib/python3.12/site-packages/nvidia/curand/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cusolver/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
 
+# 设置 PaddlePaddle 显存控制环境变量避免碎片化
+ENV FLAGS_allocator_strategy=auto_growth \
+    FLAGS_eager_delete_tensor_gb=0.0 \
+    FLAGS_fraction_of_gpu_memory_to_use=0.4 \
+    FLAGS_allocator_strategy=naive_best_fit
+
 # 暴露端口
 EXPOSE 8000
 

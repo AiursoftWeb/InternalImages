@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from paddleocr import PaddleOCR
+import paddle
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
@@ -59,7 +60,6 @@ def get_system_info() -> dict:
         "cuda_version": None,
     }
     try:
-        import paddle
         if paddle.is_compiled_with_cuda() and paddle.device.is_compiled_with_cuda():
             info["gpu_count"] = paddle.device.cuda.device_count()
             if info["gpu_count"] > 0:
@@ -135,7 +135,14 @@ class Base64Request(BaseModel):
 def _run_ocr_on_image(img: np.ndarray):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     start_time = time.perf_counter()
-    result = ocr_model.ocr(img, cls=True)
+    try:
+        result = ocr_model.ocr(img, cls=True)
+    finally:
+        if USE_GPU:
+            try:
+                paddle.device.cuda.empty_cache()
+            except Exception as e:
+                logger.warning("Failed to clear CUDA cache: %s", e)
     duration = time.perf_counter() - start_time
     
     formatted_res = []
@@ -149,8 +156,15 @@ def _run_ocr_on_image(img: np.ndarray):
 
 def _run_ocr_on_pdf_page(img: np.ndarray, page_num: int):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
-    with ocr_lock:
-        result = ocr_model.ocr(img, cls=True)
+    try:
+        with ocr_lock:
+            result = ocr_model.ocr(img, cls=True)
+    finally:
+        if USE_GPU:
+            try:
+                paddle.device.cuda.empty_cache()
+            except Exception as e:
+                logger.warning("Failed to clear CUDA cache in PDF process: %s", e)
     
     formatted_res = []
     if result and len(result) > 0 and result[0]:
