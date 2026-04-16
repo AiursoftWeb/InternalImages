@@ -147,3 +147,11 @@ deploy_paddleocr:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
     PLATFORMS: "linux/amd64"
+
+deploy_folder_agent:
+  extends: .deploy_template
+  needs:
+    - deploy_ubuntu
+  variables:
+    IMAGE_NAME: "folderagent"
+    CONTEXT: "./FolderAgent"

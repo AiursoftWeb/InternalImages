@@ -31,7 +31,7 @@ RUN mkdir -p /etc/apt/keyrings && \
 RUN npm install -g @qwen-code/qwen-code@latest
 
 # Install Python dependencies
-RUN pip3 install --break-system-packages \
+RUN pip3 install --break-system-packages --ignore-installed \
     fastapi \
     uvicorn \
     loguru \
