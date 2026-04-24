@@ -38,6 +38,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 USE_GPU = _env_flag("USE_GPU", False)
 OCR_ACCESS_TOKEN = os.getenv("OCR_ACCESS_TOKEN", "").strip()
 AUTH_REQUIRED = bool(OCR_ACCESS_TOKEN)
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "500"))
 
 # ── Application ──────────────────────────────────────────────────────────────
 ocr_model: Optional[PaddleOCR] = None
@@ -172,76 +173,83 @@ def _run_ocr_on_pdf(contents: bytes):
     except Exception:
         raise HTTPException(400, "Invalid or corrupted PDF file.")
 
-    if num_pages > 50:
-        raise HTTPException(400, "PDF has too many pages. Maximum allowed is 50 pages.")
+    if num_pages > MAX_PDF_PAGES:
+        raise HTTPException(400, f"PDF has too many pages. Maximum allowed is {MAX_PDF_PAGES} pages.")
 
     def process_page(page_index: int):
-        with fitz.open(stream=contents, filetype="pdf") as thread_doc:
-            page = thread_doc.load_page(page_index)
-            
-            # Check if scanned
-            text = page.get_text("text").strip()
-            is_scanned = len(text) < 10
-            
-            res = []
-            if is_scanned:
-                pix = page.get_pixmap(dpi=150)
-                img_data = pix.tobytes("png")
-                nparr = np.frombuffer(img_data, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                if img is not None:
-                    page_res = _run_ocr_on_pdf_page(img, page_num=page_index + 1)
-                    scale = 150 / 72.0
-                    for item in page_res:
-                        new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
-                        item["points"] = new_points
-                        res.append(item)
-            else:
-                blocks = page.get_text("dict")["blocks"]
-                for b in blocks:
-                    if b.get("type") == 0 and "lines" in b:
-                        for line in b["lines"]:
-                            line_text = ""
-                            last_span = None
-                            for span in line["spans"]:
-                                if last_span is not None:
-                                    gap = span["bbox"][0] - last_span["bbox"][2]
-                                    if gap > span.get("size", 10) * 0.2:
-                                        line_text += " "
-                                line_text += span["text"]
-                                last_span = span
-                                
-                            if line_text.strip():
-                                x0, y0, x1, y1 = line["bbox"]
-                                box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
-                                res.append({
-                                    "points": box,
-                                    "text": line_text.strip(),
-                                    "confidence": 1.0,
-                                    "page_num": page_index + 1
-                                })
-                    elif b.get("type") == 1:
-                        clip_rect = fitz.Rect(b["bbox"])
-                        pix = page.get_pixmap(clip=clip_rect, dpi=150)
-                        img_data = pix.tobytes("png")
-                        nparr = np.frombuffer(img_data, np.uint8)
-                        block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                        if block_img is not None:
-                            block_res = _run_ocr_on_pdf_page(block_img, page_num=page_index + 1)
-                            scale = 150 / 72.0
-                            for item in block_res:
-                                new_points = []
-                                for pt in item["points"]:
-                                    nx = clip_rect.x0 + (pt[0] / scale)
-                                    ny = clip_rect.y0 + (pt[1] / scale)
-                                    new_points.append([nx, ny])
-                                item["points"] = new_points
-                                res.append(item)
-            return res
+        try:
+            with fitz.open(stream=contents, filetype="pdf") as thread_doc:
+                page = thread_doc.load_page(page_index)
+                
+                # Check if scanned
+                text = page.get_text("text").strip()
+                is_scanned = len(text) < 10
+                
+                res = []
+                if is_scanned:
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    nparr = np.frombuffer(img_data, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        page_res = _run_ocr_on_pdf_page(img, page_num=page_index + 1)
+                        scale = 150 / 72.0
+                        for item in page_res:
+                            new_points = [[pt[0] / scale, pt[1] / scale] for pt in item["points"]]
+                            item["points"] = new_points
+                            res.append(item)
+                else:
+                    blocks = page.get_text("dict")["blocks"]
+                    for b in blocks:
+                        if b.get("type") == 0 and "lines" in b:
+                            for line in b["lines"]:
+                                line_text = ""
+                                last_span = None
+                                for span in line["spans"]:
+                                    if last_span is not None:
+                                        gap = span["bbox"][0] - last_span["bbox"][2]
+                                        if gap > span.get("size", 10) * 0.2:
+                                            line_text += " "
+                                    line_text += span["text"]
+                                    last_span = span
+                                    
+                                if line_text.strip():
+                                    x0, y0, x1, y1 = line["bbox"]
+                                    box = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                                    res.append({
+                                        "points": box,
+                                        "text": line_text.strip(),
+                                        "confidence": 1.0,
+                                        "page_num": page_index + 1
+                                    })
+                        elif b.get("type") == 1:
+                            clip_rect = fitz.Rect(b["bbox"])
+                            pix = page.get_pixmap(clip=clip_rect, dpi=150)
+                            img_data = pix.tobytes("png")
+                            nparr = np.frombuffer(img_data, np.uint8)
+                            block_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                            if block_img is not None:
+                                block_res = _run_ocr_on_pdf_page(block_img, page_num=page_index + 1)
+                                scale = 150 / 72.0
+                                for item in block_res:
+                                    new_points = []
+                                    for pt in item["points"]:
+                                        nx = clip_rect.x0 + (pt[0] / scale)
+                                        ny = clip_rect.y0 + (pt[1] / scale)
+                                        new_points.append([nx, ny])
+                                    item["points"] = new_points
+                                    res.append(item)
+                return res
+        except Exception as e:
+            logger.error(f"Error processing page {page_index}: {e}")
+            return []
 
     all_results = []
-    for i in range(num_pages):
-        all_results.extend(process_page(i))
+    # Use pdf_executor to process pages in parallel. 
+    # Note: OCR model is still locked, but PDF rendering and text extraction are parallelized.
+    futures = [pdf_executor.submit(process_page, i) for i in range(num_pages)]
+    for future in futures:
+        all_results.extend(future.result())
 
     duration = time.perf_counter() - start_time
     logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
