@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/nvidia/cuda:12.6.2-devel-ubuntu24.04
+FROM hub.aiursoft.com/nvidia/cuda:13.2.1-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
