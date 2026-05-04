@@ -25,6 +25,7 @@ RUN uv --version \
 	&& . "tts/bin/activate" \
 	&& uv pip install uvicorn fastapi python-multipart \
 	&& if [ "$(uname -m)" = "x86_64" ]; then \
+		uv pip install torch torchaudio --index-strategy latest; \
 		uv pip install -e .; \
 	else \
 		uv pip install torch==2.8.0 torchaudio==2.8.0 \

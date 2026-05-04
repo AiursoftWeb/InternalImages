@@ -30,22 +30,12 @@ RUN uv pip install \
     loguru \
     setuptools \
     requests \
-    pymupdf \
-    nvidia-cudnn-cu12==8.9.2.26 \
-    nvidia-cublas-cu12 \
-    nvidia-cuda-runtime-cu12 \
-    nvidia-cuda-nvcc-cu12 \
-    nvidia-curand-cu12 \
-    nvidia-cusolver-cu12 \
-    nvidia-cusparse-cu12
+    pymupdf
 
 COPY . .
 
-# 自动建立软连接，修复库加载问题
-RUN find /opt/venv/lib -name "*.so.*" -exec sh -c 'ln -s $(basename {}) $(dirname {})/$(basename {} | cut -d. -f1,2)' \; || true
-
-# 动态设置 LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH="/opt/venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cublas/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/opt/venv/lib/python3.12/site-packages/nvidia/curand/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cusolver/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
+# 动态设置 LD_LIBRARY_PATH 指向系统 CUDA 13.2
+ENV LD_LIBRARY_PATH="/usr/local/cuda-13.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # 暴露端口
 EXPOSE 8000
