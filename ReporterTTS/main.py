@@ -249,6 +249,7 @@ def get_system_info() -> dict:
         "gpu_name": None,
         "gpu_count": 0,
         "cuda_version": None,
+        "driver_cuda_version": None,
         "gpu_memory": None,
     }
     try:
@@ -265,6 +266,15 @@ def get_system_info() -> dict:
             if total is None:
                 total = getattr(props, "total_mem", 0)
             info["gpu_memory"] = f"{total / (1024**3):.1f} GB"
+            
+            # Try to get driver cuda version
+            try:
+                res = subprocess.run(["nvidia-smi", "--query-gpu=cuda_version", "--format=csv,noheader,nounits"], 
+                                     capture_output=True, text=True, timeout=2)
+                if res.returncode == 0:
+                    info["driver_cuda_version"] = res.stdout.strip()
+            except Exception:
+                pass
     except ImportError:
         info["device"] = "CPU (PyTorch unavailable)"
     return info

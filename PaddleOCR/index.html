@@ -244,7 +244,8 @@ async function loadSystemInfo() {
     const isGPU = d.device && d.device.includes('GPU');
     let html = `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device || 'CPU'}</span>`;
     if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
-    if (d.cuda_version) html += `<span class="badge"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+    if (d.cuda_version) html += `<span class="badge" title="Runtime CUDA (Paddle)"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+    if (d.driver_cuda_version) html += `<span class="badge" title="Driver CUDA (System)"><span class="dot dot-blue"></span>驱动 CUDA ${d.driver_cuda_version}</span>`;
     html += `<span class="badge"><span class="dot ${d.model_loaded?'dot-green':'dot-red'}"></span>模型${d.model_loaded?'已加载':'加载失败'}</span>`;
     html += `<span class="badge"><span class="dot dot-blue"></span>${d.arch} · Py ${d.python}</span>`;
     el.innerHTML = html;

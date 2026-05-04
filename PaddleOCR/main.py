@@ -18,6 +18,7 @@ import numpy as np
 import base64
 import fitz
 import threading
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -58,6 +59,7 @@ def get_system_info() -> dict:
         "gpu_name": None,
         "gpu_count": 0,
         "cuda_version": None,
+        "driver_cuda_version": None,
     }
     try:
         import paddle
@@ -67,6 +69,15 @@ def get_system_info() -> dict:
                 info["gpu_name"] = paddle.device.cuda.get_device_name(0)
             info["cuda_version"] = paddle.version.cuda()
             info["device"] = "CUDA (GPU)"
+            
+            # Try to get driver cuda version
+            try:
+                res = subprocess.run(["nvidia-smi", "--query-gpu=cuda_version", "--format=csv,noheader,nounits"], 
+                                     capture_output=True, text=True, timeout=2)
+                if res.returncode == 0:
+                    info["driver_cuda_version"] = res.stdout.strip()
+            except Exception:
+                pass
     except Exception:
         pass
     return info

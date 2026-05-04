@@ -770,7 +770,8 @@ async function loadSystemInfo() {
     html += `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device}</span>`;
     if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
     if (d.gpu_memory) html += `<span class="badge"><span class="dot dot-blue"></span>显存 ${d.gpu_memory}</span>`;
-    if (d.cuda_version) html += `<span class="badge"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+    if (d.cuda_version) html += `<span class="badge" title="Runtime CUDA (Torch)"><span class="dot dot-blue"></span>CUDA ${d.cuda_version}</span>`;
+    if (d.driver_cuda_version) html += `<span class="badge" title="Driver CUDA (System)"><span class="dot dot-blue"></span>驱动 CUDA ${d.driver_cuda_version}</span>`;
     const lowVram = !!d.low_vram_mode;
     html += `<span class="badge"><span class="dot ${lowVram?'dot-yellow':'dot-green'}"></span>低显存模式 ${lowVram?'已开启':'关闭'}</span>`;
     const fallback = !!d.cuda_fallback_to_cpu;
