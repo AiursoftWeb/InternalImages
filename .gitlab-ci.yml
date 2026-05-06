@@ -142,8 +142,7 @@ deploy_reportertts:
 deploy_paddleocr:
   extends: .deploy_template
   needs:
-    - deploy_nvidia
+    - deploy_ubuntu
   variables:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
-    PLATFORMS: "linux/amd64"
