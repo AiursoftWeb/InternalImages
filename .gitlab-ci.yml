@@ -146,3 +146,4 @@ deploy_paddleocr:
   variables:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
+    PLATFORMS: "linux/amd64"
