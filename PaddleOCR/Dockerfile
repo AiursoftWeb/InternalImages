@@ -34,6 +34,17 @@ RUN uv pip install \
 
 COPY . .
 
+# 预热：触发模型下载并缓存到镜像中，避免首次请求时才下载
+RUN python3 -c "\
+import numpy as np, cv2; \
+from paddleocr import PaddleOCR; \
+ocr = PaddleOCR(use_textline_orientation=True, lang='ch', device='cpu', enable_mkldnn=False); \
+img = np.ones((64, 256, 3), dtype=np.uint8) * 255; \
+cv2.putText(img, 'warmup', (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 2); \
+ocr.ocr(img); \
+print('Model warmup done.') \
+"
+
 # 暴露端口
 EXPOSE 8000
 
@@ -41,5 +52,5 @@ EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # 健康检查
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
