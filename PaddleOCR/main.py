@@ -235,14 +235,21 @@ def _run_ocr_on_pdf(contents: bytes):
 
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
+    logger.info("OCR request received: filename=%s content_type=%s", file.filename, file.content_type)
     try:
         contents = await file.read()
+        logger.info("OCR file read: size=%d bytes", len(contents))
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image file.")
-        
+        logger.info("OCR image decoded: shape=%s", img.shape)
+
+        logger.info("OCR waiting for semaphore...")
         async with ocr_semaphore:
-            return await run_in_threadpool(_run_ocr_on_image, img)
+            logger.info("OCR semaphore acquired, starting inference...")
+            result = await run_in_threadpool(_run_ocr_on_image, img)
+            logger.info("OCR inference complete, returning response")
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -251,6 +258,7 @@ async def do_ocr(file: UploadFile = File(...)):
 
 @app.post("/api/ocr/base64")
 async def do_ocr_base64(req: Base64Request):
+    logger.info("OCR base64 request received")
     try:
         b64_data = req.base64
         if b64_data.startswith("data:image"):
@@ -258,14 +266,20 @@ async def do_ocr_base64(req: Base64Request):
                 b64_data = b64_data.split(",", 1)[1]
             else:
                 raise HTTPException(400, "Invalid base64 data URI.")
-        
+
         contents = base64.b64decode(b64_data)
+        logger.info("OCR base64 decoded: size=%d bytes", len(contents))
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image base64.")
-        
+        logger.info("OCR base64 image decoded: shape=%s", img.shape)
+
+        logger.info("OCR base64 waiting for semaphore...")
         async with ocr_semaphore:
-            return await run_in_threadpool(_run_ocr_on_image, img)
+            logger.info("OCR base64 semaphore acquired, starting inference...")
+            result = await run_in_threadpool(_run_ocr_on_image, img)
+            logger.info("OCR base64 inference complete, returning response")
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -274,12 +288,19 @@ async def do_ocr_base64(req: Base64Request):
 
 @app.post("/api/ocr/pdf")
 async def do_ocr_pdf(file: UploadFile = File(...)):
+    logger.info("PDF OCR request received: filename=%s", file.filename)
     try:
         contents = await file.read()
+        logger.info("PDF file read: size=%d bytes", len(contents))
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
+
+        logger.info("PDF OCR waiting for semaphore...")
         async with ocr_semaphore:
-            return await run_in_threadpool(_run_ocr_on_pdf, contents)
+            logger.info("PDF OCR semaphore acquired, starting processing...")
+            result = await run_in_threadpool(_run_ocr_on_pdf, contents)
+            logger.info("PDF OCR complete, returning response")
+            return result
     except HTTPException:
         raise
     except Exception as e:
@@ -288,6 +309,7 @@ async def do_ocr_pdf(file: UploadFile = File(...)):
 
 @app.post("/api/ocr/pdf/base64")
 async def do_ocr_pdf_base64(req: Base64Request):
+    logger.info("PDF OCR base64 request received")
     try:
         b64_data = req.base64
         if b64_data.startswith("data:"):
@@ -295,12 +317,18 @@ async def do_ocr_pdf_base64(req: Base64Request):
                 b64_data = b64_data.split(",", 1)[1]
             else:
                 raise HTTPException(400, "Invalid base64 data URI.")
-        
+
         contents = base64.b64decode(b64_data)
+        logger.info("PDF base64 decoded: size=%d bytes", len(contents))
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
+
+        logger.info("PDF OCR base64 waiting for semaphore...")
         async with ocr_semaphore:
-            return await run_in_threadpool(_run_ocr_on_pdf, contents)
+            logger.info("PDF OCR base64 semaphore acquired, starting processing...")
+            result = await run_in_threadpool(_run_ocr_on_pdf, contents)
+            logger.info("PDF OCR base64 complete, returning response")
+            return result
     except HTTPException:
         raise
     except Exception as e:
