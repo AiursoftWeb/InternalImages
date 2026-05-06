@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
+FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu:latest
 
 # 系统依赖安装
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,10 +19,10 @@ WORKDIR /app
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# 安装 PaddlePaddle (GPU版本) 和 PaddleOCR
+# 安装 PaddlePaddle (CPU版本) 和 PaddleOCR
 RUN uv pip install \
-    paddlepaddle-gpu==2.6.2 \
-    paddleocr==2.8.0 \
+    paddlepaddle==3.3.1 \
+    paddleocr==3.5.0 \
     fastapi \
     uvicorn \
     python-multipart \
@@ -33,9 +33,6 @@ RUN uv pip install \
     pymupdf
 
 COPY . .
-
-# 动态设置 LD_LIBRARY_PATH 指向系统 CUDA 13.2
-ENV LD_LIBRARY_PATH="/usr/local/cuda-13.2/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # 暴露端口
 EXPOSE 8000

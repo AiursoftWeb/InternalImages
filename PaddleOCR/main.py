@@ -18,7 +18,6 @@ import numpy as np
 import base64
 import fitz
 import threading
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -36,7 +35,6 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if value is None: return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
-USE_GPU = _env_flag("USE_GPU", False)
 OCR_ACCESS_TOKEN = os.getenv("OCR_ACCESS_TOKEN", "").strip()
 AUTH_REQUIRED = bool(OCR_ACCESS_TOKEN)
 MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "500"))
@@ -44,66 +42,31 @@ MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "500"))
 # ── Application ──────────────────────────────────────────────────────────────
 ocr_model: Optional[PaddleOCR] = None
 system_info: dict = {}
-model_runtime_device: str = "CPU"
 ocr_lock = threading.Lock()
 pdf_executor = ThreadPoolExecutor(max_workers=4)
-gpu_semaphore = asyncio.Semaphore(1)
+ocr_semaphore = asyncio.Semaphore(1)
 
 def get_system_info() -> dict:
-    """Detect hardware and return a summary dict."""
-    info = {
+    return {
         "platform": platform.platform(),
         "arch": platform.machine(),
         "python": platform.python_version(),
         "device": "CPU",
-        "gpu_name": None,
-        "gpu_count": 0,
-        "cuda_version": None,
-        "driver_cuda_version": None,
     }
-    try:
-        import paddle
-        if paddle.is_compiled_with_cuda() and paddle.device.is_compiled_with_cuda():
-            info["gpu_count"] = paddle.device.cuda.device_count()
-            if info["gpu_count"] > 0:
-                info["gpu_name"] = paddle.device.cuda.get_device_name(0)
-            info["cuda_version"] = paddle.version.cuda()
-            info["device"] = "CUDA (GPU)"
-            
-            # Try to get driver cuda version
-            try:
-                res = subprocess.run(["nvidia-smi", "--query-gpu=cuda_version", "--format=csv,noheader,nounits"], 
-                                     capture_output=True, text=True, timeout=2)
-                if res.returncode == 0:
-                    info["driver_cuda_version"] = res.stdout.strip()
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return info
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global ocr_model, model_runtime_device, system_info
+    global ocr_model, system_info
     system_info = get_system_info()
-    
+
     try:
-        # Detect if hardware supports CUDA before trying to use it
-        use_gpu = False
-        if USE_GPU and system_info["device"].startswith("CUDA"):
-            use_gpu = True
-        
-        # Initialize PaddleOCR
-        # We explicitly disable mkldnn and ir_optim to avoid SIGILL on some CPUs
         ocr_model = PaddleOCR(
-            use_textline_orientation=True, 
-            lang="ch", 
-            use_gpu=use_gpu,
+            use_textline_orientation=True,
+            lang="ch",
+            device="cpu",
             enable_mkldnn=False,
-            ir_optim=False
         )
-        model_runtime_device = "GPU" if use_gpu else "CPU"
-        logger.info("PaddleOCR model initialized on: %s", model_runtime_device)
+        logger.info("PaddleOCR model initialized on: CPU")
     except Exception as e:
         logger.error("PaddleOCR initialization failed: %s", e)
         ocr_model = None
@@ -136,44 +99,48 @@ def api_system():
     return {
         **system_info,
         "model_loaded": ocr_model is not None,
-        "model_runtime_device": model_runtime_device,
-        "use_gpu_config": USE_GPU,
         "auth_required": AUTH_REQUIRED,
     }
 
 class Base64Request(BaseModel):
     base64: str
 
+def _parse_ocr_result(result) -> list:
+    """Parse PaddleOCR 3.x result format into a flat list of dicts."""
+    formatted = []
+    if not result:
+        return formatted
+    for item in result:
+        texts = item.get("rec_texts", [])
+        scores = item.get("rec_scores", [])
+        polys = item.get("rec_polys", [])
+        for text, score, poly in zip(texts, scores, polys):
+            formatted.append({
+                "points": poly.tolist() if hasattr(poly, "tolist") else poly,
+                "text": text,
+                "confidence": float(score),
+            })
+    return formatted
+
 def _run_ocr_on_image(img: np.ndarray):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     start_time = time.perf_counter()
-    result = ocr_model.ocr(img, cls=True)
+    result = ocr_model.ocr(img)
     duration = time.perf_counter() - start_time
-    
-    formatted_res = []
-    if result and len(result) > 0 and result[0]:
-        for line in result[0]:
-            box, (text, score) = line
-            formatted_res.append({"points": box, "text": text, "confidence": float(score)})
-    
-    logger.info("OCR OK: dur=%.3fs lines=%d device=%s", duration, len(formatted_res), model_runtime_device)
-    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": formatted_res}
+
+    formatted_res = _parse_ocr_result(result)
+    logger.info("OCR OK: dur=%.3fs lines=%d", duration, len(formatted_res))
+    return {"status": "ok", "duration_s": duration, "device": "CPU", "results": formatted_res}
 
 def _run_ocr_on_pdf_page(img: np.ndarray, page_num: int):
     if ocr_model is None: raise HTTPException(503, "OCR model is not loaded.")
     with ocr_lock:
-        result = ocr_model.ocr(img, cls=True)
-    
+        result = ocr_model.ocr(img)
+
     formatted_res = []
-    if result and len(result) > 0 and result[0]:
-        for line in result[0]:
-            box, (text, score) = line
-            formatted_res.append({
-                "points": box,
-                "text": text,
-                "confidence": float(score),
-                "page_num": page_num
-            })
+    for item in _parse_ocr_result(result):
+        item["page_num"] = page_num
+        formatted_res.append(item)
     return formatted_res
 
 def _run_ocr_on_pdf(contents: bytes):
@@ -263,8 +230,8 @@ def _run_ocr_on_pdf(contents: bytes):
         all_results.extend(future.result())
 
     duration = time.perf_counter() - start_time
-    logger.info("PDF OK: dur=%.3fs pages=%d lines=%d device=%s", duration, num_pages, len(all_results), model_runtime_device)
-    return {"status": "ok", "duration_s": duration, "device": model_runtime_device, "results": all_results}
+    logger.info("PDF OK: dur=%.3fs pages=%d lines=%d", duration, num_pages, len(all_results))
+    return {"status": "ok", "duration_s": duration, "device": "CPU", "results": all_results}
 
 @app.post("/api/ocr")
 async def do_ocr(file: UploadFile = File(...)):
@@ -274,7 +241,7 @@ async def do_ocr(file: UploadFile = File(...)):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image file.")
         
-        async with gpu_semaphore:
+        async with ocr_semaphore:
             return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
@@ -297,7 +264,7 @@ async def do_ocr_base64(req: Base64Request):
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None: raise HTTPException(400, "Invalid image base64.")
         
-        async with gpu_semaphore:
+        async with ocr_semaphore:
             return await run_in_threadpool(_run_ocr_on_image, img)
     except HTTPException:
         raise
@@ -311,7 +278,7 @@ async def do_ocr_pdf(file: UploadFile = File(...)):
         contents = await file.read()
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        async with gpu_semaphore:
+        async with ocr_semaphore:
             return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
@@ -332,7 +299,7 @@ async def do_ocr_pdf_base64(req: Base64Request):
         contents = base64.b64decode(b64_data)
         if not contents.startswith(b"%PDF-"):
             raise HTTPException(400, "Not a valid PDF file.")
-        async with gpu_semaphore:
+        async with ocr_semaphore:
             return await run_in_threadpool(_run_ocr_on_pdf, contents)
     except HTTPException:
         raise
