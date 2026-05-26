@@ -72,11 +72,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 .preview-area img{width:100%;display:block}
 .preview-area.active{display:block}
 
-.result-area{
-  background:#1e293b;color:#e2e8f0;border-radius:8px;padding:1rem;
-  font-family:'SF Mono',Consolas,monospace;font-size:.85rem;
-  height:400px;overflow-y:auto;white-space:pre-wrap;
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+.tab-nav{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border)}
+.tab-btn{
+  padding:.5rem 1rem;cursor:pointer;font-size:.88rem;font-weight:500;
+  color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;
+  margin-bottom:-2px;transition:all .15s;
 }
+.tab-btn:hover{color:var(--accent)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+.plain-text-area{
+  background:#f8fafc;border:1px solid var(--border);border-radius:0 0 8px 8px;padding:.75rem 1rem;
+  height:340px;overflow-y:auto;font-size:.92rem;line-height:1.7;white-space:pre-wrap;
+}
+.result-area{
+  background:#1e293b;color:#e2e8f0;border-radius:0 0 8px 8px;padding:1rem;
+  font-family:'SF Mono',Consolas,monospace;font-size:.85rem;
+  height:340px;overflow-y:auto;white-space:pre-wrap;
+}
+.placeholder-text{color:var(--text3);font-style:italic}
+
+.copy-bar{display:flex;justify-content:space-between;align-items:center;margin-top:.75rem}
+.copy-btn{
+  display:inline-flex;align-items:center;gap:.3rem;
+  border:none;border-radius:6px;padding:.4rem .85rem;font-size:.82rem;
+  font-weight:500;cursor:pointer;transition:all .15s;
+}
+.copy-btn-text{background:var(--accent);color:#fff}
+.copy-btn-text:hover{background:var(--accent-hover)}
+.copy-btn-json{background:#f1f5f9;color:var(--text2)}
+.copy-btn-json:hover{background:#e2e8f0}
+.copy-btn:active{transform:scale(.97)}
 
 /* ── API Documentation ────────────────────────────────────────────────────── */
 .api-section details{margin-bottom:.75rem}
@@ -157,10 +186,23 @@ input:focus{border-color:var(--accent)}
     <!-- Right: Results -->
     <div class="card">
       <h2>📝 识别结果</h2>
-      <div class="result-area" id="resultArea">等待识别...</div>
-      <div style="margin-top:1rem;display:flex;justify-content:space-between;align-items:center">
-        <span id="timingInfo" style="font-size:.82rem;color:var(--text2)"></span>
-        <button class="btn btn-primary" onclick="copyResult()">复制 JSON</button>
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchTab('text')" id="tabBtnText">纯文本</button>
+        <button class="tab-btn" onclick="switchTab('json')" id="tabBtnJson">JSON</button>
+      </div>
+      <div class="tab-panel active" id="panelText">
+        <div class="plain-text-area" id="plainTextArea"><span class="placeholder-text">等待识别...</span></div>
+        <div class="copy-bar">
+          <span id="timingInfo" style="font-size:.82rem;color:var(--text2)"></span>
+          <button class="copy-btn copy-btn-text" onclick="copyPlainText()">📋 复制文本</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="panelJson">
+        <div class="result-area" id="resultArea"></div>
+        <div class="copy-bar">
+          <span style="font-size:.82rem;color:var(--text2)"></span>
+          <button class="copy-btn copy-btn-json" onclick="copyJson()">📋 复制 JSON</button>
+        </div>
       </div>
     </div>
   </div>
@@ -220,6 +262,7 @@ input:focus{border-color:var(--accent)}
 <script>
 const AUTH_REQUIRED = (typeof __OCR_AUTH_REQUIRED__ !== 'undefined') ? __OCR_AUTH_REQUIRED__ : false;
 let ACCESS_TOKEN = localStorage.getItem('ocr_access_token') || '';
+let lastPlainText = '';
 
 function toast(msg, type='success') {
   const c = document.getElementById('toastContainer');
@@ -257,13 +300,35 @@ function submitAuth() {
   loadSystemInfo();
 }
 
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tabBtn' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+}
+
+function extractPlainText(data) {
+  if (!data.results || !Array.isArray(data.results)) return '';
+  let lines = [];
+  let lastPage = null;
+  for (const item of data.results) {
+    if (item.page_num !== undefined && item.page_num !== lastPage) {
+      if (lastPage !== null) lines.push('');
+      lines.push(`── 第 ${item.page_num} 页 ──`);
+      lastPage = item.page_num;
+    }
+    lines.push(item.text || '');
+  }
+  return lines.join('\n');
+}
+
 async function handleFile(file) {
   if (!file) return;
   const preview = document.getElementById('previewArea');
   const previewImg = document.getElementById('previewImg');
-  
+
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  
+
   if (isPdf) {
     previewImg.style.display = 'none';
     let pdfHint = document.getElementById('pdfPreviewHint');
@@ -285,31 +350,42 @@ async function handleFile(file) {
     reader.readAsDataURL(file);
   }
 
+  document.getElementById('plainTextArea').textContent = '识别中...';
   document.getElementById('resultArea').textContent = '识别中...';
   const fd = new FormData();
   fd.append('file', file);
-  
+
   const apiUrl = isPdf ? '/api/ocr/pdf' : '/api/ocr';
-  
+
   try {
     const t0 = performance.now();
     const r = await fetch(apiUrl, { method: 'POST', body: fd, headers: getHeaders() });
     const d = await r.json();
     const t1 = performance.now();
-    
+
     document.getElementById('resultArea').textContent = JSON.stringify(d, null, 2);
+    lastPlainText = extractPlainText(d);
+    document.getElementById('plainTextArea').textContent = lastPlainText || '(未识别到文字)';
     document.getElementById('timingInfo').textContent = `耗时: ${d.duration_s ? d.duration_s.toFixed(3) + 's' : ((t1-t0)/1000).toFixed(3) + 's'} · 设备: ${d.device || 'N/A'}`;
     toast('识别完成');
   } catch(e) {
     toast('识别失败', 'error');
+    document.getElementById('plainTextArea').textContent = '识别失败: ' + e.message;
     document.getElementById('resultArea').textContent = '识别失败: ' + e.message;
   }
 }
 
-function copyResult() {
+function copyPlainText() {
+  if (!lastPlainText) { toast('没有可复制的内容', 'error'); return; }
+  navigator.clipboard.writeText(lastPlainText);
+  toast('纯文本已复制到剪贴板');
+}
+
+function copyJson() {
   const text = document.getElementById('resultArea').textContent;
+  if (!text || text === '识别中...') { toast('没有可复制的内容', 'error'); return; }
   navigator.clipboard.writeText(text);
-  toast('已复制到剪贴板');
+  toast('JSON 已复制到剪贴板');
 }
 
 // Drag & Drop
