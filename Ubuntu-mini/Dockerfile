@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/ubuntu:25.10
+FROM hub.aiursoft.com/ubuntu:26.04
 
 COPY source.list /tmp/new_sources.list
 COPY source.list.arm /tmp/new_sources.list.arm
