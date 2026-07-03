@@ -23,29 +23,19 @@ stages:
 deploy_ubuntu:
   extends: .deploy_template
   variables:
-    IMAGE_NAME: "ubuntu"
-    CONTEXT: "./Ubuntu"
+    IMAGE_NAME: "anduinos-internal"
+    CONTEXT: "./AnduinOS-Internal"
 
 deploy_ubuntu_with_docker:
   extends: .deploy_template
   needs:
     - deploy_ubuntu
   variables:
-    IMAGE_NAME: "ubuntu-with-docker"
-    CONTEXT: "./Ubuntu-with-docker"
-
-deploy_ubuntu_mini:
-  extends: .deploy_template
-  needs:
-    - deploy_ubuntu
-  variables:
-    IMAGE_NAME: "ubuntu-mini"
-    CONTEXT: "./Ubuntu-mini"
+    IMAGE_NAME: "anduinos-with-docker"
+    CONTEXT: "./AnduinOS-with-docker"
 
 deploy_exp_ppa_mirror:
   extends: .deploy_template
-  needs:
-    - deploy_ubuntu
   variables:
     IMAGE_NAME: "exp-ppa-mirror"
     CONTEXT: "./ExpPpaMirror"
@@ -77,15 +67,13 @@ deploy_dotnet:
 deploy_dotnet_only_runtime:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu_mini
+    - deploy_ubuntu
   variables:
     IMAGE_NAME: "dotnetonlyruntime"
     CONTEXT: "./DotnetOnlyRuntime"
 
 deploy_gateway:
   extends: .deploy_template
-  needs:
-    - deploy_ubuntu
   variables:
     IMAGE_NAME: "gateway"
     CONTEXT: "./Gateway"

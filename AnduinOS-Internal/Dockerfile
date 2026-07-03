@@ -1,17 +1,16 @@
-FROM hub.aiursoft.com/ubuntu:26.04
+FROM hub.aiursoft.com/aiursoft/anduinos:resolute
 
 RUN apt-get update && \
     apt install -y sudo bash libicu76 git unzip wget cron curl ca-certificates apt-transport-https software-properties-common
 
-COPY source.list /tmp/source.list
-COPY source.list.arm /tmp/source.list.arm
+COPY ubuntu.sources /tmp/ubuntu.sources
+COPY ubuntu.sources.arm /tmp/ubuntu.sources.arm
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
-        mv /tmp/source.list /etc/apt/sources.list; \
+        mv /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
     elif [ "$ARCH" = "aarch64" ]; then \
-        mv /tmp/source.list.arm /etc/apt/sources.list; \
-    fi && \
-    rm -rf /etc/apt/sources.list.d/*
+        mv /tmp/ubuntu.sources.arm /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
 
 RUN apt-get update && \
     apt upgrade -y && \

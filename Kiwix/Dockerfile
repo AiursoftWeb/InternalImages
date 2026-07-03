@@ -1,5 +1,5 @@
 # Kiwix Dockerfile
-FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal
 
 RUN apt-get update
 RUN apt-get install -y kiwix-tools curl wget

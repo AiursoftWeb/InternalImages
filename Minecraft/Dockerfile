@@ -3,7 +3,7 @@ ARG VERSION="1.19.3"
 #============================
 #       Builder image
 #============================
-FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu AS minecraft-builder
+FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal AS minecraft-builder
 ARG VERSION
 WORKDIR /app
 
@@ -104,7 +104,7 @@ RUN unzip /tmp/sty.zip -d /datapacks/structory
 #============================
 #       Final image
 #============================
-FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal
 WORKDIR /app
 
 COPY --from=minecraft-builder /app /app
