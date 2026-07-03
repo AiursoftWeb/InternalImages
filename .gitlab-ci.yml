@@ -20,16 +20,16 @@ stages:
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
-deploy_ubuntu:
+deploy_anduinos_internal:
   extends: .deploy_template
   variables:
     IMAGE_NAME: "anduinos-internal"
     CONTEXT: "./AnduinOS-Internal"
 
-deploy_ubuntu_with_docker:
+deploy_anduinos_internal_with_docker:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "anduinos-with-docker"
     CONTEXT: "./AnduinOS-with-docker"
@@ -43,7 +43,7 @@ deploy_exp_ppa_mirror:
 deploy_lab:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "lab"
     CONTEXT: "./Lab"
@@ -51,7 +51,7 @@ deploy_lab:
 deploy_kiwix:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "kiwix"
     CONTEXT: "./Kiwix"
@@ -59,7 +59,7 @@ deploy_kiwix:
 deploy_dotnet:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "dotnet"
     CONTEXT: "./Dotnet"
@@ -67,7 +67,7 @@ deploy_dotnet:
 deploy_dotnet_only_runtime:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "dotnetonlyruntime"
     CONTEXT: "./DotnetOnlyRuntime"
@@ -81,7 +81,7 @@ deploy_gateway:
 deploy_gitmirror:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "gitmirror"
     CONTEXT: "./GitMirror"
@@ -89,7 +89,7 @@ deploy_gitmirror:
 deploy_minecraft:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "minecraft"
     CONTEXT: "./Minecraft"
@@ -113,7 +113,7 @@ deploy_swinir:
 deploy_youtubedl:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "youtubedl"
     CONTEXT: "./Youtubedl"
@@ -130,7 +130,7 @@ deploy_reportertts:
 deploy_paddleocr:
   extends: .deploy_template
   needs:
-    - deploy_ubuntu
+    - deploy_anduinos_internal
   variables:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
