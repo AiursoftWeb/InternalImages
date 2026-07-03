@@ -25,11 +25,8 @@ COPY ./bukkit.yml /app/bukkit.yml
 COPY ./server.properties /app/server.properties
 COPY ./ops.json /app/ops.json
 
-# Download Paper MC
-RUN buildId=$(curl "https://api.papermc.io/v2/projects/paper/versions/${VERSION}/builds" | jq -r '.builds[-1].build') && \
-    url=https://api.papermc.io/v2/projects/paper/versions/${VERSION}/builds/$buildId/downloads/paper-${VERSION}-$buildId.jar && \
-    echo "Downloading new Paper MC binary $url" && \
-    wget -O /app/papermc.jar $url
+# Paper MC jar (pre-downloaded, PaperMC API no longer hosts old builds)
+COPY ./papermc.jar /app/papermc.jar
 
 # Plugins
 # ================

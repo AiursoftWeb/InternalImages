@@ -15,8 +15,9 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
-# 创建并使用虚拟环境
-RUN uv venv /opt/venv
+# 创建并使用虚拟环境 (锁定 Python 3.13，PaddlePaddle 不支持 3.14)
+RUN uv python install 3.13
+RUN uv venv --python 3.13 /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # 安装 PaddlePaddle (CPU版本) 和 PaddleOCR
