@@ -17,7 +17,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     git \
-    libicu76 \
+    libicu78 \
     libatomic1 \
     dotnet10 \
     wget && \
