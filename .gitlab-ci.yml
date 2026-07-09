@@ -135,3 +135,12 @@ deploy_paddleocr:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
     PLATFORMS: "linux/amd64"
+
+deploy_markitdown:
+  extends: .deploy_template
+  needs:
+    - deploy_anduinos_internal
+  variables:
+    IMAGE_NAME: "markitdown"
+    CONTEXT: "./MarkItDown"
+    PLATFORMS: "linux/amd64"
