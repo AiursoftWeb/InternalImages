@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource/roboto/400.css'
 import '@fontsource/roboto/500.css'
@@ -7,7 +7,9 @@ import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import GraphicEqOutlinedIcon from '@mui/icons-material/GraphicEqOutlined'
+import MicRoundedIcon from '@mui/icons-material/MicRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
+import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import {
   Alert,
   Accordion,
@@ -44,6 +46,59 @@ const theme = createTheme({
   typography: { fontFamily: 'Roboto, Arial, sans-serif' },
 })
 
+function defaultRealtimeUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.hostname}:10095`
+}
+
+function resampleAudio(samples, sourceRate, targetRate) {
+  if (sourceRate === targetRate) return samples
+  const outputLength = Math.round(samples.length * targetRate / sourceRate)
+  const output = new Float32Array(outputLength)
+  const ratio = sourceRate / targetRate
+  for (let index = 0; index < outputLength; index += 1) {
+    const sourceIndex = index * ratio
+    const before = Math.floor(sourceIndex)
+    const after = Math.min(before + 1, samples.length - 1)
+    const blend = sourceIndex - before
+    output[index] = samples[before] * (1 - blend) + samples[after] * blend
+  }
+  return output
+}
+
+function encodePcm(samples) {
+  const output = new Int16Array(samples.length)
+  for (let index = 0; index < samples.length; index += 1) {
+    output[index] = Math.max(-1, Math.min(1, samples[index])) * 0x7fff
+  }
+  return output.buffer
+}
+
+async function startMicrophone(onAudio) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } })
+  const audioContext = new AudioContext({ sampleRate: 16000 })
+  const source = audioContext.createMediaStreamSource(stream)
+  const processor = audioContext.createScriptProcessor(1024, 1, 1)
+  const silentGain = audioContext.createGain()
+  silentGain.gain.value = 0
+  processor.onaudioprocess = (event) => {
+    const samples = event.inputBuffer.getChannelData(0)
+    const pcm = encodePcm(resampleAudio(samples, audioContext.sampleRate, 16000))
+    onAudio(pcm)
+  }
+  source.connect(processor)
+  processor.connect(silentGain)
+  silentGain.connect(audioContext.destination)
+
+  return () => {
+    processor.disconnect()
+    silentGain.disconnect()
+    source.disconnect()
+    stream.getTracks().forEach((track) => track.stop())
+    audioContext.close()
+  }
+}
+
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
@@ -52,6 +107,12 @@ function App() {
   const [result, setResult] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [realtimeUrl, setRealtimeUrl] = useState(defaultRealtimeUrl)
+  const [realtimeStatus, setRealtimeStatus] = useState('未连接')
+  const [realtimePartial, setRealtimePartial] = useState('')
+  const [realtimeFinal, setRealtimeFinal] = useState('')
+  const microphoneRef = useRef(null)
+  const socketRef = useRef(null)
 
   async function transcribe() {
     if (!file || !token) {
@@ -83,6 +144,76 @@ function App() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function startRealtime() {
+    if (!token) {
+      setError('请填写 API Token。实时服务应使用相同的 Token。')
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('当前浏览器不支持麦克风采集。')
+      return
+    }
+
+    setError('')
+    setRealtimePartial('')
+    setRealtimeFinal('')
+    setRealtimeStatus('连接中…')
+    const socket = new WebSocket(realtimeUrl, ['binary', `bearer.${token}`])
+    socket.binaryType = 'arraybuffer'
+    socketRef.current = socket
+
+    socket.onopen = async () => {
+      socket.send(JSON.stringify({
+        mode: '2pass',
+        audio_fs: 16000,
+        chunk_size: [5, 10, 5],
+        chunk_interval: 10,
+        wav_name: 'microphone',
+        is_speaking: true,
+      }))
+      try {
+        microphoneRef.current = await startMicrophone((pcm) => {
+          if (socket.readyState === WebSocket.OPEN) socket.send(pcm)
+        })
+        setRealtimeStatus('正在实时识别')
+      } catch (microphoneError) {
+        socket.close()
+        setError(microphoneError.message || '无法访问麦克风。')
+      }
+    }
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      if (message.is_final) {
+        setRealtimeFinal(message.text || '')
+        socket.close()
+        return
+      }
+      setRealtimePartial(message.text || '')
+    }
+
+    socket.onerror = () => {
+      setError('无法连接实时识别服务。请检查服务地址和 Token。')
+    }
+
+    socket.onclose = () => {
+      microphoneRef.current?.()
+      microphoneRef.current = null
+      socketRef.current = null
+      setRealtimeStatus('未连接')
+    }
+  }
+
+  function stopRealtime() {
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ is_speaking: false }))
+    }
+    microphoneRef.current?.()
+    microphoneRef.current = null
+    setRealtimeStatus('正在结束…')
   }
 
   return (
@@ -146,6 +277,34 @@ function App() {
               </Typography>
             </Paper>
 
+            <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+              <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+                <Stack spacing={3}>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <MicRoundedIcon color="primary" />
+                    <Typography variant="h6" fontWeight={700}>实时麦克风识别</Typography>
+                    <Chip label={realtimeStatus} size="small" color={realtimeStatus === '正在实时识别' ? 'success' : 'default'} />
+                  </Stack>
+                  <TextField label="实时服务地址" value={realtimeUrl} onChange={(event) => setRealtimeUrl(event.target.value)} fullWidth helperText="默认连接当前主机的 10095 端口。需要部署 funasr-realtime 并使用相同 Token。" />
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <Button variant="contained" onClick={startRealtime} disabled={realtimeStatus !== '未连接'} startIcon={<MicRoundedIcon />}>
+                      连接麦克风
+                    </Button>
+                    <Button variant="outlined" color="error" onClick={stopRealtime} disabled={realtimeStatus !== '正在实时识别'} startIcon={<StopRoundedIcon />}>
+                      停止识别
+                    </Button>
+                  </Stack>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+                    <Typography variant="overline" color="text.secondary">增量文本</Typography>
+                    <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimePartial || '等待语音输入…'}</Typography>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Typography variant="overline" color="text.secondary">最终文本</Typography>
+                    <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimeFinal || '句末校正结果会显示在这里。'}</Typography>
+                  </Paper>
+                </Stack>
+              </CardContent>
+            </Card>
+
             <Paper elevation={0} sx={{ p: { xs: 3, sm: 4 }, border: '1px solid', borderColor: 'divider' }}>
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
                 <DescriptionOutlinedIcon color="primary" />
@@ -153,6 +312,7 @@ function App() {
               </Stack>
               <Stack spacing={1}>
                 <ApiEndpoint method="GET" path="/healthz" description="检查网关是否正在运行，无需认证。" example="curl http://localhost:8080/healthz" />
+                <ApiEndpoint method="WS" path="ws://<host>:10095" description="连接 funasr-realtime，先发送配置 JSON，再连续发送 16 kHz、单声道、16-bit PCM 音频帧。" example={'Authorization: Bearer <ASR_REALTIME_TOKEN>\nSec-WebSocket-Protocol: binary\n\n{"mode":"2pass","audio_fs":16000,"chunk_size":[5,10,5],"chunk_interval":10,"is_speaking":true}\n\n{"is_speaking":false}'} />
                 <ApiEndpoint method="GET" path="/v1/models" description="获取可用的语音识别模型列表。" example={'curl http://localhost:8080/v1/models \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型返回转写结果。" example={'curl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr'} />

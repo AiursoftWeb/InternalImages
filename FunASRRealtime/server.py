@@ -723,6 +723,11 @@ def authenticate_request(path, request_headers):
     expected = "Bearer " + access_token
     if secrets.compare_digest(authorization, expected):
         return None
+    protocols = request_headers.get("Sec-WebSocket-Protocol", "").split(",")
+    for protocol in protocols:
+        protocol = protocol.strip()
+        if protocol.startswith("bearer.") and secrets.compare_digest(protocol[7:], access_token):
+            return None
     return http.HTTPStatus.UNAUTHORIZED, [("Content-Type", "text/plain")], b"Unauthorized\n"
 
 
