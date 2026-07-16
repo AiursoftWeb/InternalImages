@@ -153,3 +153,9 @@ deploy_funasr:
   variables:
     IMAGE_NAME: "funasr"
     CONTEXT: "./FunASR"
+
+deploy_funasr_realtime:
+  extends: .deploy_template
+  variables:
+    IMAGE_NAME: "funasr-realtime"
+    CONTEXT: "./FunASRRealtime"
