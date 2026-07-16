@@ -105,14 +105,18 @@ function App() {
   const [language, setLanguage] = useState('')
   const [file, setFile] = useState(null)
   const [result, setResult] = useState('')
+  const [durationMs, setDurationMs] = useState(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [realtimeUrl, setRealtimeUrl] = useState(defaultRealtimeUrl)
+  const [realtimeToken, setRealtimeToken] = useState('')
   const [realtimeStatus, setRealtimeStatus] = useState('未连接')
   const [realtimePartial, setRealtimePartial] = useState('')
   const [realtimeFinal, setRealtimeFinal] = useState('')
+  const [realtimeError, setRealtimeError] = useState('')
   const microphoneRef = useRef(null)
   const socketRef = useRef(null)
+  const stoppingRealtimeRef = useRef(false)
 
   async function transcribe() {
     if (!file || !token) {
@@ -122,7 +126,9 @@ function App() {
 
     setError('')
     setResult('')
+    setDurationMs(null)
     setSubmitting(true)
+    const startedAt = performance.now()
     const formData = new FormData()
     formData.append('file', file)
     formData.append('model', model)
@@ -139,6 +145,7 @@ function App() {
         throw new Error(readError(body) || `请求失败（HTTP ${response.status}）`)
       }
       setResult(readText(body) || body)
+      setDurationMs(performance.now() - startedAt)
     } catch (requestError) {
       setError(requestError.message || '无法连接到服务。')
     } finally {
@@ -147,20 +154,28 @@ function App() {
   }
 
   async function startRealtime() {
-    if (!token) {
-      setError('请填写 API Token。实时服务应使用相同的 Token。')
+    if (!realtimeToken) {
+      setRealtimeError('请填写实时服务 Token。')
       return
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('当前浏览器不支持麦克风采集。')
+      setRealtimeError('当前浏览器不支持麦克风采集。')
       return
     }
 
-    setError('')
+    setRealtimeError('')
     setRealtimePartial('')
     setRealtimeFinal('')
     setRealtimeStatus('连接中…')
-    const socket = new WebSocket(realtimeUrl, ['binary', `bearer.${token}`])
+    stoppingRealtimeRef.current = false
+    let socket
+    try {
+      socket = new WebSocket(realtimeUrl, ['binary', `bearer.${realtimeToken}`])
+    } catch (connectionError) {
+      setRealtimeError(connectionError.message || '实时服务地址无效。')
+      setRealtimeStatus('未连接')
+      return
+    }
     socket.binaryType = 'arraybuffer'
     socketRef.current = socket
 
@@ -179,8 +194,9 @@ function App() {
         })
         setRealtimeStatus('正在实时识别')
       } catch (microphoneError) {
+        stoppingRealtimeRef.current = true
         socket.close()
-        setError(microphoneError.message || '无法访问麦克风。')
+        setRealtimeError(microphoneError.message || '无法访问麦克风。')
       }
     }
 
@@ -188,6 +204,7 @@ function App() {
       const message = JSON.parse(event.data)
       if (message.is_final) {
         setRealtimeFinal(message.text || '')
+        stoppingRealtimeRef.current = true
         socket.close()
         return
       }
@@ -195,7 +212,7 @@ function App() {
     }
 
     socket.onerror = () => {
-      setError('无法连接实时识别服务。请检查服务地址和 Token。')
+      setRealtimeError('无法连接实时识别服务。请检查服务地址和 Token。')
     }
 
     socket.onclose = () => {
@@ -203,12 +220,16 @@ function App() {
       microphoneRef.current = null
       socketRef.current = null
       setRealtimeStatus('未连接')
+      if (!stoppingRealtimeRef.current) {
+        setRealtimeError('实时服务已断开连接。')
+      }
     }
   }
 
   function stopRealtime() {
     const socket = socketRef.current
     if (socket?.readyState === WebSocket.OPEN) {
+      stoppingRealtimeRef.current = true
       socket.send(JSON.stringify({ is_speaking: false }))
     }
     microphoneRef.current?.()
@@ -275,6 +296,11 @@ function App() {
               <Typography component="pre" sx={{ m: 0, minHeight: 88, whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: result ? 'text.primary' : 'text.secondary' }}>
                 {result || '识别后的文本会显示在这里。'}
               </Typography>
+              {durationMs !== null && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  耗时：{(durationMs / 1000).toFixed(2)} 秒
+                </Typography>
+              )}
             </Paper>
 
             <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
@@ -285,7 +311,9 @@ function App() {
                     <Typography variant="h6" fontWeight={700}>实时麦克风识别</Typography>
                     <Chip label={realtimeStatus} size="small" color={realtimeStatus === '正在实时识别' ? 'success' : 'default'} />
                   </Stack>
-                  <TextField label="实时服务地址" value={realtimeUrl} onChange={(event) => setRealtimeUrl(event.target.value)} fullWidth helperText="默认连接当前主机的 10095 端口。需要部署 funasr-realtime 并使用相同 Token。" />
+                  <TextField label="实时服务地址" value={realtimeUrl} onChange={(event) => setRealtimeUrl(event.target.value)} fullWidth helperText="默认连接当前主机的 10095 端口。需要部署 funasr-realtime。" />
+                  <TextField label="实时服务 Token" type="password" value={realtimeToken} onChange={(event) => setRealtimeToken(event.target.value)} fullWidth autoComplete="off" helperText="仅用于连接 funasr-realtime，不会被保存。" />
+                  {realtimeError && <Alert severity="error">{realtimeError}</Alert>}
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                     <Button variant="contained" onClick={startRealtime} disabled={realtimeStatus !== '未连接'} startIcon={<MicRoundedIcon />}>
                       连接麦克风
