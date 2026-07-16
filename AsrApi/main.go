@@ -21,6 +21,7 @@ const maxUploadSize = 100 << 20
 type upstream struct {
 	url   string
 	model string
+	token string
 }
 
 type service struct {
@@ -73,6 +74,14 @@ func newServiceFromEnvironment() (*service, error) {
 	if token == "" {
 		return nil, errors.New("ASR_API_TOKEN is required")
 	}
+	whisperXToken := os.Getenv("ASR_WHISPERX_TOKEN")
+	if whisperXToken == "" {
+		return nil, errors.New("ASR_WHISPERX_TOKEN is required")
+	}
+	funASRToken := os.Getenv("ASR_FUNASR_TOKEN")
+	if funASRToken == "" {
+		return nil, errors.New("ASR_FUNASR_TOKEN is required")
+	}
 
 	whisperXURL := strings.TrimRight(os.Getenv("ASR_WHISPERX_URL"), "/")
 	funASRURL := strings.TrimRight(os.Getenv("ASR_FUNASR_URL"), "/")
@@ -89,8 +98,8 @@ func newServiceFromEnvironment() (*service, error) {
 	return &service{
 		token: token,
 		upstreams: map[string]upstream{
-			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "whisperx")},
-			"funasr":   {url: funASRURL, model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice")},
+			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "whisperx"), token: whisperXToken},
+			"funasr":   {url: funASRURL, model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"), token: funASRToken},
 		},
 		client:       &http.Client{Timeout: 10 * time.Minute},
 		statusClient: &http.Client{Timeout: 5 * time.Second},
@@ -146,6 +155,7 @@ func (s *service) upstreamStatus(parentContext context.Context, backend upstream
 		log.Printf("build upstream health request: %v", err)
 		return "unavailable"
 	}
+	request.Header.Set("Authorization", "Bearer "+backend.token)
 	response, err := s.statusClient.Do(request)
 	if err != nil {
 		return "unavailable"
@@ -207,6 +217,7 @@ func (s *service) transcribe(c *gin.Context) {
 		return
 	}
 	request.Header.Set("Content-Type", contentType)
+	request.Header.Set("Authorization", "Bearer "+backend.token)
 
 	response, err := s.client.Do(request)
 	if err != nil {

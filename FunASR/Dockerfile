@@ -24,6 +24,6 @@ COPY server.py /app/server.py
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.getenv('FUNASR_PORT', '8000'), timeout=3).read()" || exit 1
+    CMD python -c "import os, urllib.request; request = urllib.request.Request('http://127.0.0.1:%s/health' % os.getenv('FUNASR_PORT', '8000'), headers={'Authorization': 'Bearer ' + os.environ['ASR_FUNASR_TOKEN']}); urllib.request.urlopen(request, timeout=3).read()" || exit 1
 
 CMD ["sh", "-c", "python server.py --host 0.0.0.0 --port ${FUNASR_PORT:-8000} --device ${FUNASR_DEVICE:-cpu} --model ${FUNASR_MODEL:-sensevoice}"]

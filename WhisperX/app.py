@@ -1,12 +1,27 @@
 import os
+import secrets
 import shutil
 import tempfile
 
 import whisperx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 model = None
+model_token = os.getenv("ASR_WHISPERX_TOKEN", "").strip()
+if not model_token:
+    raise RuntimeError("ASR_WHISPERX_TOKEN is required")
+
+
+@app.middleware("http")
+async def require_model_token(request: Request, call_next):
+    if request.url.path == "/health" or request.url.path.startswith("/v1/"):
+        expected = f"Bearer {model_token}"
+        authorization = request.headers.get("Authorization", "")
+        if not secrets.compare_digest(authorization, expected):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
 @app.on_event("startup")

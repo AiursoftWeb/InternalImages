@@ -13,6 +13,7 @@ Then use with any OpenAI-compatible client:
 """
 
 import argparse
+import secrets
 import tempfile
 import time
 import os
@@ -21,13 +22,27 @@ import logging
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="FunASR OpenAI-Compatible API", version="1.0.0")
+
+model_token = os.getenv("ASR_FUNASR_TOKEN", "").strip()
+if not model_token:
+    raise RuntimeError("ASR_FUNASR_TOKEN is required")
+
+
+@app.middleware("http")
+async def require_model_token(request: Request, call_next):
+    if request.url.path == "/health" or request.url.path.startswith("/v1/"):
+        expected = f"Bearer {model_token}"
+        authorization = request.headers.get("Authorization", "")
+        if not secrets.compare_digest(authorization, expected):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 MODEL_REGISTRY = {}
 DEVICE = "cpu"
