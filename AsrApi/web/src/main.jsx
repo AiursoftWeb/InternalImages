@@ -6,6 +6,7 @@ import '@fontsource/roboto/700.css'
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import GraphicEqOutlinedIcon from '@mui/icons-material/GraphicEqOutlined'
 import MicRoundedIcon from '@mui/icons-material/MicRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
@@ -237,6 +238,18 @@ function App() {
     setRealtimeStatus('正在结束…')
   }
 
+  function downloadResult() {
+    if (!result.trim()) return
+    const url = URL.createObjectURL(new Blob([result], { type: 'text/plain;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'transcription.txt'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -291,6 +304,9 @@ function App() {
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
                 <DescriptionOutlinedIcon color="primary" />
                 <Typography variant="h6" fontWeight={700}>识别结果</Typography>
+                <Button size="small" onClick={downloadResult} disabled={!result.trim()} startIcon={<FileDownloadOutlinedIcon />} sx={{ ml: 'auto' }}>
+                  下载 TXT
+                </Button>
               </Stack>
               <Divider sx={{ mb: 2 }} />
               <Typography component="pre" sx={{ m: 0, minHeight: 88, whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: result ? 'text.primary' : 'text.secondary' }}>
