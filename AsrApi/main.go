@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -129,15 +130,26 @@ type modelEntry struct {
 }
 
 func (s *service) models(c *gin.Context) {
-	entries := make([]modelEntry, 0)
+	var (
+		mutex   sync.Mutex
+		wg      sync.WaitGroup
+		entries = make([]modelEntry, 0)
+	)
 	for _, backend := range s.upstreams {
-		remote, err := s.upstreamModels(c.Request.Context(), backend)
-		if err != nil {
-			log.Printf("list models from %s: %v", backend.url, err)
-			continue
-		}
-		entries = append(entries, remote...)
+		wg.Add(1)
+		go func(backend upstream) {
+			defer wg.Done()
+			remote, err := s.upstreamModels(c.Request.Context(), backend)
+			if err != nil {
+				log.Printf("list models from %s: %v", backend.url, err)
+				return
+			}
+			mutex.Lock()
+			entries = append(entries, remote...)
+			mutex.Unlock()
+		}(backend)
 	}
+	wg.Wait()
 	c.JSON(http.StatusOK, gin.H{"object": "list", "data": entries})
 }
 

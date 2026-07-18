@@ -25,6 +25,7 @@ import {
   CssBaseline,
   Divider,
   FormControl,
+  FormHelperText,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -104,6 +105,8 @@ function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
   const [modelOptions, setModelOptions] = useState([])
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelOptionsError, setModelOptionsError] = useState('')
   const [level, setLevel] = useState('')
   const [language, setLanguage] = useState('')
   const [file, setFile] = useState(null)
@@ -120,16 +123,21 @@ function App() {
   const microphoneRef = useRef(null)
   const socketRef = useRef(null)
   const stoppingRealtimeRef = useRef(false)
+  const realtimeConnectedRef = useRef(false)
 
   useEffect(() => {
     if (!token) {
       setModelOptions([])
+      setModelOptionsError('')
       return
     }
+    setLoadingModels(true)
+    setModelOptionsError('')
     fetch('/v1/models', { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => (response.ok ? response.json() : null))
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
       .then((data) => { if (data?.data) setModelOptions(data.data) })
-      .catch(() => setModelOptions([]))
+      .catch(() => setModelOptionsError('模型档位加载失败，请确认 Token 与上游服务状态。'))
+      .finally(() => setLoadingModels(false))
   }, [token])
 
   const levelOptions = modelOptions.filter((option) => option.owned_by === model)
@@ -185,6 +193,7 @@ function App() {
     setRealtimeFinal('')
     setRealtimeStatus('连接中…')
     stoppingRealtimeRef.current = false
+    realtimeConnectedRef.current = false
     let socket
     try {
       socket = new WebSocket(realtimeUrl, ['binary', `bearer.${realtimeToken}`])
@@ -197,6 +206,7 @@ function App() {
     socketRef.current = socket
 
     socket.onopen = async () => {
+      realtimeConnectedRef.current = true
       socket.send(JSON.stringify({
         mode: '2pass',
         audio_fs: 16000,
@@ -232,13 +242,17 @@ function App() {
       setRealtimeError('无法连接实时识别服务。请检查服务地址和 Token。')
     }
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       microphoneRef.current?.()
       microphoneRef.current = null
       socketRef.current = null
       setRealtimeStatus('未连接')
       if (!stoppingRealtimeRef.current) {
-        setRealtimeError('实时服务已断开连接。')
+        if (!realtimeConnectedRef.current) {
+          setRealtimeError('无法连接实时识别服务，请确认服务已启动、地址与 Token 正确。')
+        } else {
+          setRealtimeError(`实时服务已断开连接（code ${event.code}${event.reason ? '：' + event.reason : ''}）`)
+        }
       }
     }
   }
@@ -298,9 +312,9 @@ function App() {
                         <MenuItem value="whisperx">WhisperX</MenuItem>
                       </Select>
                     </FormControl>
-                    <FormControl fullWidth>
-                      <InputLabel id="level-label">模型档位</InputLabel>
-                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty onChange={(event) => setLevel(event.target.value)}>
+                    <FormControl fullWidth error={Boolean(modelOptionsError)}>
+                      <InputLabel id="level-label" shrink>模型档位</InputLabel>
+                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels} onChange={(event) => setLevel(event.target.value)}>
                         <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
                         {levelOptions.map((option) => (
                           <MenuItem key={option.id} value={option.id}>
@@ -308,6 +322,13 @@ function App() {
                           </MenuItem>
                         ))}
                       </Select>
+                      {!token
+                        ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
+                        : loadingModels
+                          ? <FormHelperText>正在加载模型档位…</FormHelperText>
+                          : modelOptionsError
+                            ? <FormHelperText error>{modelOptionsError}</FormHelperText>
+                            : null}
                     </FormControl>
                   </Stack>
                   <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
