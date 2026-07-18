@@ -1,6 +1,12 @@
-FROM python:3.11-slim
+FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    WHISPERX_DEVICE=cuda \
+    WHISPERX_COMPUTE_TYPE=float16 \
+    HF_HOME=/root/.cache/huggingface
 
 WORKDIR /app
 
@@ -8,7 +14,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
+
+# Bake the default whisper model into the image so it is not downloaded at runtime.
+RUN python -c "import whisperx; whisperx.load_model('small', device='cpu')"
 
 COPY app.py /app/app.py
 

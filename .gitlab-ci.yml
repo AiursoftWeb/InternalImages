@@ -144,18 +144,27 @@ deploy_asr_api:
 
 deploy_whisperx:
   extends: .deploy_template
+  needs:
+    - deploy_nvidia
   variables:
+    PLATFORMS: "linux/amd64"
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
 
 deploy_funasr:
   extends: .deploy_template
+  needs:
+    - deploy_nvidia
   variables:
+    PLATFORMS: "linux/amd64"
     IMAGE_NAME: "funasr"
     CONTEXT: "./FunASR"
 
 deploy_funasr_realtime:
   extends: .deploy_template
+  needs:
+    - deploy_nvidia
   variables:
+    PLATFORMS: "linux/amd64"
     IMAGE_NAME: "funasr-realtime"
     CONTEXT: "./FunASRRealtime"
