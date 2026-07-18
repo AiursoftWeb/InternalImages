@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource/roboto/400.css'
 import '@fontsource/roboto/500.css'
@@ -103,6 +103,8 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
+  const [modelOptions, setModelOptions] = useState([])
+  const [level, setLevel] = useState('')
   const [language, setLanguage] = useState('')
   const [file, setFile] = useState(null)
   const [result, setResult] = useState('')
@@ -119,6 +121,19 @@ function App() {
   const socketRef = useRef(null)
   const stoppingRealtimeRef = useRef(false)
 
+  useEffect(() => {
+    if (!token) {
+      setModelOptions([])
+      return
+    }
+    fetch('/v1/models', { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => { if (data?.data) setModelOptions(data.data) })
+      .catch(() => setModelOptions([]))
+  }, [token])
+
+  const levelOptions = modelOptions.filter((option) => option.owned_by === model)
+
   async function transcribe() {
     if (!file || !token) {
       setError('请选择音频文件并填写 API Token。')
@@ -133,6 +148,7 @@ function App() {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('model', model)
+    if (level) formData.append('level', level)
     if (language) formData.append('language', language)
 
     try {
@@ -277,13 +293,24 @@ function App() {
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                     <FormControl fullWidth>
                       <InputLabel id="model-label">识别模型</InputLabel>
-                      <Select labelId="model-label" label="识别模型" value={model} onChange={(event) => setModel(event.target.value)}>
+                      <Select labelId="model-label" label="识别模型" value={model} onChange={(event) => { setModel(event.target.value); setLevel('') }}>
                         <MenuItem value="funasr">FunASR</MenuItem>
                         <MenuItem value="whisperx">WhisperX</MenuItem>
                       </Select>
                     </FormControl>
-                    <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
+                    <FormControl fullWidth>
+                      <InputLabel id="level-label">模型档位</InputLabel>
+                      <Select labelId="level-label" label="模型档位" value={level} onChange={(event) => setLevel(event.target.value)}>
+                        <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
+                        {levelOptions.map((option) => (
+                          <MenuItem key={option.id} value={option.id}>
+                            {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </Stack>
+                  <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
                   <Button component="label" variant="outlined" color="primary" startIcon={<CloudUploadOutlinedIcon />} sx={{ minHeight: 88, borderStyle: 'dashed', justifyContent: 'flex-start', px: 3, textTransform: 'none' }}>
                     <Box textAlign="left">
                       <Typography fontWeight={600}>{file ? file.name : '选择音频文件'}</Typography>
@@ -359,7 +386,7 @@ function App() {
                 <ApiEndpoint method="WS" path="ws://<host>:10095" description="连接 funasr-realtime，先发送配置 JSON，再连续发送 16 kHz、单声道、16-bit PCM 音频帧。" example={'Authorization: Bearer <ASR_REALTIME_TOKEN>\nSec-WebSocket-Protocol: binary\n\n{"mode":"2pass","audio_fs":16000,"chunk_size":[5,10,5],"chunk_interval":10,"is_speaking":true}\n\n{"is_speaking":false}'} />
                 <ApiEndpoint method="GET" path="/v1/models" description="获取可用的语音识别模型列表。" example={'curl http://localhost:8080/v1/models \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
-                <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型返回转写结果。" example={'curl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr'} />
+                <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={'curl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3'} />
               </Stack>
             </Paper>
           </Stack>

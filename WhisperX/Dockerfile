@@ -19,13 +19,14 @@ RUN apt-get update \
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
 
-# Bake several WhisperX model levels into the image at build time so ops can
-# switch via WHISPERX_MODEL without downloading at runtime. device='cpu' only
-# triggers the download; the cached weights are device-agnostic and app.py
-# reloads them onto the GPU (WHISPERX_DEVICE=cuda) at runtime. The default is
-# large-v3, which fits comfortably on one RTX 3090 (24G) leaving headroom for
-# other services sharing the same host.
-RUN python -c "import whisperx; [whisperx.load_model(m, device='cpu') for m in ('small', 'medium', 'large-v3')]"
+# Bake the curated WhisperX model levels (models_config.BAKED_MODELS) into the
+# image at build time so ops can switch offline. Edit BAKED_MODELS and rebuild
+# to change the offline-available set. device='cpu' only triggers the download;
+# the cached weights are device-agnostic and app.py reloads them onto the GPU
+# (WHISPERX_DEVICE=cuda) at runtime. The default is large-v3, which fits
+# comfortably on one RTX 3090 (24G) leaving headroom for other services.
+COPY models_config.py bake_models.py /app/
+RUN python bake_models.py
 
 COPY app.py /app/app.py
 

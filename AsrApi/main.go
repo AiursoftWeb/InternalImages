@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -98,7 +100,7 @@ func newServiceFromEnvironment() (*service, error) {
 	return &service{
 		token: token,
 		upstreams: map[string]upstream{
-			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "whisperx"), token: whisperXToken},
+			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "large-v3"), token: whisperXToken},
 			"funasr":   {url: funASRURL, model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"), token: funASRToken},
 		},
 		client:       &http.Client{Timeout: 10 * time.Minute},
@@ -117,14 +119,55 @@ func (s *service) health(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+type modelEntry struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	OwnedBy string `json:"owned_by"`
+	Baked   *bool  `json:"baked,omitempty"`
+	Loaded  *bool  `json:"loaded,omitempty"`
+	Ready   *bool  `json:"ready,omitempty"`
+}
+
 func (s *service) models(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data": []gin.H{
-			{"id": "whisperx", "object": "model", "owned_by": "whisperx"},
-			{"id": "funasr", "object": "model", "owned_by": "funasr"},
-		},
-	})
+	entries := make([]modelEntry, 0)
+	for _, backend := range s.upstreams {
+		remote, err := s.upstreamModels(c.Request.Context(), backend)
+		if err != nil {
+			log.Printf("list models from %s: %v", backend.url, err)
+			continue
+		}
+		entries = append(entries, remote...)
+	}
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": entries})
+}
+
+func (s *service) upstreamModels(parentContext context.Context, backend upstream) ([]modelEntry, error) {
+	requestContext, cancel := context.WithTimeout(parentContext, 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, backend.url+"/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+backend.token)
+	response, err := s.statusClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			log.Printf("close upstream models response: %v", err)
+		}
+	}()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("upstream returned %d", response.StatusCode)
+	}
+	var payload struct {
+		Data []modelEntry `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Data, nil
 }
 
 func (s *service) system(c *gin.Context) {
@@ -192,6 +235,14 @@ func (s *service) transcribe(c *gin.Context) {
 		return
 	}
 
+	// level selects the model variant (e.g. whisperx: small/medium/large-v3,
+	// funasr: sensevoice/paraformer). Empty falls back to the upstream default.
+	level := c.PostForm("level")
+	modelForUpstream := backend.model
+	if level != "" {
+		modelForUpstream = level
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "audio file is required"})
@@ -209,7 +260,7 @@ func (s *service) transcribe(c *gin.Context) {
 		}
 	}()
 
-	body, contentType := buildUpstreamBody(input, file.Filename, backend.model, c.PostForm("language"), c.PostForm("response_format"))
+	body, contentType := buildUpstreamBody(input, file.Filename, modelForUpstream, c.PostForm("language"), c.PostForm("response_format"))
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, backend.url+"/v1/audio/transcriptions", body)
 	if err != nil {
 		log.Printf("build upstream request: %v", err)
