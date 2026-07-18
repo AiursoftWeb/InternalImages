@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -19,6 +21,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
+
+//go:embed web/dist
+var distFS embed.FS
 
 const maxUploadSize = 100 << 20
 
@@ -65,8 +70,14 @@ func loadDotenv(filename string) error {
 func newRouter(server *service) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
-	router.Static("/assets", "web/dist/assets")
-	router.StaticFile("/", "web/dist/index.html")
+	dist, err := fs.Sub(distFS, "web/dist")
+	if err != nil {
+		log.Fatal(err)
+	}
+	router.StaticFS("/assets", http.FS(dist))
+	router.GET("/", func(c *gin.Context) {
+		c.FileFromFS("index.html", http.FS(dist))
+	})
 	router.GET("/healthz", server.health)
 	v1 := router.Group("/v1")
 	v1.Use(server.authenticate)

@@ -22,7 +22,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/asr-api
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build --chown=nonroot:nonroot /out/asr-api /asr-api
-COPY --from=build --chown=nonroot:nonroot /src/web/dist /web/dist
 
 WORKDIR /
 
