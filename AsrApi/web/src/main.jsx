@@ -300,7 +300,7 @@ function App() {
                     </FormControl>
                     <FormControl fullWidth>
                       <InputLabel id="level-label">模型档位</InputLabel>
-                      <Select labelId="level-label" label="模型档位" value={level} onChange={(event) => setLevel(event.target.value)}>
+                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty onChange={(event) => setLevel(event.target.value)}>
                         <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
                         {levelOptions.map((option) => (
                           <MenuItem key={option.id} value={option.id}>
