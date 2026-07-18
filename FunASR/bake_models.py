@@ -1,19 +1,39 @@
-from huggingface_hub import snapshot_download
-from modelscope import snapshot_download
+from funasr import AutoModel
 
-# ModelScope-hosted models used by server.py (hub defaults to modelscope).
-MS_MODELS = [
-    "iic/SenseVoiceSmall",
-    "iic/paraformer-zh",
-    "iic/paraformer-en",
-    "iic/fsmn-vad",
-    "iic/ct-punc",
+# Bake every model referenced by server.py into the model cache so the
+# container never downloads at runtime. We reuse FunASR's AutoModel with the
+# exact same model names as server.py, which resolves the ModelScope/HF
+# aliases correctly (e.g. "paraformer-zh" is an AutoModel alias, not a raw
+# ModelScope repo id like "iic/paraformer-zh", which does not exist).
+MODEL_CONFIGS = [
+    {
+        "model": "iic/SenseVoiceSmall",
+        "vad_model": "fsmn-vad",
+        "vad_kwargs": {"max_single_segment_time": 30000},
+    },
+    {
+        "model": "paraformer-zh",
+        "vad_model": "fsmn-vad",
+        "punc_model": "ct-punc",
+    },
+    {
+        "model": "paraformer-en",
+        "vad_model": "fsmn-vad",
+    },
+    {
+        "model": "FunAudioLLM/Fun-ASR-Nano-2512",
+        "hub": "hf",
+        "trust_remote_code": True,
+        "vad_model": "fsmn-vad",
+        "vad_kwargs": {"max_single_segment_time": 30000},
+    },
 ]
 
-for model in MS_MODELS:
-    snapshot_download(model)
-
-# Hugging Face-hosted model referenced by server.py with hub="hf".
-snapshot_download("FunAudioLLM/Fun-ASR-Nano-2512", repo_type="model")
+for cfg in MODEL_CONFIGS:
+    cfg = dict(cfg)
+    cfg["device"] = "cpu"
+    cfg["disable_update"] = True
+    print(f"Baking model: {cfg['model']}")
+    AutoModel(**cfg)
 
 print("FunASR models baked.")
