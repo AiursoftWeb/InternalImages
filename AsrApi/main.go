@@ -74,9 +74,18 @@ func newRouter(server *service) *gin.Engine {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router.StaticFS("/assets", http.FS(dist))
+	assetsFS, err := fs.Sub(dist, "assets")
+	if err != nil {
+		log.Fatal(err)
+	}
+	router.StaticFS("/assets", http.FS(assetsFS))
 	router.GET("/", func(c *gin.Context) {
-		c.FileFromFS("index.html", http.FS(dist))
+		data, err := fs.ReadFile(dist, "index.html")
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 	router.GET("/healthz", server.health)
 	v1 := router.Group("/v1")
