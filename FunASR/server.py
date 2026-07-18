@@ -81,6 +81,14 @@ def load_model(model_name: str):
         available = list(MODEL_CONFIGS.keys())
         raise ValueError(f"Unknown model '{model_name}'. Available: {available}")
 
+    # Clear previous models to release VRAM/RAM before loading a new one
+    MODEL_REGISTRY.clear()
+    import gc
+    import torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     from funasr import AutoModel
 
     cfg = MODEL_CONFIGS[model_name].copy()

@@ -22,9 +22,21 @@ MODEL_LOCK = threading.Lock()
 def load_model(name: str):
     """Lazily load a whisperx model and cache it. Unknown or unloadable names
     raise so the caller can return a clear error instead of a 500."""
+    if name not in BAKED_MODELS:
+        raise ValueError("model is not allowed")
+
     with MODEL_LOCK:
         if name in MODEL_REGISTRY:
             return MODEL_REGISTRY[name]
+
+        # Clear previous models to release VRAM/RAM before loading a new one
+        MODEL_REGISTRY.clear()
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         try:
             model = whisperx.load_model(
                 name,

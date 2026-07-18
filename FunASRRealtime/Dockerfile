@@ -17,7 +17,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
+RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
 RUN pip install "funasr==1.3.14" "modelscope==1.38.1" "websockets==12.0" "scipy==1.15.3"
 
 # Bake models into the image at build time (CPU-only download) so they are

@@ -17,7 +17,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
+RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
 RUN pip install funasr fastapi "uvicorn[standard]" python-multipart huggingface_hub
 
 # Bake models into the image at build time (CPU-only download) so they are

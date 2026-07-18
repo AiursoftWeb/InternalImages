@@ -16,7 +16,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
+RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
 RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
 
 # Bake the curated WhisperX model levels (models_config.BAKED_MODELS) into the

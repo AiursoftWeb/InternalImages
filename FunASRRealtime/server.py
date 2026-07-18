@@ -487,6 +487,8 @@ async def ws_serve(websocket, path=None):
 
             pcm = message
             frames.append(pcm)
+            if len(frames) > 20:
+                frames = frames[-20:]
 
             duration_ms = _pcm_duration_ms(pcm, fs=websocket.audio_fs, ch=1, sampwidth=2)
             websocket.vad_pre_idx += duration_ms
