@@ -17,7 +17,9 @@ RUN apt-get update \
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
 
-# Bake the default whisper model into the image so it is not downloaded at runtime.
+# Bake the default whisper model into the image at build time. device='cpu'
+# only triggers the download; the cached weights are device-agnostic and
+# app.py reloads them onto the GPU via WHISPERX_DEVICE=cuda at runtime.
 RUN python -c "import whisperx; whisperx.load_model('small', device='cpu')"
 
 COPY app.py /app/app.py

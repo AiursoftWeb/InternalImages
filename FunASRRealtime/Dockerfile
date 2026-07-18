@@ -19,7 +19,8 @@ RUN apt-get update \
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 RUN pip install "funasr==1.3.14" "modelscope==1.38.1" "websockets==12.0" "scipy==1.15.3"
 
-# Bake models into the image so they are not downloaded at runtime.
+# Bake models into the image at build time (CPU-only download) so they are
+# not fetched at runtime; server.py reloads them onto the GPU via --device cuda.
 COPY bake_models.py /app/bake_models.py
 RUN ASR_REALTIME_TOKEN=dummy python bake_models.py
 

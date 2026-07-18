@@ -19,7 +19,8 @@ RUN apt-get update \
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 torch torchaudio
 RUN pip install funasr fastapi "uvicorn[standard]" python-multipart huggingface_hub
 
-# Bake models into the image so they are not downloaded at runtime.
+# Bake models into the image at build time (CPU-only download) so they are
+# not fetched at runtime; server.py reloads them onto the GPU via --device cuda.
 COPY bake_models.py /app/bake_models.py
 RUN python bake_models.py
 

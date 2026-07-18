@@ -29,8 +29,8 @@ def load_model():
     global model
     model = whisperx.load_model(
         os.getenv("WHISPERX_MODEL", "small"),
-        os.getenv("WHISPERX_DEVICE", "cpu"),
-        compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "int8"),
+        os.getenv("WHISPERX_DEVICE", "cuda"),
+        compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "float16"),
     )
 
 

@@ -1,7 +1,9 @@
 from funasr import AutoModel
 
-# Mirror the model list in server.py; load on CPU at build time so weights
-# are downloaded into MODELSCOPE_CACHE and reused at runtime.
+# Download every model referenced by server.py into MODELSCOPE_CACHE at build
+# time so the runtime never fetches weights. We load on CPU here only because
+# the build container has no GPU; the cached weights are device-agnostic and
+# are reloaded onto CUDA by server.py (--device cuda --ngpu 1) at runtime.
 COMMON = dict(ngpu=0, ncpu=4, device="cpu", disable_pbar=True, disable_log=True)
 
 AutoModel(
