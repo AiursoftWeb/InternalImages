@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type service struct {
 	upstreams    map[string]upstream
 	client       *http.Client
 	statusClient *http.Client
+	// transcribeSem bounds concurrent transcription requests so a single
+	// authenticated caller cannot exhaust GPU/memory with parallel uploads.
+	transcribeSem chan struct{}
 }
 
 func main() {
@@ -98,20 +102,32 @@ func newServiceFromEnvironment() (*service, error) {
 		return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
 	}
 
+	maxConcurrent := environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)
+
 	return &service{
 		token: token,
 		upstreams: map[string]upstream{
 			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "large-v3"), token: whisperXToken},
 			"funasr":   {url: funASRURL, model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"), token: funASRToken},
 		},
-		client:       &http.Client{Timeout: 10 * time.Minute},
-		statusClient: &http.Client{Timeout: 5 * time.Second},
+		client:        &http.Client{Timeout: 10 * time.Minute},
+		statusClient:  &http.Client{Timeout: 5 * time.Second},
+		transcribeSem: make(chan struct{}, maxConcurrent),
 	}, nil
 }
 
 func environmentOrDefault(name, defaultValue string) string {
 	if value := os.Getenv(name); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func environmentOrDefaultInt(name string, defaultValue int) int {
+	if value := os.Getenv(name); value != "" {
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			return n
+		}
 	}
 	return defaultValue
 }
@@ -239,6 +255,14 @@ func (s *service) authenticate(c *gin.Context) {
 }
 
 func (s *service) transcribe(c *gin.Context) {
+	select {
+	case s.transcribeSem <- struct{}{}:
+		defer func() { <-s.transcribeSem }()
+	default:
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many concurrent transcriptions, please retry later"})
+		return
+	}
+
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 	modelName := c.PostForm("model")
 	backend, ok := s.upstreams[modelName]
