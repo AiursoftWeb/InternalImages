@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ASR_REALTIME_DEVICE=cuda \
     ASR_REALTIME_NGPU=1 \
     ASR_REALTIME_NCPU=4 \
+    CUDA_VISIBLE_DEVICES=0 \
     MODELSCOPE_CACHE=/root/.cache/modelscope
 
 WORKDIR /app
@@ -21,6 +22,10 @@ RUN pip install "funasr==1.3.14" "modelscope==1.38.1" "websockets==12.0" "scipy=
 
 # Bake models into the image at build time (CPU-only download) so they are
 # not fetched at runtime; server.py reloads them onto the GPU via --device cuda.
+# Model selection entry point: override ASR_REALTIME_ASR_MODEL,
+# ASR_REALTIME_ASR_MODEL_ONLINE, ASR_REALTIME_VAD_MODEL, ASR_REALTIME_PUNC_MODEL
+# or ASR_REALTIME_SV_MODEL at runtime to swap models (unbaked models download
+# on first use). Defaults below are the models baked during build.
 COPY bake_models.py /app/bake_models.py
 RUN ASR_REALTIME_TOKEN=dummy python bake_models.py
 

@@ -47,34 +47,72 @@ parser.add_argument("--port", type=int, default=10095, required=False, help="grp
 parser.add_argument(
     "--asr_model",
     type=str,
-    default="iic/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404",
-    help="model from modelscope",
+    default=os.getenv(
+        "ASR_REALTIME_ASR_MODEL",
+        "iic/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404",
+    ),
+    help="offline ASR model (override via ASR_REALTIME_ASR_MODEL)",
 )
-parser.add_argument("--asr_model_revision", type=str, default="v2.0.4", help="")
-
+parser.add_argument(
+    "--asr_model_revision",
+    type=str,
+    default=os.getenv("ASR_REALTIME_ASR_MODEL_REVISION", "v2.0.4"),
+    help="",
+)
 parser.add_argument(
     "--asr_model_online",
     type=str,
-    default="iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
-    help="model from modelscope",
+    default=os.getenv(
+        "ASR_REALTIME_ASR_MODEL_ONLINE",
+        "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
+    ),
+    help="streaming ASR model (override via ASR_REALTIME_ASR_MODEL_ONLINE)",
 )
-parser.add_argument("--asr_model_online_revision", type=str, default="v2.0.4", help="")
-
+parser.add_argument(
+    "--asr_model_online_revision",
+    type=str,
+    default=os.getenv("ASR_REALTIME_ASR_MODEL_ONLINE_REVISION", "v2.0.4"),
+    help="",
+)
 parser.add_argument(
     "--vad_model",
     type=str,
-    default="iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
-    help="model from modelscope",
+    default=os.getenv(
+        "ASR_REALTIME_VAD_MODEL",
+        "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+    ),
+    help="VAD model (override via ASR_REALTIME_VAD_MODEL)",
 )
-parser.add_argument("--vad_model_revision", type=str, default="v2.0.4", help="")
-
+parser.add_argument(
+    "--vad_model_revision",
+    type=str,
+    default=os.getenv("ASR_REALTIME_VAD_MODEL_REVISION", "v2.0.4"),
+    help="",
+)
 parser.add_argument(
     "--punc_model",
     type=str,
-    default="iic/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727",
-    help="model from modelscope",
+    default=os.getenv(
+        "ASR_REALTIME_PUNC_MODEL",
+        "iic/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727",
+    ),
+    help="punctuation model (override via ASR_REALTIME_PUNC_MODEL)",
 )
-parser.add_argument("--punc_model_revision", type=str, default="v2.0.4", help="")
+parser.add_argument(
+    "--punc_model_revision",
+    type=str,
+    default=os.getenv("ASR_REALTIME_PUNC_MODEL_REVISION", "v2.0.4"),
+    help="",
+)
+parser.add_argument(
+    "--sv_model",
+    type=str,
+    default=os.getenv(
+        "ASR_REALTIME_SV_MODEL",
+        "iic/speech_campplus_sv_zh-cn_16k-common",
+    ),
+    help="speaker verification model (override via ASR_REALTIME_SV_MODEL)",
+)
 
 parser.add_argument("--ngpu", type=int, default=1, help="0 for cpu, 1 for gpu")
 parser.add_argument("--device", type=str, default="cuda", help="cuda, cpu")
@@ -288,7 +326,7 @@ else:
 
 # sv
 model_sv = AutoModel(
-    model="iic/speech_campplus_sv_zh-cn_16k-common",
+    model=args.sv_model,
     ngpu=args.ngpu,
     device=args.device,
     disable_pbar=True,

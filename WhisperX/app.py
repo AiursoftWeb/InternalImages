@@ -28,7 +28,7 @@ async def require_model_token(request: Request, call_next):
 def load_model():
     global model
     model = whisperx.load_model(
-        os.getenv("WHISPERX_MODEL", "small"),
+        os.getenv("WHISPERX_MODEL", "large-v3"),
         os.getenv("WHISPERX_DEVICE", "cuda"),
         compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "float16"),
     )

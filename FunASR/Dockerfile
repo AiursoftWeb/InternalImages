@@ -7,6 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FUNASR_MODEL=sensevoice \
     FUNASR_DEVICE=cuda \
     FUNASR_PORT=8000 \
+    CUDA_VISIBLE_DEVICES=0 \
     MODELSCOPE_CACHE=/root/.cache/modelscope \
     HF_HOME=/root/.cache/huggingface
 
