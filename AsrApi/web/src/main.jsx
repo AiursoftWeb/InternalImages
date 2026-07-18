@@ -104,6 +104,7 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
+  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true })
   const [modelOptions, setModelOptions] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState('')
@@ -124,6 +125,23 @@ function App() {
   const socketRef = useRef(null)
   const stoppingRealtimeRef = useRef(false)
   const realtimeConnectedRef = useRef(false)
+
+  useEffect(() => {
+    fetch('/config')
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })
+      .then((data) => {
+        if (data) {
+          setConfig(data)
+          if (data.funasr === false && data.whisperx === true) {
+            setModel('whisperx')
+          }
+        }
+      })
+      .catch((err) => console.error('加载系统配置失败：', err))
+  }, [])
 
   useEffect(() => {
     if (!token) {
@@ -292,7 +310,11 @@ function App() {
                 Speech to text, simply.
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 580 }}>
-                上传音频，使用已部署的 WhisperX 或 FunASR 模型快速体验语音识别。
+                {config.funasr && config.whisperx
+                  ? '上传音频，使用已部署的 WhisperX 或 FunASR 模型快速体验语音识别。'
+                  : config.whisperx
+                  ? '上传音频，使用已部署的 WhisperX 模型快速体验语音识别。'
+                  : '上传音频，使用已部署的 FunASR 模型快速体验语音识别。'}
               </Typography>
             </Box>
 
@@ -308,8 +330,8 @@ function App() {
                     <FormControl fullWidth>
                       <InputLabel id="model-label">识别模型</InputLabel>
                       <Select labelId="model-label" label="识别模型" value={model} onChange={(event) => { setModel(event.target.value); setLevel('') }}>
-                        <MenuItem value="funasr">FunASR</MenuItem>
-                        <MenuItem value="whisperx">WhisperX</MenuItem>
+                        {config.funasr && <MenuItem value="funasr">FunASR</MenuItem>}
+                        {config.whisperx && <MenuItem value="whisperx">WhisperX</MenuItem>}
                       </Select>
                     </FormControl>
                     <FormControl fullWidth error={Boolean(modelOptionsError)}>
@@ -367,35 +389,37 @@ function App() {
               )}
             </Paper>
 
-            <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
-              <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-                <Stack spacing={3}>
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <MicRoundedIcon color="primary" />
-                    <Typography variant="h6" fontWeight={700}>实时麦克风识别</Typography>
-                    <Chip label={realtimeStatus} size="small" color={realtimeStatus === '正在实时识别' ? 'success' : 'default'} />
+            {config.funasrrealtime && (
+              <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+                  <Stack spacing={3}>
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                      <MicRoundedIcon color="primary" />
+                      <Typography variant="h6" fontWeight={700}>实时麦克风识别</Typography>
+                      <Chip label={realtimeStatus} size="small" color={realtimeStatus === '正在实时识别' ? 'success' : 'default'} />
+                    </Stack>
+                    <TextField label="实时服务地址" value={realtimeUrl} onChange={(event) => setRealtimeUrl(event.target.value)} fullWidth helperText="默认连接当前主机的 10095 端口。需要部署 funasr-realtime。" />
+                    <TextField label="实时服务 Token" type="password" value={realtimeToken} onChange={(event) => setRealtimeToken(event.target.value)} fullWidth autoComplete="off" helperText="仅用于连接 funasr-realtime，不会被保存。" />
+                    {realtimeError && <Alert severity="error">{realtimeError}</Alert>}
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      <Button variant="contained" onClick={startRealtime} disabled={realtimeStatus !== '未连接'} startIcon={<MicRoundedIcon />}>
+                        连接麦克风
+                      </Button>
+                      <Button variant="outlined" color="error" onClick={stopRealtime} disabled={realtimeStatus !== '正在实时识别'} startIcon={<StopRoundedIcon />}>
+                        停止识别
+                      </Button>
+                    </Stack>
+                    <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+                      <Typography variant="overline" color="text.secondary">增量文本</Typography>
+                      <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimePartial || '等待语音输入…'}</Typography>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Typography variant="overline" color="text.secondary">最终文本</Typography>
+                      <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimeFinal || '句末校正结果会显示在这里。'}</Typography>
+                    </Paper>
                   </Stack>
-                  <TextField label="实时服务地址" value={realtimeUrl} onChange={(event) => setRealtimeUrl(event.target.value)} fullWidth helperText="默认连接当前主机的 10095 端口。需要部署 funasr-realtime。" />
-                  <TextField label="实时服务 Token" type="password" value={realtimeToken} onChange={(event) => setRealtimeToken(event.target.value)} fullWidth autoComplete="off" helperText="仅用于连接 funasr-realtime，不会被保存。" />
-                  {realtimeError && <Alert severity="error">{realtimeError}</Alert>}
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                    <Button variant="contained" onClick={startRealtime} disabled={realtimeStatus !== '未连接'} startIcon={<MicRoundedIcon />}>
-                      连接麦克风
-                    </Button>
-                    <Button variant="outlined" color="error" onClick={stopRealtime} disabled={realtimeStatus !== '正在实时识别'} startIcon={<StopRoundedIcon />}>
-                      停止识别
-                    </Button>
-                  </Stack>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
-                    <Typography variant="overline" color="text.secondary">增量文本</Typography>
-                    <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimePartial || '等待语音输入…'}</Typography>
-                    <Divider sx={{ my: 1.5 }} />
-                    <Typography variant="overline" color="text.secondary">最终文本</Typography>
-                    <Typography sx={{ minHeight: 28, whiteSpace: 'pre-wrap' }}>{realtimeFinal || '句末校正结果会显示在这里。'}</Typography>
-                  </Paper>
-                </Stack>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
 
             <Paper elevation={0} sx={{ p: { xs: 3, sm: 4 }, border: '1px solid', borderColor: 'divider' }}>
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
@@ -404,10 +428,19 @@ function App() {
               </Stack>
               <Stack spacing={1}>
                 <ApiEndpoint method="GET" path="/healthz" description="检查网关是否正在运行，无需认证。" example="curl http://localhost:8080/healthz" />
-                <ApiEndpoint method="WS" path="ws://<host>:10095" description="连接 funasr-realtime，先发送配置 JSON，再连续发送 16 kHz、单声道、16-bit PCM 音频帧。" example={'Authorization: Bearer <ASR_REALTIME_TOKEN>\nSec-WebSocket-Protocol: binary\n\n{"mode":"2pass","audio_fs":16000,"chunk_size":[5,10,5],"chunk_interval":10,"is_speaking":true}\n\n{"is_speaking":false}'} />
+                {config.funasrrealtime && (
+                  <ApiEndpoint method="WS" path="ws://<host>:10095" description="连接 funasr-realtime，先发送配置 JSON，再连续发送 16 kHz、单声道、16-bit PCM 音频帧。" example={'Authorization: Bearer <ASR_REALTIME_TOKEN>\nSec-WebSocket-Protocol: binary\n\n{"mode":"2pass","audio_fs":16000,"chunk_size":[5,10,5],"chunk_interval":10,"is_speaking":true}\n\n{"is_speaking":false}'} />
+                )}
                 <ApiEndpoint method="GET" path="/v1/models" description="获取可用的语音识别模型列表。" example={'curl http://localhost:8080/v1/models \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
-                <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={'# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档'} />
+                <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={
+                  (config.funasr && config.whisperx) ?
+                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                  : config.funasr ?
+                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# 省略 -F level 即使用引擎默认档`
+                  :
+                  `# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                } />
               </Stack>
             </Paper>
           </Stack>

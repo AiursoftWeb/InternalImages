@@ -34,13 +34,16 @@ type upstream struct {
 }
 
 type service struct {
-	token        string
-	upstreams    map[string]upstream
-	client       *http.Client
-	statusClient *http.Client
+	token                 string
+	upstreams             map[string]upstream
+	client                *http.Client
+	statusClient          *http.Client
 	// transcribeSem bounds concurrent transcription requests so a single
 	// authenticated caller cannot exhaust GPU/memory with parallel uploads.
-	transcribeSem chan struct{}
+	transcribeSem         chan struct{}
+	whisperxEnabled       bool
+	funasrEnabled         bool
+	funasrRealtimeEnabled bool
 }
 
 func main() {
@@ -88,6 +91,7 @@ func newRouter(server *service) *gin.Engine {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 	router.GET("/healthz", server.health)
+	router.GET("/config", server.getConfig)
 	v1 := router.Group("/v1")
 	v1.Use(server.authenticate)
 	v1.GET("/models", server.models)
@@ -101,38 +105,72 @@ func newServiceFromEnvironment() (*service, error) {
 	if token == "" {
 		return nil, errors.New("ASR_API_TOKEN is required")
 	}
-	whisperXToken := os.Getenv("ASR_WHISPERX_TOKEN")
-	if whisperXToken == "" {
-		return nil, errors.New("ASR_WHISPERX_TOKEN is required")
-	}
-	funASRToken := os.Getenv("ASR_FUNASR_TOKEN")
-	if funASRToken == "" {
-		return nil, errors.New("ASR_FUNASR_TOKEN is required")
+
+	whisperxEnabled := environmentOrDefaultBool("ASR_ENABLE_WHISPERX", true)
+	funasrEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR", true)
+	funasrRealtimeEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR_REALTIME", true)
+
+	if !whisperxEnabled && !funasrEnabled {
+		return nil, errors.New("at least one of ASR_ENABLE_WHISPERX or ASR_ENABLE_FUNASR must be true")
 	}
 
-	whisperXURL := strings.TrimRight(os.Getenv("ASR_WHISPERX_URL"), "/")
-	funASRURL := strings.TrimRight(os.Getenv("ASR_FUNASR_URL"), "/")
-	if whisperXURL == "" || funASRURL == "" {
-		return nil, errors.New("ASR_WHISPERX_URL and ASR_FUNASR_URL are required")
+	var whisperXURL, whisperXToken string
+	if whisperxEnabled {
+		whisperXToken = os.Getenv("ASR_WHISPERX_TOKEN")
+		if whisperXToken == "" {
+			return nil, errors.New("ASR_WHISPERX_TOKEN is required when whisperx is enabled")
+		}
+		whisperXURL = strings.TrimRight(os.Getenv("ASR_WHISPERX_URL"), "/")
+		if whisperXURL == "" {
+			return nil, errors.New("ASR_WHISPERX_URL is required when whisperx is enabled")
+		}
+		if _, err := url.ParseRequestURI(whisperXURL); err != nil {
+			return nil, errors.New("ASR_WHISPERX_URL must be a valid URL")
+		}
 	}
-	if _, err := url.ParseRequestURI(whisperXURL); err != nil {
-		return nil, errors.New("ASR_WHISPERX_URL must be a valid URL")
-	}
-	if _, err := url.ParseRequestURI(funASRURL); err != nil {
-		return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
+
+	var funASRURL, funASRToken string
+	if funasrEnabled {
+		funASRToken = os.Getenv("ASR_FUNASR_TOKEN")
+		if funASRToken == "" {
+			return nil, errors.New("ASR_FUNASR_TOKEN is required when funasr is enabled")
+		}
+		funASRURL = strings.TrimRight(os.Getenv("ASR_FUNASR_URL"), "/")
+		if funASRURL == "" {
+			return nil, errors.New("ASR_FUNASR_URL is required when funasr is enabled")
+		}
+		if _, err := url.ParseRequestURI(funASRURL); err != nil {
+			return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
+		}
 	}
 
 	maxConcurrent := environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)
 
+	upstreams := make(map[string]upstream)
+	if whisperxEnabled {
+		upstreams["whisperx"] = upstream{
+			url:   whisperXURL,
+			model: environmentOrDefault("ASR_WHISPERX_MODEL", "large-v3"),
+			token: whisperXToken,
+		}
+	}
+	if funasrEnabled {
+		upstreams["funasr"] = upstream{
+			url:   funASRURL,
+			model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"),
+			token: funASRToken,
+		}
+	}
+
 	return &service{
-		token: token,
-		upstreams: map[string]upstream{
-			"whisperx": {url: whisperXURL, model: environmentOrDefault("ASR_WHISPERX_MODEL", "large-v3"), token: whisperXToken},
-			"funasr":   {url: funASRURL, model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"), token: funASRToken},
-		},
-		client:        &http.Client{Timeout: 10 * time.Minute},
-		statusClient:  &http.Client{Timeout: 5 * time.Second},
-		transcribeSem: make(chan struct{}, maxConcurrent),
+		token:                 token,
+		upstreams:             upstreams,
+		client:                &http.Client{Timeout: 10 * time.Minute},
+		statusClient:          &http.Client{Timeout: 5 * time.Second},
+		transcribeSem:         make(chan struct{}, maxConcurrent),
+		whisperxEnabled:       whisperxEnabled,
+		funasrEnabled:         funasrEnabled,
+		funasrRealtimeEnabled: funasrRealtimeEnabled,
 	}, nil
 }
 
@@ -150,6 +188,25 @@ func environmentOrDefaultInt(name string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func environmentOrDefaultBool(name string, defaultValue bool) bool {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
+	if b, err := strconv.ParseBool(value); err == nil {
+		return b
+	}
+	return defaultValue
+}
+
+func (s *service) getConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"whisperx":       s.whisperxEnabled,
+		"funasr":         s.funasrEnabled,
+		"funasrrealtime": s.funasrRealtimeEnabled,
+	})
 }
 
 func (s *service) health(c *gin.Context) {
@@ -222,19 +279,36 @@ func (s *service) system(c *gin.Context) {
 	whisperXStatus := make(chan string, 1)
 	funASRStatus := make(chan string, 1)
 	go func() {
-		whisperXStatus <- s.upstreamStatus(c.Request.Context(), s.upstreams["whisperx"])
+		if s.whisperxEnabled {
+			whisperXStatus <- s.upstreamStatus(c.Request.Context(), s.upstreams["whisperx"])
+		} else {
+			whisperXStatus <- "disabled"
+		}
 	}()
 	go func() {
-		funASRStatus <- s.upstreamStatus(c.Request.Context(), s.upstreams["funasr"])
+		if s.funasrEnabled {
+			funASRStatus <- s.upstreamStatus(c.Request.Context(), s.upstreams["funasr"])
+		} else {
+			funASRStatus <- "disabled"
+		}
 	}()
+
+	modelsList := make([]gin.H, 0)
+	if s.whisperxEnabled {
+		modelsList = append(modelsList, gin.H{"id": "whisperx", "upstream_status": <-whisperXStatus})
+	} else {
+		<-whisperXStatus
+	}
+	if s.funasrEnabled {
+		modelsList = append(modelsList, gin.H{"id": "funasr", "upstream_status": <-funASRStatus})
+	} else {
+		<-funASRStatus
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":             "ok",
 		"upload_limit_bytes": maxUploadSize,
-		"models": []gin.H{
-			{"id": "whisperx", "upstream_status": <-whisperXStatus},
-			{"id": "funasr", "upstream_status": <-funASRStatus},
-		},
+		"models":             modelsList,
 	})
 }
 
@@ -287,7 +361,7 @@ func (s *service) transcribe(c *gin.Context) {
 	modelName := c.PostForm("model")
 	backend, ok := s.upstreams[modelName]
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "model must be whisperx or funasr"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %s is not supported or not enabled", modelName)})
 		return
 	}
 
