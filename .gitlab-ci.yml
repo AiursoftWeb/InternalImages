@@ -135,3 +135,36 @@ deploy_paddleocr:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
     PLATFORMS: "linux/amd64"
+
+deploy_asr_api:
+  extends: .deploy_template
+  variables:
+    IMAGE_NAME: "asr-api"
+    CONTEXT: "./AsrApi"
+
+deploy_whisperx:
+  extends: .deploy_template
+  needs:
+    - deploy_nvidia
+  variables:
+    PLATFORMS: "linux/amd64"
+    IMAGE_NAME: "whisperx"
+    CONTEXT: "./WhisperX"
+
+deploy_funasr:
+  extends: .deploy_template
+  needs:
+    - deploy_nvidia
+  variables:
+    PLATFORMS: "linux/amd64"
+    IMAGE_NAME: "funasr"
+    CONTEXT: "./FunASR"
+
+deploy_funasr_realtime:
+  extends: .deploy_template
+  needs:
+    - deploy_nvidia
+  variables:
+    PLATFORMS: "linux/amd64"
+    IMAGE_NAME: "funasr-realtime"
+    CONTEXT: "./FunASRRealtime"
