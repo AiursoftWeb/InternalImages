@@ -21,6 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/asr-api
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
+ENV GIN_MODE=release
+
 COPY --from=build --chown=nonroot:nonroot /out/asr-api /asr-api
 
 WORKDIR /
