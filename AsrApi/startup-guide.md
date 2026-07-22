@@ -114,6 +114,7 @@ docker run -d --name funasr-realtime \
 | `ASR_ENABLE_WHISPERX` | 是否启用 WhisperX 引擎相关功能。若为 `false`，则无需提供 WhisperX 的 TOKEN 与 URL。 | `true` |
 | `ASR_ENABLE_FUNASR` | 是否启用 FunASR 引擎相关功能。若为 `false`，则无需提供 FunASR 的 TOKEN 与 URL。 | `true` |
 | `ASR_ENABLE_FUNASR_REALTIME` | 是否在网页端启用/显示实时麦克风识别卡片（WS连接）。 | `true` |
+| `ASR_WHISPERX_SINGLE_MODEL` | 是否启用 WhisperX 单模型模式。若设为 `true`，前端将彻底隐藏档位选择并直接运行在 `large-v3`（默认模型）模式下。 | `false` |
 
 > **重要约束**：
 > - `ASR_ENABLE_WHISPERX` 和 `ASR_ENABLE_FUNASR` 不能同时为 `false`。网关启动时必须至少有一个引擎处于启用状态，否则会报错并拒绝启动。
@@ -135,7 +136,7 @@ docker run -d --name asr-api \
 #### 场景 B：仅部署 WhisperX 模式（精简模式）
 如果在生产中只打算部署 `WhisperX + large-v3`：
 1. 无需启动 `funasr` 与 `funasr-realtime` 容器。
-2. 启动 `asr-api` 时将 FunASR 和实时功能开关设为 `false`：
+2. 启动 `asr-api` 时将 FunASR 和实时功能开关设为 `false`，并开启 WhisperX 单模型参数：
 ```sh
 docker run -d --name asr-api \
   --network asr-net \
@@ -143,11 +144,12 @@ docker run -d --name asr-api \
   -e ASR_API_TOKEN=change-me \
   -e ASR_ENABLE_FUNASR=false \
   -e ASR_ENABLE_FUNASR_REALTIME=false \
+  -e ASR_WHISPERX_SINGLE_MODEL=true \
   -e ASR_WHISPERX_TOKEN=change-me-whisperx \
   -e ASR_WHISPERX_URL=http://whisperx:8000 \
   asr-api:local
 ```
-此时，前端网页会动态响应此配置，隐藏 FunASR 相关的模型选择、页面文案与实时识别组件，使用户看起来该系统**天然只支持 WhisperX**。
+此时，前端网页会动态响应此配置，隐藏 FunASR 相关的模型选择、页面文案与实时识别组件，并且**彻底隐藏模型档位选择下拉框（伪装成只支持单一模型）**，使用户看起来该系统**天然只支持单模型的 WhisperX 语音识别**。
 
 ---
 

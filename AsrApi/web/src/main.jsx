@@ -104,7 +104,7 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
-  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true })
+  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: false })
   const [modelOptions, setModelOptions] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState('')
@@ -172,9 +172,9 @@ function App() {
   const whisperxBakedList = modelOptions
     .filter((option) => option.owned_by === 'whisperx' && option.baked !== false)
     .map((option) => option.id)
-  const whisperxBakedStr = whisperxBakedList.length > 0
-    ? whisperxBakedList.join(' / ')
-    : 'small / medium / large-v3'
+  const whisperxBakedStr = config.whisperx_single_model
+    ? 'large-v3'
+    : (whisperxBakedList.length > 0 ? whisperxBakedList.join(' / ') : 'small / medium / large-v3')
 
   async function transcribe() {
     if (!file || !token) {
@@ -350,32 +350,34 @@ function App() {
                         {config.whisperx && <MenuItem value="whisperx">WhisperX</MenuItem>}
                       </Select>
                     </FormControl>
-                    <FormControl fullWidth error={Boolean(modelOptionsError)}>
-                      <InputLabel id="level-label" shrink>模型档位</InputLabel>
-                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels || isSingleModel} onChange={(event) => setLevel(event.target.value)}>
-                        {isSingleModel ? (
-                          <MenuItem value={levelOptions[0].id}>{levelOptions[0].id}</MenuItem>
-                        ) : (
-                          <>
-                            <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
-                            {levelOptions.map((option) => (
-                              <MenuItem key={option.id} value={option.id}>
-                                {option.id}{option.baked === false ? '（运行时下载）' : ''}
-                              </MenuItem>
-                            ))}
-                          </>
-                        )}
-                      </Select>
-                      {!token
-                        ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
-                        : loadingModels
-                          ? <FormHelperText>正在加载模型档位…</FormHelperText>
-                          : modelOptionsError
-                            ? <FormHelperText error>{modelOptionsError}</FormHelperText>
-                            : isSingleModel
-                              ? <FormHelperText>单模型模式已启用，无法修改档位</FormHelperText>
-                              : null}
-                    </FormControl>
+                    {!(model === 'whisperx' && config.whisperx_single_model) && (
+                      <FormControl fullWidth error={Boolean(modelOptionsError)}>
+                        <InputLabel id="level-label" shrink>模型档位</InputLabel>
+                        <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels || isSingleModel} onChange={(event) => setLevel(event.target.value)}>
+                          {isSingleModel ? (
+                            <MenuItem value={levelOptions[0].id}>{levelOptions[0].id}</MenuItem>
+                          ) : (
+                            <>
+                              <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
+                              {levelOptions.map((option) => (
+                                <MenuItem key={option.id} value={option.id}>
+                                  {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                                </MenuItem>
+                              ))}
+                            </>
+                          )}
+                        </Select>
+                        {!token
+                          ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
+                          : loadingModels
+                            ? <FormHelperText>正在加载模型档位…</FormHelperText>
+                            : modelOptionsError
+                              ? <FormHelperText error>{modelOptionsError}</FormHelperText>
+                              : isSingleModel
+                                ? <FormHelperText>单模型模式已启用，无法修改档位</FormHelperText>
+                                : null}
+                      </FormControl>
+                    )}
                   </Stack>
                   <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
                   <Button component="label" variant="outlined" color="primary" startIcon={<CloudUploadOutlinedIcon />} sx={{ minHeight: 88, borderStyle: 'dashed', justifyContent: 'flex-start', px: 3, textTransform: 'none' }}>

@@ -44,6 +44,7 @@ type service struct {
 	whisperxEnabled       bool
 	funasrEnabled         bool
 	funasrRealtimeEnabled bool
+	whisperxSingleModel   bool
 }
 
 func main() {
@@ -109,6 +110,7 @@ func newServiceFromEnvironment() (*service, error) {
 	whisperxEnabled := environmentOrDefaultBool("ASR_ENABLE_WHISPERX", true)
 	funasrEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR", true)
 	funasrRealtimeEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR_REALTIME", true)
+	whisperxSingleModel := environmentOrDefaultBool("ASR_WHISPERX_SINGLE_MODEL", false)
 
 	if !whisperxEnabled && !funasrEnabled {
 		return nil, errors.New("at least one of ASR_ENABLE_WHISPERX or ASR_ENABLE_FUNASR must be true")
@@ -171,6 +173,7 @@ func newServiceFromEnvironment() (*service, error) {
 		whisperxEnabled:       whisperxEnabled,
 		funasrEnabled:         funasrEnabled,
 		funasrRealtimeEnabled: funasrRealtimeEnabled,
+		whisperxSingleModel:   whisperxSingleModel,
 	}, nil
 }
 
@@ -203,9 +206,10 @@ func environmentOrDefaultBool(name string, defaultValue bool) bool {
 
 func (s *service) getConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"whisperx":       s.whisperxEnabled,
-		"funasr":         s.funasrEnabled,
-		"funasrrealtime": s.funasrRealtimeEnabled,
+		"whisperx":              s.whisperxEnabled,
+		"funasr":                s.funasrEnabled,
+		"funasrrealtime":        s.funasrRealtimeEnabled,
+		"whisperx_single_model": s.whisperxSingleModel,
 	})
 }
 
