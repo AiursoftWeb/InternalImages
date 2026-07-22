@@ -51,7 +51,7 @@ docker build -t asr-api:local ./AsrApi
 ```
 
 > **提示**：
-> - `WhisperX` 在构建时会按照 `WhisperX/models_config.py` 中的 `BAKED_MODELS` 预下载模型权重并烘焙入镜像，因此首次构建拉取模型耗时较长，但运行期不需要连接公网下载模型。
+> - `WhisperX` 在构建时会按照 `WhisperX/models_config.py` 中的 `BAKED_MODELS` 预下载模型权重并烘焙入镜像，因此首次构建拉取模型耗时较长，但运行期不需要连接公网下载模型。**如果希望只构建仅包含 `large-v3` 的精简镜像以减小体积（从约 16GB 减小），可在构建时传入 `--build-arg SINGLE_MODEL=true`。**
 > - `asr-api` 采用多阶段构建，会自动调用 `node:24` 环境对 `web/` 前端进行编译，然后通过 `golang:1.24` 编译后端并打包成 Distroless 镜像。
 
 ---

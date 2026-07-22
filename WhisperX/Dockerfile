@@ -1,5 +1,8 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
+ARG SINGLE_MODEL=false
+ENV SINGLE_MODEL=${SINGLE_MODEL}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

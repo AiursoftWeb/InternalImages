@@ -159,6 +159,22 @@ function App() {
   }, [token])
 
   const levelOptions = modelOptions.filter((option) => option.owned_by === model)
+  const isSingleModel = levelOptions.length === 1
+
+  useEffect(() => {
+    if (isSingleModel) {
+      setLevel(levelOptions[0].id)
+    } else {
+      setLevel('')
+    }
+  }, [model, modelOptions, isSingleModel])
+
+  const whisperxBakedList = modelOptions
+    .filter((option) => option.owned_by === 'whisperx' && option.baked !== false)
+    .map((option) => option.id)
+  const whisperxBakedStr = whisperxBakedList.length > 0
+    ? whisperxBakedList.join(' / ')
+    : 'small / medium / large-v3'
 
   async function transcribe() {
     if (!file || !token) {
@@ -336,13 +352,19 @@ function App() {
                     </FormControl>
                     <FormControl fullWidth error={Boolean(modelOptionsError)}>
                       <InputLabel id="level-label" shrink>模型档位</InputLabel>
-                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels} onChange={(event) => setLevel(event.target.value)}>
-                        <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
-                        {levelOptions.map((option) => (
-                          <MenuItem key={option.id} value={option.id}>
-                            {option.id}{option.baked === false ? '（运行时下载）' : ''}
-                          </MenuItem>
-                        ))}
+                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels || isSingleModel} onChange={(event) => setLevel(event.target.value)}>
+                        {isSingleModel ? (
+                          <MenuItem value={levelOptions[0].id}>{levelOptions[0].id}</MenuItem>
+                        ) : (
+                          <>
+                            <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
+                            {levelOptions.map((option) => (
+                              <MenuItem key={option.id} value={option.id}>
+                                {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                              </MenuItem>
+                            ))}
+                          </>
+                        )}
                       </Select>
                       {!token
                         ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
@@ -350,7 +372,9 @@ function App() {
                           ? <FormHelperText>正在加载模型档位…</FormHelperText>
                           : modelOptionsError
                             ? <FormHelperText error>{modelOptionsError}</FormHelperText>
-                            : null}
+                            : isSingleModel
+                              ? <FormHelperText>单模型模式已启用，无法修改档位</FormHelperText>
+                              : null}
                     </FormControl>
                   </Stack>
                   <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
@@ -435,11 +459,11 @@ function App() {
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={
                   (config.funasr && config.whisperx) ?
-                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 ${whisperxBakedStr}\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
                   : config.funasr ?
                   `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# 省略 -F level 即使用引擎默认档`
                   :
-                  `# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                  `# WhisperX：默认档 large-v3，已烘焙 ${whisperxBakedStr}\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
                 } />
               </Stack>
             </Paper>
