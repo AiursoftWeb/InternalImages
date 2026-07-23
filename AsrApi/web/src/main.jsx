@@ -104,7 +104,7 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
-  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true })
+  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: false })
   const [modelOptions, setModelOptions] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState('')
@@ -126,6 +126,8 @@ function App() {
   const stoppingRealtimeRef = useRef(false)
   const realtimeConnectedRef = useRef(false)
 
+  const [configLoaded, setConfigLoaded] = useState(false)
+
   useEffect(() => {
     fetch('/config')
       .then((response) => {
@@ -137,10 +139,13 @@ function App() {
           setConfig(data)
           if (data.funasr === false && data.whisperx === true) {
             setModel('whisperx')
+          } else if (data.whisperx === false && data.funasr === true) {
+            setModel('funasr')
           }
         }
       })
       .catch((err) => console.error('加载系统配置失败：', err))
+      .finally(() => setConfigLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -159,6 +164,24 @@ function App() {
   }, [token])
 
   const levelOptions = modelOptions.filter((option) => option.owned_by === model)
+  const isSingleModel = levelOptions.length === 1
+
+  useEffect(() => {
+    if (isSingleModel) {
+      setLevel(levelOptions[0].id)
+    } else {
+      setLevel('')
+    }
+  }, [model, modelOptions, isSingleModel])
+
+  const whisperxBakedList = modelOptions
+    .filter((option) => option.owned_by === 'whisperx' && option.baked !== false)
+    .map((option) => option.id)
+  const whisperxBakedStr = config.whisperx_single_model
+    ? 'large-v3'
+    : (whisperxBakedList.length > 0 ? whisperxBakedList.join(' / ') : 'small / medium / large-v3')
+
+  const isModelReadOnly = configLoaded && ((config.whisperx && !config.funasr) || (!config.whisperx && config.funasr))
 
   async function transcribe() {
     if (!file || !token) {
@@ -326,33 +349,70 @@ function App() {
                     <Typography variant="h6" fontWeight={700}>开始识别</Typography>
                   </Stack>
                   <TextField label="API Token" type="password" value={token} onChange={(event) => setToken(event.target.value)} fullWidth autoComplete="off" helperText="仅用于本次请求，不会被保存。" />
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                    <FormControl fullWidth>
-                      <InputLabel id="model-label">识别模型</InputLabel>
-                      <Select labelId="model-label" label="识别模型" value={model} onChange={(event) => { setModel(event.target.value); setLevel('') }}>
-                        {config.funasr && <MenuItem value="funasr">FunASR</MenuItem>}
-                        {config.whisperx && <MenuItem value="whisperx">WhisperX</MenuItem>}
-                      </Select>
-                    </FormControl>
-                    <FormControl fullWidth error={Boolean(modelOptionsError)}>
-                      <InputLabel id="level-label" shrink>模型档位</InputLabel>
-                      <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels} onChange={(event) => setLevel(event.target.value)}>
-                        <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
-                        {levelOptions.map((option) => (
-                          <MenuItem key={option.id} value={option.id}>
-                            {option.id}{option.baked === false ? '（运行时下载）' : ''}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                      {!token
-                        ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
-                        : loadingModels
-                          ? <FormHelperText>正在加载模型档位…</FormHelperText>
-                          : modelOptionsError
-                            ? <FormHelperText error>{modelOptionsError}</FormHelperText>
-                            : null}
-                    </FormControl>
-                  </Stack>
+                  {!configLoaded ? (
+                    <Box sx={{ py: 2 }}>
+                      <LinearProgress />
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                        正在加载系统配置…
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      {isModelReadOnly ? (
+                        <TextField
+                          label="识别模型"
+                          value={model === 'whisperx' ? 'WhisperX' : 'FunASR'}
+                          InputProps={{ readOnly: true }}
+                          fullWidth
+                        />
+                      ) : (
+                        <FormControl fullWidth>
+                          <InputLabel id="model-label">识别模型</InputLabel>
+                          <Select labelId="model-label" label="识别模型" value={model} onChange={(event) => { setModel(event.target.value); setLevel('') }}>
+                            {config.funasr && <MenuItem value="funasr">FunASR</MenuItem>}
+                            {config.whisperx && <MenuItem value="whisperx">WhisperX</MenuItem>}
+                          </Select>
+                        </FormControl>
+                      )}
+
+                      {model === 'whisperx' && config.whisperx_single_model ? (
+                        <TextField
+                          label="模型档位"
+                          value="large-v3"
+                          helperText="单模型模式已启用，模型已固定"
+                          InputProps={{ readOnly: true }}
+                          fullWidth
+                        />
+                      ) : (
+                        <FormControl fullWidth error={Boolean(modelOptionsError)}>
+                          <InputLabel id="level-label" shrink>模型档位</InputLabel>
+                          <Select labelId="level-label" label="模型档位" value={level} displayEmpty disabled={!token || loadingModels || isSingleModel} onChange={(event) => setLevel(event.target.value)}>
+                            {isSingleModel ? (
+                              <MenuItem value={levelOptions[0].id}>{levelOptions[0].id}</MenuItem>
+                            ) : (
+                              <>
+                                <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
+                                {levelOptions.map((option) => (
+                                  <MenuItem key={option.id} value={option.id}>
+                                    {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                                  </MenuItem>
+                                ))}
+                              </>
+                            )}
+                          </Select>
+                          {!token
+                            ? <FormHelperText>请先填写 API Token 以加载可用模型档位</FormHelperText>
+                            : loadingModels
+                              ? <FormHelperText>正在加载模型档位…</FormHelperText>
+                              : modelOptionsError
+                                ? <FormHelperText error>{modelOptionsError}</FormHelperText>
+                                : isSingleModel
+                                  ? <FormHelperText>单模型模式已启用，无法修改档位</FormHelperText>
+                                  : null}
+                        </FormControl>
+                      )}
+                    </Stack>
+                  )}
                   <TextField label="语言（可选）" value={language} onChange={(event) => setLanguage(event.target.value)} fullWidth placeholder="例如 zh、en" />
                   <Button component="label" variant="outlined" color="primary" startIcon={<CloudUploadOutlinedIcon />} sx={{ minHeight: 88, borderStyle: 'dashed', justifyContent: 'flex-start', px: 3, textTransform: 'none' }}>
                     <Box textAlign="left">
@@ -435,11 +495,11 @@ function App() {
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={
                   (config.funasr && config.whisperx) ?
-                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                  `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 ${whisperxBakedStr}\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
                   : config.funasr ?
                   `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# 省略 -F level 即使用引擎默认档`
                   :
-                  `# WhisperX：默认档 large-v3，已烘焙 small / medium / large-v3\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
+                  `# WhisperX：默认档 large-v3，已烘焙 ${whisperxBakedStr}\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`
                 } />
               </Stack>
             </Paper>
