@@ -3,9 +3,10 @@ import secrets
 import shutil
 import tempfile
 import threading
+import time
 
 import whisperx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from models_config import BAKED_MODELS
@@ -88,6 +89,19 @@ def list_models():
     return {"object": "list", "data": data}
 
 
+@app.post("/v1/cancel")
+def cancel(background_tasks: BackgroundTasks):
+    def exit_process():
+        print("[WhisperX] Gracefully exiting process in 500ms to free GPU resources...")
+        time.sleep(0.5)
+        # Force terminate process to release CUDA resources
+        os._exit(0)
+    
+    print("[WhisperX] Received cancellation request. Scheduling exit...")
+    background_tasks.add_task(exit_process)
+    return {"status": "cancelling"}
+
+
 @app.post("/v1/audio/transcriptions")
 def transcribe(
     file: UploadFile = File(...),
@@ -96,18 +110,25 @@ def transcribe(
     response_format: str = Form(default="json"),
 ):
     model_name = model or os.getenv("WHISPERX_MODEL", "large-v3")
+    print(f"[WhisperX] Received transcription request. Model: {model_name}, File: {file.filename}, Language: {language or 'auto'}")
+    start_time = time.time()
     try:
         asr_model = load_model(model_name)
     except ValueError as exc:
+        print(f"[WhisperX] Error loading model {model_name}: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
 
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "audio")[1]) as audio_file:
         shutil.copyfileobj(file.file, audio_file)
         audio_file.flush()
+        print(f"[WhisperX] Saved temp audio file: {audio_file.name}. Starting transcription...")
         result = asr_model.transcribe(
             whisperx.load_audio(audio_file.name),
             language=language or None,
         )
+    
+    elapsed = time.time() - start_time
+    print(f"[WhisperX] Transcription completed for {file.filename} in {elapsed:.2f} seconds")
     if response_format == "json":
         return {"text": " ".join(segment["text"].strip() for segment in result["segments"])}
     return {

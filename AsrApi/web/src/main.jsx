@@ -115,6 +115,7 @@ function App() {
   const [durationMs, setDurationMs] = useState(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [tasks, setTasks] = useState([])
   const [realtimeUrl, setRealtimeUrl] = useState(defaultRealtimeUrl)
   const [realtimeToken, setRealtimeToken] = useState('')
   const [realtimeStatus, setRealtimeStatus] = useState('未连接')
@@ -163,6 +164,46 @@ function App() {
       .finally(() => setLoadingModels(false))
   }, [token])
 
+  const fetchTasks = () => {
+    if (!token) return
+    fetch('/v1/tasks', { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data) => {
+        if (data?.tasks) {
+          const sorted = [...data.tasks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          setTasks(sorted)
+        }
+      })
+      .catch((err) => console.error('获取任务列表失败：', err))
+  }
+
+  useEffect(() => {
+    if (!token) {
+      setTasks([])
+      return
+    }
+    fetchTasks()
+    const interval = setInterval(fetchTasks, 3000)
+    return () => clearInterval(interval)
+  }, [token])
+
+  async function handleCancelTask(taskId) {
+    try {
+      const response = await fetch(`/v1/tasks/${taskId}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (response.ok) {
+        fetchTasks()
+      } else {
+        const body = await response.json()
+        alert(`取消失败：${body.error || '未知错误'}`)
+      }
+    } catch (err) {
+      alert(`无法连接服务：${err.message}`)
+    }
+  }
+
   const levelOptions = modelOptions.filter((option) => option.owned_by === model)
   const isSingleModel = levelOptions.length === 1
 
@@ -201,6 +242,8 @@ function App() {
     if (language) formData.append('language', language)
 
     try {
+      // Trigger instant tasks fetch after submission starts
+      setTimeout(fetchTasks, 300)
       const response = await fetch('/v1/audio/transcriptions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -216,6 +259,7 @@ function App() {
       setError(requestError.message || '无法连接到服务。')
     } finally {
       setSubmitting(false)
+      fetchTasks()
     }
   }
 
@@ -430,6 +474,58 @@ function App() {
               </CardContent>
             </Card>
 
+            {token && tasks.length > 0 && (
+              <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+                  <Stack spacing={3}>
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                      <GraphicEqOutlinedIcon color="primary" />
+                      <Typography variant="h6" fontWeight={700}>任务队列</Typography>
+                      <Chip label={`排队中: ${tasks.filter(t => t.status === 'pending').length} | 运行中: ${tasks.filter(t => t.status === 'running').length}`} size="small" color="primary" />
+                    </Stack>
+                    <Divider />
+                    <Stack spacing={2}>
+                      {tasks.map((task) => (
+                        <Paper key={task.id} variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                          <Box>
+                            <Typography variant="subtitle2" fontWeight={600}>{task.filename}</Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              ID: {task.id} | 模型: {task.model} ({task.level || '默认'})
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              创建时间: {new Date(task.created_at).toLocaleString()}
+                            </Typography>
+                          </Box>
+                          <Stack direction="row" spacing={2} alignItems="center">
+                            <Chip
+                              label={
+                                task.status === 'pending' ? '排队中' :
+                                task.status === 'running' ? '运行中' :
+                                task.status === 'completed' ? '已完成' :
+                                task.status === 'cancelled' ? '已取消' : '失败'
+                              }
+                              size="small"
+                              color={
+                                task.status === 'pending' ? 'warning' :
+                                task.status === 'running' ? 'primary' :
+                                task.status === 'completed' ? 'success' :
+                                task.status === 'cancelled' ? 'default' : 'error'
+                              }
+                            />
+                            {(task.status === 'pending' || task.status === 'running') && (
+                              <Button size="small" color="error" variant="outlined" onClick={() => handleCancelTask(task.id)}>
+                                取消
+                              </Button>
+                            )}
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
             <Paper elevation={0} sx={{ p: { xs: 3, sm: 4 }, border: '1px solid', borderColor: 'divider' }}>
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
                 <DescriptionOutlinedIcon color="primary" />
@@ -493,6 +589,8 @@ function App() {
                 )}
                 <ApiEndpoint method="GET" path="/v1/models" description="获取可用的语音识别模型列表。" example={'curl http://localhost:8080/v1/models \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
+                <ApiEndpoint method="GET" path="/v1/tasks" description="获取当前网关的任务队列列表与状态。" example={'curl http://localhost:8080/v1/tasks \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
+                <ApiEndpoint method="POST" path="/v1/tasks/:id/cancel" description="取消指定的排队中或运行中的语音识别任务。" example={'curl -X POST http://localhost:8080/v1/tasks/task_123456_000000/cancel \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={
                   (config.funasr && config.whisperx) ?
                   `# FunASR：默认档 sensevoice，可指定 paraformer / paraformer-en\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=funasr \\\n  -F level=paraformer\n\n# WhisperX：默认档 large-v3，已烘焙 ${whisperxBakedStr}\ncurl http://localhost:8080/v1/audio/transcriptions \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>" \\\n  -F file=@meeting.wav \\\n  -F model=whisperx \\\n  -F level=large-v3\n\n# 省略 -F level 即使用引擎默认档`

@@ -9,10 +9,12 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,18 +35,154 @@ type upstream struct {
 	token string
 }
 
+type TaskStatus string
+
+const (
+	StatusPending   TaskStatus = "pending"
+	StatusRunning   TaskStatus = "running"
+	StatusCompleted TaskStatus = "completed"
+	StatusFailed    TaskStatus = "failed"
+	StatusCancelled TaskStatus = "cancelled"
+)
+
+type ASRTask struct {
+	ID             string     `json:"id"`
+	Status         TaskStatus `json:"status"`
+	Model          string     `json:"model"`
+	Level          string     `json:"level"`
+	Language       string     `json:"language"`
+	Filename       string     `json:"filename"`
+	CreatedAt      time.Time  `json:"created_at"`
+
+	TempFilePath   string     `json:"-"`
+	ResponseFormat string     `json:"-"`
+	ResultChan     chan ASRTaskResult `json:"-"`
+	Ctx            context.Context    `json:"-"`
+	CancelFunc     context.CancelFunc `json:"-"`
+}
+
+type ASRTaskResult struct {
+	StatusCode int
+	Body       []byte
+	Header     http.Header
+	Err        error
+}
+
+type TaskManager struct {
+	mu     sync.RWMutex
+	tasks  map[string]*ASRTask
+	queue  chan *ASRTask
+	active *ASRTask
+}
+
+func NewTaskManager(queueSize int) *TaskManager {
+	return &TaskManager{
+		tasks: make(map[string]*ASRTask),
+		queue: make(chan *ASRTask, queueSize),
+	}
+}
+
+func (tm *TaskManager) cleanupOldTasks() {
+	const maxHistory = 100
+	var nonActive []*ASRTask
+	for _, t := range tm.tasks {
+		if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCancelled {
+			nonActive = append(nonActive, t)
+		}
+	}
+	if len(nonActive) <= maxHistory {
+		return
+	}
+	sort.Slice(nonActive, func(i, j int) bool {
+		return nonActive[i].CreatedAt.Before(nonActive[j].CreatedAt)
+	})
+	toDelete := len(nonActive) - maxHistory
+	for i := 0; i < toDelete; i++ {
+		delete(tm.tasks, nonActive[i].ID)
+	}
+}
+
+func (tm *TaskManager) Add(task *ASRTask) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.cleanupOldTasks()
+	tm.tasks[task.ID] = task
+	select {
+	case tm.queue <- task:
+		log.Printf("[Queue] Task %s added to queue. Filename: %s, Model: %s, Level: %s (Queue size: %d)", task.ID, task.Filename, task.Model, task.Level, len(tm.queue))
+		return nil
+	default:
+		delete(tm.tasks, task.ID)
+		return fmt.Errorf("task queue is full, please try again later")
+	}
+}
+
+func (tm *TaskManager) Get(id string) (*ASRTask, bool) {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	task, ok := tm.tasks[id]
+	return task, ok
+}
+
+func (tm *TaskManager) List() []ASRTask {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	list := make([]ASRTask, 0, len(tm.tasks))
+	for _, task := range tm.tasks {
+		list = append(list, *task)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].CreatedAt.Before(list[j].CreatedAt)
+	})
+	return list
+}
+
+func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) bool {
+	tm.mu.Lock()
+	task, ok := tm.tasks[id]
+	if !ok {
+		tm.mu.Unlock()
+		return false
+	}
+	if task.Status == StatusCompleted || task.Status == StatusFailed || task.Status == StatusCancelled {
+		tm.mu.Unlock()
+		return false
+	}
+	prevStatus := task.Status
+	task.Status = StatusCancelled
+	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
+	if prevStatus == StatusRunning {
+		if task.CancelFunc != nil {
+			task.CancelFunc()
+		}
+		tm.mu.Unlock()
+		if cancelUpstreamFunc != nil {
+			cancelUpstreamFunc(task.Model)
+		}
+	} else {
+		tm.mu.Unlock()
+	}
+	select {
+	case task.ResultChan <- ASRTaskResult{
+		StatusCode: http.StatusBadRequest,
+		Body:       []byte(`{"error":"Task was cancelled"}`),
+		Err:        errors.New("task was cancelled"),
+	}:
+	default:
+	}
+	return true
+}
+
 type service struct {
 	token                 string
 	upstreams             map[string]upstream
 	client                *http.Client
 	statusClient          *http.Client
-	// transcribeSem bounds concurrent transcription requests so a single
-	// authenticated caller cannot exhaust GPU/memory with parallel uploads.
-	transcribeSem         chan struct{}
 	whisperxEnabled       bool
 	funasrEnabled         bool
 	funasrRealtimeEnabled bool
 	whisperxSingleModel   bool
+	taskManager           *TaskManager
 }
 
 func main() {
@@ -98,6 +236,9 @@ func newRouter(server *service) *gin.Engine {
 	v1.GET("/models", server.models)
 	v1.GET("/system", server.system)
 	v1.POST("/audio/transcriptions", server.transcribe)
+	v1.GET("/tasks", server.getTasks)
+	v1.POST("/tasks/cancel", server.cancelTask)
+	v1.POST("/tasks/:id/cancel", server.cancelTask)
 	return router
 }
 
@@ -146,7 +287,6 @@ func newServiceFromEnvironment() (*service, error) {
 		}
 	}
 
-	maxConcurrent := environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)
 
 	upstreams := make(map[string]upstream)
 	if whisperxEnabled {
@@ -164,17 +304,20 @@ func newServiceFromEnvironment() (*service, error) {
 		}
 	}
 
-	return &service{
+	tm := NewTaskManager(1000)
+	s := &service{
 		token:                 token,
 		upstreams:             upstreams,
 		client:                &http.Client{Timeout: 10 * time.Minute},
 		statusClient:          &http.Client{Timeout: 5 * time.Second},
-		transcribeSem:         make(chan struct{}, maxConcurrent),
 		whisperxEnabled:       whisperxEnabled,
 		funasrEnabled:         funasrEnabled,
 		funasrRealtimeEnabled: funasrRealtimeEnabled,
 		whisperxSingleModel:   whisperxSingleModel,
-	}, nil
+		taskManager:           tm,
+	}
+	s.startQueueWorker(tm)
+	return s, nil
 }
 
 func environmentOrDefault(name, defaultValue string) string {
@@ -352,30 +495,22 @@ func (s *service) authenticate(c *gin.Context) {
 	c.Next()
 }
 
-func (s *service) transcribe(c *gin.Context) {
-	select {
-	case s.transcribeSem <- struct{}{}:
-		defer func() { <-s.transcribeSem }()
-	default:
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many concurrent transcriptions, please retry later"})
-		return
-	}
+func generateTaskID() string {
+	return fmt.Sprintf("task_%d_%06d", time.Now().UnixNano(), rand.Intn(1000000))
+}
 
+func (s *service) transcribe(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 	modelName := c.PostForm("model")
-	backend, ok := s.upstreams[modelName]
+	_, ok := s.upstreams[modelName]
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %s is not supported or not enabled", modelName)})
 		return
 	}
 
-	// level selects the model variant (e.g. whisperx: small/medium/large-v3,
-	// funasr: sensevoice/paraformer). Empty falls back to the upstream default.
 	level := c.PostForm("level")
-	modelForUpstream := backend.model
-	if level != "" {
-		modelForUpstream = level
-	}
+	language := c.PostForm("language")
+	responseFormat := c.PostForm("response_format")
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -388,39 +523,282 @@ func (s *service) transcribe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read uploaded audio"})
 		return
 	}
+	defer input.Close()
+
+	// Create a temp file to store the audio
+	tempFile, err := os.CreateTemp("", "asr-upload-*.tmp")
+	if err != nil {
+		log.Printf("failed to create temp file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+		return
+	}
+	tempPath := tempFile.Name()
+	
+	tempFileClosed := false
 	defer func() {
-		if err := input.Close(); err != nil {
-			log.Printf("close uploaded audio: %v", err)
+		if !tempFileClosed {
+			tempFile.Close()
+			os.Remove(tempPath)
 		}
 	}()
 
-	body, contentType := buildUpstreamBody(input, file.Filename, modelForUpstream, c.PostForm("language"), c.PostForm("response_format"))
-	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, backend.url+"/v1/audio/transcriptions", body)
-	if err != nil {
-		log.Printf("build upstream request: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot create upstream request"})
+	if _, err := io.Copy(tempFile, input); err != nil {
+		log.Printf("failed to write upload to temp file: %v", err)
 		return
+	}
+	tempFile.Close()
+	tempFileClosed = true
+
+	// Read custom task ID if provided, otherwise generate one
+	taskID := c.GetHeader("X-Task-Id")
+	if taskID == "" {
+		taskID = c.PostForm("task_id")
+	}
+	if taskID == "" {
+		taskID = generateTaskID()
+	}
+
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+
+	task := &ASRTask{
+		ID:             taskID,
+		Status:         StatusPending,
+		Model:          modelName,
+		Level:          level,
+		Language:       language,
+		Filename:       file.Filename,
+		TempFilePath:   tempPath,
+		ResponseFormat: responseFormat,
+		ResultChan:     make(chan ASRTaskResult, 1),
+		Ctx:            taskCtx,
+		CancelFunc:     taskCancel,
+		CreatedAt:      time.Now(),
+	}
+
+	log.Printf("[ASR API] Adding task %s for file %s to queue", task.ID, task.Filename)
+	if err := s.taskManager.Add(task); err != nil {
+		taskCancel()
+		os.Remove(tempPath)
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("X-Task-Id", task.ID)
+
+	select {
+	case result := <-task.ResultChan:
+		if result.Err != nil {
+			log.Printf("[ASR API] Task %s failed: %v", task.ID, result.Err)
+			if len(result.Body) > 0 {
+				c.Header("Content-Type", "application/json")
+				c.Status(result.StatusCode)
+				if _, err := c.Writer.Write(result.Body); err != nil {
+					log.Printf("[ASR API] Failed to write error response for task %s: %v", task.ID, err)
+				}
+			} else {
+				c.JSON(result.StatusCode, gin.H{"error": result.Err.Error()})
+			}
+			return
+		}
+		
+		log.Printf("[ASR API] Task %s processed successfully. Status: %d", task.ID, result.StatusCode)
+		for k, vv := range result.Header {
+			for _, v := range vv {
+				c.Header(k, v)
+			}
+		}
+		c.Status(result.StatusCode)
+		if _, err := c.Writer.Write(result.Body); err != nil {
+			log.Printf("[ASR API] Failed to write response for task %s: %v", task.ID, err)
+		}
+		
+	case <-c.Request.Context().Done():
+		log.Printf("[ASR API] Client disconnected during execution of task %s, triggering cancellation...", task.ID)
+		s.taskManager.Cancel(task.ID, s.cancelTaskForModel)
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
+	}
+}
+
+func (s *service) getTasks(c *gin.Context) {
+	tasks := s.taskManager.List()
+	c.JSON(http.StatusOK, gin.H{
+		"tasks": tasks,
+	})
+}
+
+func (s *service) cancelTask(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		id = c.Query("id")
+	}
+	if id == "" {
+		id = c.PostForm("id")
+	}
+	if id == "" {
+		var body struct {
+			ID string `json:"id"`
+		}
+		if err := c.ShouldBindJSON(&body); err == nil {
+			id = body.ID
+		}
+	}
+	
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id is required"})
+		return
+	}
+	
+	success := s.taskManager.Cancel(id, s.cancelTaskForModel)
+	if !success {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("task %s not found or already completed", id)})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled", "id": id})
+}
+
+func (s *service) startQueueWorker(tm *TaskManager) {
+	log.Println("[Queue] Starting task queue worker...")
+	go func() {
+		for task := range tm.queue {
+			tm.mu.Lock()
+			if task.Status == StatusCancelled {
+				tm.mu.Unlock()
+				log.Printf("[Queue] Task %s was cancelled before processing started. Cleaning up...", task.ID)
+				if task.TempFilePath != "" {
+					os.Remove(task.TempFilePath)
+				}
+				continue
+			}
+			task.Status = StatusRunning
+			tm.active = task
+			tm.mu.Unlock()
+			
+			log.Printf("[Queue] Worker picked up task %s. Filename: %s", task.ID, task.Filename)
+			
+			result := s.processTask(task)
+			
+			tm.mu.Lock()
+			if task.Status == StatusRunning {
+				if result.Err != nil {
+					task.Status = StatusFailed
+					log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
+				} else {
+					task.Status = StatusCompleted
+					log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)
+				}
+			} else {
+				log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
+			}
+			tm.active = nil
+			tm.mu.Unlock()
+			
+			if task.TempFilePath != "" {
+				os.Remove(task.TempFilePath)
+			}
+			
+			select {
+			case task.ResultChan <- result:
+			default:
+				log.Printf("[Queue] Task %s result channel is full (handler probably returned already)", task.ID)
+			}
+		}
+	}()
+}
+
+func (s *service) processTask(task *ASRTask) ASRTaskResult {
+	if err := task.Ctx.Err(); err != nil {
+		return ASRTaskResult{Err: err}
+	}
+	
+	backend, ok := s.upstreams[task.Model]
+	if !ok {
+		return ASRTaskResult{
+			StatusCode: http.StatusBadRequest,
+			Body:       []byte(fmt.Sprintf(`{"error":"model %s is not supported"}`, task.Model)),
+			Err:        fmt.Errorf("model %s not supported", task.Model),
+		}
+	}
+	
+	modelForUpstream := backend.model
+	if task.Level != "" {
+		modelForUpstream = task.Level
+	}
+	
+	file, err := os.Open(task.TempFilePath)
+	if err != nil {
+		return ASRTaskResult{
+			StatusCode: http.StatusInternalServerError,
+			Body:       []byte(`{"error":"failed to open temporary audio file"}`),
+			Err:        err,
+		}
+	}
+	defer file.Close()
+	
+	body, contentType := buildUpstreamBody(file, task.Filename, modelForUpstream, task.Language, task.ResponseFormat)
+	
+	request, err := http.NewRequestWithContext(task.Ctx, http.MethodPost, backend.url+"/v1/audio/transcriptions", body)
+	if err != nil {
+		return ASRTaskResult{
+			StatusCode: http.StatusInternalServerError,
+			Body:       []byte(`{"error":"failed to create upstream request"}`),
+			Err:        err,
+		}
 	}
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Authorization", "Bearer "+backend.token)
-
+	
+	log.Printf("[Queue] Sending HTTP post request to %s upstream for task %s", task.Model, task.ID)
 	response, err := s.client.Do(request)
 	if err != nil {
-		log.Printf("call %s upstream: %v", modelName, err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "model service is unavailable"})
+		return ASRTaskResult{
+			StatusCode: http.StatusBadGateway,
+			Body:       []byte(`{"error":"model service is unavailable or request was cancelled"}`),
+			Err:        err,
+		}
+	}
+	defer response.Body.Close()
+	
+	respBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return ASRTaskResult{
+			StatusCode: http.StatusInternalServerError,
+			Body:       []byte(`{"error":"failed to read upstream response"}`),
+			Err:        err,
+		}
+	}
+	
+	return ASRTaskResult{
+		StatusCode: response.StatusCode,
+		Body:       respBody,
+		Header:     response.Header,
+	}
+}
+
+func (s *service) cancelTaskForModel(model string) {
+	backend, ok := s.upstreams[model]
+	if !ok {
 		return
 	}
-	defer func() {
-		if err := response.Body.Close(); err != nil {
-			log.Printf("close upstream response: %v", err)
-		}
-	}()
+	s.cancelUpstream(backend)
+}
 
-	c.Header("Content-Type", response.Header.Get("Content-Type"))
-	c.Status(response.StatusCode)
-	if _, err := io.Copy(c.Writer, response.Body); err != nil {
-		log.Printf("write upstream response: %v", err)
+func (s *service) cancelUpstream(backend upstream) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.url+"/v1/cancel", nil)
+	if err != nil {
+		log.Printf("[Queue] Failed to create cancel request for upstream %s: %v", backend.url, err)
+		return
 	}
+	req.Header.Set("Authorization", "Bearer "+backend.token)
+	resp, err := s.statusClient.Do(req)
+	if err != nil {
+		log.Printf("[Queue] Failed to send cancel request to upstream %s: %v", backend.url, err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[Queue] Sent cancel request to upstream %s, response status: %d", backend.url, resp.StatusCode)
 }
 
 func buildUpstreamBody(input io.Reader, filename, model, language, responseFormat string) (io.Reader, string) {
