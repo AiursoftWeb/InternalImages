@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,16 +45,16 @@ const (
 )
 
 type ASRTask struct {
-	ID             string     `json:"id"`
-	Status         TaskStatus `json:"status"`
-	Model          string     `json:"model"`
-	Level          string     `json:"level"`
-	Language       string     `json:"language"`
-	Filename       string     `json:"filename"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID        string     `json:"id"`
+	Status    TaskStatus `json:"status"`
+	Model     string     `json:"model"`
+	Level     string     `json:"level"`
+	Language  string     `json:"language"`
+	Filename  string     `json:"filename"`
+	CreatedAt time.Time  `json:"created_at"`
 
-	TempFilePath   string     `json:"-"`
-	ResponseFormat string     `json:"-"`
+	TempFilePath   string             `json:"-"`
+	ResponseFormat string             `json:"-"`
 	ResultChan     chan ASRTaskResult `json:"-"`
 	Ctx            context.Context    `json:"-"`
 	CancelFunc     context.CancelFunc `json:"-"`
@@ -69,10 +68,9 @@ type ASRTaskResult struct {
 }
 
 type TaskManager struct {
-	mu     sync.RWMutex
-	tasks  map[string]*ASRTask
-	queue  chan *ASRTask
-	active *ASRTask
+	mu    sync.RWMutex
+	tasks map[string]*ASRTask
+	queue chan *ASRTask
 }
 
 func NewTaskManager(queueSize int) *TaskManager {
@@ -82,30 +80,12 @@ func NewTaskManager(queueSize int) *TaskManager {
 	}
 }
 
-func (tm *TaskManager) cleanupOldTasks() {
-	const maxHistory = 100
-	var nonActive []*ASRTask
-	for _, t := range tm.tasks {
-		if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCancelled {
-			nonActive = append(nonActive, t)
-		}
-	}
-	if len(nonActive) <= maxHistory {
-		return
-	}
-	sort.Slice(nonActive, func(i, j int) bool {
-		return nonActive[i].CreatedAt.Before(nonActive[j].CreatedAt)
-	})
-	toDelete := len(nonActive) - maxHistory
-	for i := 0; i < toDelete; i++ {
-		delete(tm.tasks, nonActive[i].ID)
-	}
-}
-
 func (tm *TaskManager) Add(task *ASRTask) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	tm.cleanupOldTasks()
+	if _, exists := tm.tasks[task.ID]; exists {
+		return fmt.Errorf("task %s already exists", task.ID)
+	}
 	tm.tasks[task.ID] = task
 	select {
 	case tm.queue <- task:
@@ -115,26 +95,6 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 		delete(tm.tasks, task.ID)
 		return fmt.Errorf("task queue is full, please try again later")
 	}
-}
-
-func (tm *TaskManager) Get(id string) (*ASRTask, bool) {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	task, ok := tm.tasks[id]
-	return task, ok
-}
-
-func (tm *TaskManager) List() []ASRTask {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	list := make([]ASRTask, 0, len(tm.tasks))
-	for _, task := range tm.tasks {
-		list = append(list, *task)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].CreatedAt.Before(list[j].CreatedAt)
-	})
-	return list
 }
 
 func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) bool {
@@ -150,6 +110,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) 
 	}
 	prevStatus := task.Status
 	task.Status = StatusCancelled
+	delete(tm.tasks, id)
 	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
 	if prevStatus == StatusRunning {
 		if task.CancelFunc != nil {
@@ -236,7 +197,6 @@ func newRouter(server *service) *gin.Engine {
 	v1.GET("/models", server.models)
 	v1.GET("/system", server.system)
 	v1.POST("/audio/transcriptions", server.transcribe)
-	v1.GET("/tasks", server.getTasks)
 	v1.POST("/tasks/cancel", server.cancelTask)
 	v1.POST("/tasks/:id/cancel", server.cancelTask)
 	return router
@@ -286,7 +246,6 @@ func newServiceFromEnvironment() (*service, error) {
 			return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
 		}
 	}
-
 
 	upstreams := make(map[string]upstream)
 	if whisperxEnabled {
@@ -533,12 +492,12 @@ func (s *service) transcribe(c *gin.Context) {
 		return
 	}
 	tempPath := tempFile.Name()
-	
+
 	tempFileClosed := false
 	defer func() {
 		if !tempFileClosed {
 			tempFile.Close()
-			os.Remove(tempPath)
+			removeTemporaryFile(tempPath)
 		}
 	}()
 
@@ -578,7 +537,7 @@ func (s *service) transcribe(c *gin.Context) {
 	log.Printf("[ASR API] Adding task %s for file %s to queue", task.ID, task.Filename)
 	if err := s.taskManager.Add(task); err != nil {
 		taskCancel()
-		os.Remove(tempPath)
+		removeTemporaryFile(tempPath)
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
@@ -600,7 +559,7 @@ func (s *service) transcribe(c *gin.Context) {
 			}
 			return
 		}
-		
+
 		log.Printf("[ASR API] Task %s processed successfully. Status: %d", task.ID, result.StatusCode)
 		for k, vv := range result.Header {
 			for _, v := range vv {
@@ -611,19 +570,12 @@ func (s *service) transcribe(c *gin.Context) {
 		if _, err := c.Writer.Write(result.Body); err != nil {
 			log.Printf("[ASR API] Failed to write response for task %s: %v", task.ID, err)
 		}
-		
+
 	case <-c.Request.Context().Done():
 		log.Printf("[ASR API] Client disconnected during execution of task %s, triggering cancellation...", task.ID)
 		s.taskManager.Cancel(task.ID, s.cancelTaskForModel)
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
 	}
-}
-
-func (s *service) getTasks(c *gin.Context) {
-	tasks := s.taskManager.List()
-	c.JSON(http.StatusOK, gin.H{
-		"tasks": tasks,
-	})
 }
 
 func (s *service) cancelTask(c *gin.Context) {
@@ -642,18 +594,18 @@ func (s *service) cancelTask(c *gin.Context) {
 			id = body.ID
 		}
 	}
-	
+
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "task id is required"})
 		return
 	}
-	
+
 	success := s.taskManager.Cancel(id, s.cancelTaskForModel)
 	if !success {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("task %s not found or already completed", id)})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled", "id": id})
 }
 
@@ -665,19 +617,17 @@ func (s *service) startQueueWorker(tm *TaskManager) {
 			if task.Status == StatusCancelled {
 				tm.mu.Unlock()
 				log.Printf("[Queue] Task %s was cancelled before processing started. Cleaning up...", task.ID)
-				if task.TempFilePath != "" {
-					os.Remove(task.TempFilePath)
-				}
+				removeTemporaryFile(task.TempFilePath)
 				continue
 			}
 			task.Status = StatusRunning
-			tm.active = task
 			tm.mu.Unlock()
-			
+
 			log.Printf("[Queue] Worker picked up task %s. Filename: %s", task.ID, task.Filename)
-			
+
 			result := s.processTask(task)
-			
+			task.CancelFunc()
+
 			tm.mu.Lock()
 			if task.Status == StatusRunning {
 				if result.Err != nil {
@@ -690,13 +640,11 @@ func (s *service) startQueueWorker(tm *TaskManager) {
 			} else {
 				log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
 			}
-			tm.active = nil
+			delete(tm.tasks, task.ID)
 			tm.mu.Unlock()
-			
-			if task.TempFilePath != "" {
-				os.Remove(task.TempFilePath)
-			}
-			
+
+			removeTemporaryFile(task.TempFilePath)
+
 			select {
 			case task.ResultChan <- result:
 			default:
@@ -706,11 +654,20 @@ func (s *service) startQueueWorker(tm *TaskManager) {
 	}()
 }
 
+func removeTemporaryFile(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("remove temporary file %s: %v", path, err)
+	}
+}
+
 func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err := task.Ctx.Err(); err != nil {
 		return ASRTaskResult{Err: err}
 	}
-	
+
 	backend, ok := s.upstreams[task.Model]
 	if !ok {
 		return ASRTaskResult{
@@ -719,12 +676,12 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 			Err:        fmt.Errorf("model %s not supported", task.Model),
 		}
 	}
-	
+
 	modelForUpstream := backend.model
 	if task.Level != "" {
 		modelForUpstream = task.Level
 	}
-	
+
 	file, err := os.Open(task.TempFilePath)
 	if err != nil {
 		return ASRTaskResult{
@@ -734,9 +691,9 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 		}
 	}
 	defer file.Close()
-	
+
 	body, contentType := buildUpstreamBody(file, task.Filename, modelForUpstream, task.Language, task.ResponseFormat)
-	
+
 	request, err := http.NewRequestWithContext(task.Ctx, http.MethodPost, backend.url+"/v1/audio/transcriptions", body)
 	if err != nil {
 		return ASRTaskResult{
@@ -747,7 +704,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	}
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Authorization", "Bearer "+backend.token)
-	
+
 	log.Printf("[Queue] Sending HTTP post request to %s upstream for task %s", task.Model, task.ID)
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -758,7 +715,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 		}
 	}
 	defer response.Body.Close()
-	
+
 	respBody, err := io.ReadAll(response.Body)
 	if err != nil {
 		return ASRTaskResult{
@@ -767,7 +724,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 			Err:        err,
 		}
 	}
-	
+
 	return ASRTaskResult{
 		StatusCode: response.StatusCode,
 		Body:       respBody,

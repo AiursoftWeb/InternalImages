@@ -48,6 +48,41 @@ const theme = createTheme({
   typography: { fontFamily: 'Roboto, Arial, sans-serif' },
 })
 
+const taskStorageKey = 'asr-api-demo-tasks'
+
+function loadTasks() {
+  try {
+    const storedTasks = JSON.parse(localStorage.getItem(taskStorageKey) || '[]')
+    if (!Array.isArray(storedTasks)) return []
+    return storedTasks.map((task) => task.status === 'processing'
+      ? { ...task, status: 'interrupted', error: '页面刷新或关闭，无法继续跟踪该任务。' }
+      : task)
+  } catch (error) {
+    console.error('Failed to load local task history:', error)
+    return []
+  }
+}
+
+function taskStatusLabel(status) {
+  if (status === 'processing') return '处理中'
+  if (status === 'completed') return '已完成'
+  if (status === 'cancelled') return '已取消'
+  if (status === 'interrupted') return '已中断'
+  return '失败'
+}
+
+function taskStatusColor(status) {
+  if (status === 'processing') return 'primary'
+  if (status === 'completed') return 'success'
+  if (status === 'cancelled') return 'default'
+  return 'error'
+}
+
+function generateClientTaskId() {
+  const randomPart = crypto.randomUUID?.() || Math.random().toString(36).slice(2)
+  return `task_${Date.now()}_${randomPart}`
+}
+
 function defaultRealtimeUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.hostname}:10095`
@@ -111,11 +146,10 @@ function App() {
   const [level, setLevel] = useState('')
   const [language, setLanguage] = useState('')
   const [file, setFile] = useState(null)
-  const [result, setResult] = useState('')
-  const [durationMs, setDurationMs] = useState(null)
   const [error, setError] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [tasks, setTasks] = useState([])
+  const [tasks, setTasks] = useState(loadTasks)
+  const [selectedTaskId, setSelectedTaskId] = useState(null)
+  const [storageError, setStorageError] = useState('')
   const [realtimeUrl, setRealtimeUrl] = useState(defaultRealtimeUrl)
   const [realtimeToken, setRealtimeToken] = useState('')
   const [realtimeStatus, setRealtimeStatus] = useState('未连接')
@@ -126,6 +160,7 @@ function App() {
   const socketRef = useRef(null)
   const stoppingRealtimeRef = useRef(false)
   const realtimeConnectedRef = useRef(false)
+  const taskControllersRef = useRef(new Map())
 
   const [configLoaded, setConfigLoaded] = useState(false)
 
@@ -164,28 +199,31 @@ function App() {
       .finally(() => setLoadingModels(false))
   }, [token])
 
-  const fetchTasks = () => {
-    if (!token) return
-    fetch('/v1/tasks', { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((data) => {
-        if (data?.tasks) {
-          const sorted = [...data.tasks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-          setTasks(sorted)
-        }
-      })
-      .catch((err) => console.error('获取任务列表失败：', err))
-  }
+  useEffect(() => {
+    try {
+      localStorage.setItem(taskStorageKey, JSON.stringify(tasks))
+      setStorageError('')
+    } catch (storageWriteError) {
+      console.error('Failed to save local task history:', storageWriteError)
+      setStorageError('任务结果仍可查看，但浏览器本地缓存空间不足。')
+    }
+  }, [tasks])
 
   useEffect(() => {
-    if (!token) {
-      setTasks([])
+    if (tasks.length === 0) {
+      setSelectedTaskId(null)
       return
     }
-    fetchTasks()
-    const interval = setInterval(fetchTasks, 3000)
-    return () => clearInterval(interval)
-  }, [token])
+    if (!tasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(tasks[0].id)
+    }
+  }, [tasks, selectedTaskId])
+
+  function updateTask(taskId, changes) {
+    setTasks((currentTasks) => currentTasks.map((task) => (
+      task.id === taskId ? { ...task, ...changes } : task
+    )))
+  }
 
   async function handleCancelTask(taskId) {
     try {
@@ -194,7 +232,8 @@ function App() {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (response.ok) {
-        fetchTasks()
+        updateTask(taskId, { status: 'cancelled', error: '任务已取消。' })
+        taskControllersRef.current.get(taskId)?.abort()
       } else {
         const body = await response.json()
         alert(`取消失败：${body.error || '未知错误'}`)
@@ -202,6 +241,14 @@ function App() {
     } catch (err) {
       alert(`无法连接服务：${err.message}`)
     }
+  }
+
+  function removeTask(taskId) {
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId))
+  }
+
+  function clearTasks() {
+    setTasks([])
   }
 
   const levelOptions = modelOptions.filter((option) => option.owned_by === model)
@@ -223,6 +270,13 @@ function App() {
     : (whisperxBakedList.length > 0 ? whisperxBakedList.join(' / ') : 'small / medium / large-v3')
 
   const isModelReadOnly = configLoaded && ((config.whisperx && !config.funasr) || (!config.whisperx && config.funasr))
+  const processingTaskCount = tasks.filter((task) => task.status === 'processing').length
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId)
+  const selectedResult = selectedTask?.status === 'completed'
+    ? selectedTask.result
+    : selectedTask?.status === 'processing'
+      ? '识别处理中…'
+      : selectedTask?.error || '请选择任务查看识别结果。'
 
   async function transcribe() {
     if (!file || !token) {
@@ -231,10 +285,24 @@ function App() {
     }
 
     setError('')
-    setResult('')
-    setDurationMs(null)
-    setSubmitting(true)
+    const taskId = generateClientTaskId()
+    const controller = new AbortController()
     const startedAt = performance.now()
+    const task = {
+      id: taskId,
+      status: 'processing',
+      filename: file.name,
+      model,
+      level,
+      created_at: new Date().toISOString(),
+      result: '',
+      error: '',
+      duration_ms: null,
+    }
+    setTasks((currentTasks) => [task, ...currentTasks])
+    setSelectedTaskId(taskId)
+    taskControllersRef.current.set(taskId, controller)
+
     const formData = new FormData()
     formData.append('file', file)
     formData.append('model', model)
@@ -242,24 +310,40 @@ function App() {
     if (language) formData.append('language', language)
 
     try {
-      // Trigger instant tasks fetch after submission starts
-      setTimeout(fetchTasks, 300)
       const response = await fetch('/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Task-Id': taskId,
+        },
         body: formData,
+        signal: controller.signal,
       })
       const body = await response.text()
+      const durationMs = performance.now() - startedAt
       if (!response.ok) {
-        throw new Error(readError(body) || `请求失败（HTTP ${response.status}）`)
+        updateTask(taskId, {
+          status: 'failed',
+          error: readError(body) || `请求失败（HTTP ${response.status}）`,
+          duration_ms: durationMs,
+        })
+        return
       }
-      setResult(readText(body) || body)
-      setDurationMs(performance.now() - startedAt)
+      updateTask(taskId, {
+        status: 'completed',
+        result: readText(body) || body,
+        duration_ms: durationMs,
+      })
     } catch (requestError) {
-      setError(requestError.message || '无法连接到服务。')
+      if (requestError.name !== 'AbortError') {
+        updateTask(taskId, {
+          status: 'failed',
+          error: requestError.message || '无法连接到服务。',
+          duration_ms: performance.now() - startedAt,
+        })
+      }
     } finally {
-      setSubmitting(false)
-      fetchTasks()
+      taskControllersRef.current.delete(taskId)
     }
   }
 
@@ -354,11 +438,11 @@ function App() {
   }
 
   function downloadResult() {
-    if (!result.trim()) return
-    const url = URL.createObjectURL(new Blob([result], { type: 'text/plain;charset=utf-8' }))
+    if (!selectedTask?.result?.trim()) return
+    const url = URL.createObjectURL(new Blob([selectedTask.result], { type: 'text/plain;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = 'transcription.txt'
+    link.download = `${selectedTask.filename}.txt`
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -466,27 +550,52 @@ function App() {
                     <input hidden type="file" accept="audio/*" onChange={(event) => setFile(event.target.files?.[0] || null)} />
                   </Button>
                   {error && <Alert severity="error">{error}</Alert>}
-                  <Button variant="contained" size="large" onClick={transcribe} disabled={submitting} startIcon={<PlayArrowRoundedIcon />} sx={{ alignSelf: 'flex-start', px: 3 }}>
-                    {submitting ? '识别中…' : '开始识别'}
+                  <Button variant="contained" size="large" onClick={transcribe} startIcon={<PlayArrowRoundedIcon />} sx={{ alignSelf: 'flex-start', px: 3 }}>
+                    开始识别
                   </Button>
-                  {submitting && <LinearProgress />}
+                  {processingTaskCount > 0 && <LinearProgress />}
                 </Stack>
               </CardContent>
             </Card>
 
-            {token && tasks.length > 0 && (
+            {storageError && <Alert severity="warning">{storageError}</Alert>}
+
+            {tasks.length > 0 && (
               <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
                 <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
                   <Stack spacing={3}>
                     <Stack direction="row" spacing={1.5} alignItems="center">
                       <GraphicEqOutlinedIcon color="primary" />
-                      <Typography variant="h6" fontWeight={700}>任务队列</Typography>
-                      <Chip label={`排队中: ${tasks.filter(t => t.status === 'pending').length} | 运行中: ${tasks.filter(t => t.status === 'running').length}`} size="small" color="primary" />
+                      <Typography variant="h6" fontWeight={700}>本地任务记录</Typography>
+                      <Chip label={`处理中: ${processingTaskCount}`} size="small" color="primary" />
+                      <Button size="small" color="error" disabled={processingTaskCount > 0} onClick={clearTasks} sx={{ ml: 'auto' }}>
+                        清空记录
+                      </Button>
                     </Stack>
                     <Divider />
                     <Stack spacing={2}>
                       {tasks.map((task) => (
-                        <Paper key={task.id} variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                        <Paper
+                          key={task.id}
+                          variant="outlined"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedTaskId(task.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') setSelectedTaskId(task.id)
+                          }}
+                          sx={{
+                            p: 2,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 2,
+                            cursor: 'pointer',
+                            borderColor: task.id === selectedTaskId ? 'primary.main' : 'divider',
+                            bgcolor: task.id === selectedTaskId ? 'action.selected' : 'background.paper',
+                          }}
+                        >
                           <Box>
                             <Typography variant="subtitle2" fontWeight={600}>{task.filename}</Typography>
                             <Typography variant="caption" color="text.secondary" display="block">
@@ -498,23 +607,17 @@ function App() {
                           </Box>
                           <Stack direction="row" spacing={2} alignItems="center">
                             <Chip
-                              label={
-                                task.status === 'pending' ? '排队中' :
-                                task.status === 'running' ? '运行中' :
-                                task.status === 'completed' ? '已完成' :
-                                task.status === 'cancelled' ? '已取消' : '失败'
-                              }
+                              label={taskStatusLabel(task.status)}
                               size="small"
-                              color={
-                                task.status === 'pending' ? 'warning' :
-                                task.status === 'running' ? 'primary' :
-                                task.status === 'completed' ? 'success' :
-                                task.status === 'cancelled' ? 'default' : 'error'
-                              }
+                              color={taskStatusColor(task.status)}
                             />
-                            {(task.status === 'pending' || task.status === 'running') && (
-                              <Button size="small" color="error" variant="outlined" onClick={() => handleCancelTask(task.id)}>
+                            {task.status === 'processing' ? (
+                              <Button size="small" color="error" variant="outlined" onClick={(event) => { event.stopPropagation(); handleCancelTask(task.id) }}>
                                 取消
+                              </Button>
+                            ) : (
+                              <Button size="small" color="error" onClick={(event) => { event.stopPropagation(); removeTask(task.id) }}>
+                                删除
                               </Button>
                             )}
                           </Stack>
@@ -530,17 +633,18 @@ function App() {
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
                 <DescriptionOutlinedIcon color="primary" />
                 <Typography variant="h6" fontWeight={700}>识别结果</Typography>
-                <Button size="small" onClick={downloadResult} disabled={!result.trim()} startIcon={<FileDownloadOutlinedIcon />} sx={{ ml: 'auto' }}>
+                {selectedTask && <Typography variant="caption" color="text.secondary">{selectedTask.filename}</Typography>}
+                <Button size="small" onClick={downloadResult} disabled={!selectedTask?.result?.trim()} startIcon={<FileDownloadOutlinedIcon />} sx={{ ml: 'auto' }}>
                   下载 TXT
                 </Button>
               </Stack>
               <Divider sx={{ mb: 2 }} />
-              <Typography component="pre" sx={{ m: 0, minHeight: 88, whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: result ? 'text.primary' : 'text.secondary' }}>
-                {result || '识别后的文本会显示在这里。'}
+              <Typography component="pre" sx={{ m: 0, minHeight: 88, whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: selectedTask?.status === 'completed' ? 'text.primary' : 'text.secondary' }}>
+                {selectedResult || '识别结果为空。'}
               </Typography>
-              {durationMs !== null && (
+              {selectedTask?.duration_ms !== null && selectedTask?.duration_ms !== undefined && (
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  耗时：{(durationMs / 1000).toFixed(2)} 秒
+                  耗时：{(selectedTask.duration_ms / 1000).toFixed(2)} 秒
                 </Typography>
               )}
             </Paper>
@@ -589,7 +693,6 @@ function App() {
                 )}
                 <ApiEndpoint method="GET" path="/v1/models" description="获取可用的语音识别模型列表。" example={'curl http://localhost:8080/v1/models \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="GET" path="/v1/system" description="获取网关及上游模型服务的运行状态。" example={'curl http://localhost:8080/v1/system \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
-                <ApiEndpoint method="GET" path="/v1/tasks" description="获取当前网关的任务队列列表与状态。" example={'curl http://localhost:8080/v1/tasks \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/tasks/:id/cancel" description="取消指定的排队中或运行中的语音识别任务。" example={'curl -X POST http://localhost:8080/v1/tasks/task_123456_000000/cancel \\\n  -H "Authorization: Bearer <ASR_API_TOKEN>"'} />
                 <ApiEndpoint method="POST" path="/v1/audio/transcriptions" description="上传音频并使用指定模型与档位返回转写结果。level 可选，省略时使用该引擎默认档。" example={
                   (config.funasr && config.whisperx) ?
