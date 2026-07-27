@@ -68,16 +68,20 @@ type ASRTaskResult struct {
 }
 
 type TaskManager struct {
-	mu    sync.RWMutex
-	tasks map[string]*ASRTask
-	queue chan *ASRTask
+	mu     sync.RWMutex
+	tasks  map[string]*ASRTask
+	queues map[string]chan *ASRTask
 }
 
-func NewTaskManager(queueSize int) *TaskManager {
-	return &TaskManager{
-		tasks: make(map[string]*ASRTask),
-		queue: make(chan *ASRTask, queueSize),
+func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
+	manager := &TaskManager{
+		tasks:  make(map[string]*ASRTask),
+		queues: make(map[string]chan *ASRTask, len(models)),
 	}
+	for model := range models {
+		manager.queues[model] = make(chan *ASRTask, queueSize)
+	}
+	return manager
 }
 
 func (tm *TaskManager) Add(task *ASRTask) error {
@@ -86,10 +90,14 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	if _, exists := tm.tasks[task.ID]; exists {
 		return fmt.Errorf("task %s already exists", task.ID)
 	}
+	queue, exists := tm.queues[task.Model]
+	if !exists {
+		return fmt.Errorf("model %s does not have a task queue", task.Model)
+	}
 	tm.tasks[task.ID] = task
 	select {
-	case tm.queue <- task:
-		log.Printf("[Queue] Task %s added to queue. Filename: %s, Model: %s, Level: %s (Queue size: %d)", task.ID, task.Filename, task.Model, task.Level, len(tm.queue))
+	case queue <- task:
+		log.Printf("[Queue] Task %s added to queue. Filename: %s, Model: %s, Level: %s (Queue size: %d)", task.ID, task.Filename, task.Model, task.Level, len(queue))
 		return nil
 	default:
 		delete(tm.tasks, task.ID)
@@ -263,7 +271,7 @@ func newServiceFromEnvironment() (*service, error) {
 		}
 	}
 
-	tm := NewTaskManager(1000)
+	tm := NewTaskManager(16, upstreams)
 	s := &service{
 		token:                 token,
 		upstreams:             upstreams,
@@ -275,7 +283,7 @@ func newServiceFromEnvironment() (*service, error) {
 		whisperxSingleModel:   whisperxSingleModel,
 		taskManager:           tm,
 	}
-	s.startQueueWorker(tm)
+	s.startQueueWorkers(tm)
 	return s, nil
 }
 
@@ -482,7 +490,6 @@ func (s *service) transcribe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read uploaded audio"})
 		return
 	}
-	defer input.Close()
 
 	// Create a temp file to store the audio
 	tempFile, err := os.CreateTemp("", "asr-upload-*.tmp")
@@ -503,9 +510,28 @@ func (s *service) transcribe(c *gin.Context) {
 
 	if _, err := io.Copy(tempFile, input); err != nil {
 		log.Printf("failed to write upload to temp file: %v", err)
+		if closeErr := input.Close(); closeErr != nil {
+			log.Printf("failed to close uploaded audio after copy error: %v", closeErr)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
 		return
 	}
-	tempFile.Close()
+	if err := input.Close(); err != nil {
+		log.Printf("failed to close uploaded audio: %v", err)
+		removeTemporaryFile(tempPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+		return
+	}
+	if c.Request.MultipartForm != nil {
+		if err := c.Request.MultipartForm.RemoveAll(); err != nil {
+			log.Printf("failed to remove multipart temporary files: %v", err)
+		}
+	}
+	if err := tempFile.Close(); err != nil {
+		log.Printf("failed to close temporary audio: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+		return
+	}
 	tempFileClosed = true
 
 	// Read custom task ID if provided, otherwise generate one
@@ -609,49 +635,51 @@ func (s *service) cancelTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled", "id": id})
 }
 
-func (s *service) startQueueWorker(tm *TaskManager) {
-	log.Println("[Queue] Starting task queue worker...")
-	go func() {
-		for task := range tm.queue {
-			tm.mu.Lock()
-			if task.Status == StatusCancelled {
-				tm.mu.Unlock()
-				log.Printf("[Queue] Task %s was cancelled before processing started. Cleaning up...", task.ID)
-				removeTemporaryFile(task.TempFilePath)
-				continue
-			}
-			task.Status = StatusRunning
-			tm.mu.Unlock()
-
-			log.Printf("[Queue] Worker picked up task %s. Filename: %s", task.ID, task.Filename)
-
-			result := s.processTask(task)
-			task.CancelFunc()
-
-			tm.mu.Lock()
-			if task.Status == StatusRunning {
-				if result.Err != nil {
-					task.Status = StatusFailed
-					log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
-				} else {
-					task.Status = StatusCompleted
-					log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)
+func (s *service) startQueueWorkers(tm *TaskManager) {
+	for model, queue := range tm.queues {
+		log.Printf("[Queue] Starting task queue worker for model %s...", model)
+		go func(queue <-chan *ASRTask) {
+			for task := range queue {
+				tm.mu.Lock()
+				if task.Status == StatusCancelled {
+					tm.mu.Unlock()
+					log.Printf("[Queue] Task %s was cancelled before processing started. Cleaning up...", task.ID)
+					removeTemporaryFile(task.TempFilePath)
+					continue
 				}
-			} else {
-				log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
-			}
-			delete(tm.tasks, task.ID)
-			tm.mu.Unlock()
+				task.Status = StatusRunning
+				tm.mu.Unlock()
 
-			removeTemporaryFile(task.TempFilePath)
+				log.Printf("[Queue] Worker picked up task %s. Filename: %s", task.ID, task.Filename)
 
-			select {
-			case task.ResultChan <- result:
-			default:
-				log.Printf("[Queue] Task %s result channel is full (handler probably returned already)", task.ID)
+				result := s.processTask(task)
+				task.CancelFunc()
+
+				tm.mu.Lock()
+				if task.Status == StatusRunning {
+					if result.Err != nil {
+						task.Status = StatusFailed
+						log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
+					} else {
+						task.Status = StatusCompleted
+						log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)
+					}
+				} else {
+					log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
+				}
+				delete(tm.tasks, task.ID)
+				tm.mu.Unlock()
+
+				removeTemporaryFile(task.TempFilePath)
+
+				select {
+				case task.ResultChan <- result:
+				default:
+					log.Printf("[Queue] Task %s result channel is full (handler probably returned already)", task.ID)
+				}
 			}
-		}
-	}()
+		}(queue)
+	}
 }
 
 func removeTemporaryFile(path string) {
@@ -733,6 +761,9 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 }
 
 func (s *service) cancelTaskForModel(model string) {
+	if model != "whisperx" && model != "funasr" {
+		return
+	}
 	backend, ok := s.upstreams[model]
 	if !ok {
 		return

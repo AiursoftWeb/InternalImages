@@ -12,13 +12,18 @@ Then use with any OpenAI-compatible client:
       -F file=@audio.wav -F model=sensevoice
 """
 
+import atexit
 import argparse
+import multiprocessing
+import queue
 import secrets
+import shutil
 import tempfile
 import time
 import os
 import re
 import logging
+import threading
 from typing import Optional
 
 import uvicorn
@@ -72,6 +77,10 @@ MODEL_CONFIGS = {
 }
 
 
+class TranscriptionCancelled(Exception):
+    pass
+
+
 def load_model(model_name: str):
     """Load a model and store in registry."""
     if model_name in MODEL_REGISTRY:
@@ -105,13 +114,232 @@ def load_model(model_name: str):
     return model
 
 
+def inference_worker(command_queue, result_queue, device):
+    global DEVICE
+    DEVICE = device
+    while True:
+        command = command_queue.get()
+        if command is None:
+            return
+
+        task_id = command["task_id"]
+        try:
+            model = load_model(command["model"])
+            result_queue.put({
+                "task_id": task_id,
+                "status": "model_loaded",
+                "model": command["model"],
+            })
+            if command["action"] == "preload":
+                result_queue.put({
+                    "task_id": task_id,
+                    "status": "completed",
+                    "model": command["model"],
+                    "payload": {},
+                })
+                continue
+
+            generate_kwargs = {"input": command["audio_path"], "batch_size": 1}
+            if command["language"]:
+                generate_kwargs["language"] = command["language"]
+
+            started_at = time.time()
+            result = model.generate(**generate_kwargs)
+            elapsed = time.time() - started_at
+            text = clean_text(result[0]["text"])
+            payload = {"text": text}
+            if command["response_format"] == "verbose_json":
+                segments = []
+                for segment in result[0].get("sentence_info", []):
+                    segments.append({
+                        "start": segment.get("start", 0) / 1000.0,
+                        "end": segment.get("end", 0) / 1000.0,
+                        "text": clean_text(segment.get("text", "")),
+                        "speaker": segment.get("spk"),
+                    })
+                payload.update({
+                    "segments": segments,
+                    "language": command["language"] or "auto",
+                    "duration": round(elapsed, 3),
+                    "model": command["model"],
+                })
+            result_queue.put({
+                "task_id": task_id,
+                "status": "completed",
+                "model": command["model"],
+                "payload": payload,
+            })
+        except ValueError as exc:
+            result_queue.put({
+                "task_id": task_id,
+                "status": "invalid_model",
+                "error": str(exc),
+            })
+        except Exception as exc:
+            result_queue.put({
+                "task_id": task_id,
+                "status": "failed",
+                "error": str(exc),
+            })
+
+
+class InferenceProcess:
+    def __init__(self, device):
+        self.context = multiprocessing.get_context("spawn")
+        self.device = device
+        self.state_lock = threading.Lock()
+        self.run_lock = threading.Lock()
+        self.process = None
+        self.command_queue = None
+        self.result_queue = None
+        self.generation = 0
+        self.active_task_id = None
+        self.loaded_model = None
+
+    def configure(self, device):
+        with self.state_lock:
+            if self.process is not None:
+                raise RuntimeError("cannot configure a running inference process")
+            self.device = device
+
+    def transcribe(self, audio_path, model, language, response_format):
+        with self.run_lock:
+            task_id, generation, command_queue, result_queue = self._prepare_task()
+            command_queue.put({
+                "action": "transcribe",
+                "task_id": task_id,
+                "audio_path": audio_path,
+                "model": model,
+                "language": language,
+                "response_format": response_format,
+            })
+            try:
+                return self._wait_for_result(task_id, generation, result_queue)
+            finally:
+                with self.state_lock:
+                    if self.generation == generation and self.active_task_id == task_id:
+                        self.active_task_id = None
+
+    def preload(self, model):
+        with self.run_lock:
+            task_id, generation, command_queue, result_queue = self._prepare_task()
+            command_queue.put({
+                "action": "preload",
+                "task_id": task_id,
+                "model": model,
+            })
+            try:
+                self._wait_for_result(task_id, generation, result_queue)
+            finally:
+                with self.state_lock:
+                    if self.generation == generation and self.active_task_id == task_id:
+                        self.active_task_id = None
+
+    def cancel(self):
+        with self.state_lock:
+            if self.active_task_id is None or self.process is None:
+                return False
+            process = self.process
+            self.process = None
+            self.command_queue = None
+            self.result_queue = None
+            self.active_task_id = None
+            self.loaded_model = None
+            self.generation += 1
+            self._terminate_process(process)
+            return True
+
+    def stop(self):
+        with self.state_lock:
+            process = self.process
+            self.process = None
+            self.command_queue = None
+            self.result_queue = None
+            self.active_task_id = None
+            self.loaded_model = None
+            self.generation += 1
+            if process is not None:
+                self._terminate_process(process)
+
+    def loaded_models(self):
+        with self.state_lock:
+            if self.process is None or not self.process.is_alive() or self.loaded_model is None:
+                return []
+            return [self.loaded_model]
+
+    def _prepare_task(self):
+        with self.state_lock:
+            if self.process is None or not self.process.is_alive():
+                self._start_process()
+            task_id = secrets.token_hex(16)
+            self.active_task_id = task_id
+            return task_id, self.generation, self.command_queue, self.result_queue
+
+    def _start_process(self):
+        self.command_queue = self.context.Queue()
+        self.result_queue = self.context.Queue()
+        self.process = self.context.Process(
+            target=inference_worker,
+            args=(self.command_queue, self.result_queue, self.device),
+            daemon=True,
+        )
+        self.process.start()
+        self.generation += 1
+        self.loaded_model = None
+
+    def _wait_for_result(self, task_id, generation, result_queue):
+        while True:
+            try:
+                result = result_queue.get(timeout=0.2)
+            except queue.Empty:
+                with self.state_lock:
+                    if self.generation != generation:
+                        raise TranscriptionCancelled("transcription was cancelled")
+                    if self.process is None or not self.process.is_alive():
+                        raise RuntimeError("inference process exited unexpectedly")
+                continue
+
+            if result["task_id"] != task_id:
+                continue
+            if result["status"] == "model_loaded":
+                with self.state_lock:
+                    if self.generation != generation:
+                        raise TranscriptionCancelled("transcription was cancelled")
+                    self.loaded_model = result["model"]
+                continue
+            if result["status"] == "invalid_model":
+                raise ValueError(result["error"])
+            if result["status"] == "failed":
+                raise RuntimeError(result["error"])
+            with self.state_lock:
+                if self.generation != generation:
+                    raise TranscriptionCancelled("transcription was cancelled")
+                self.loaded_model = result["model"]
+            return result["payload"]
+
+    @staticmethod
+    def _terminate_process(process):
+        if not process.is_alive():
+            process.join()
+            return
+        process.terminate()
+        process.join(timeout=10)
+        if process.is_alive():
+            process.kill()
+            process.join()
+
+
+inference_process = InferenceProcess(os.getenv("FUNASR_DEVICE", "cuda"))
+atexit.register(inference_process.stop)
+
+
 def clean_text(text: str) -> str:
     """Remove SenseVoice special tags from output."""
     return re.sub(r'<\|[^|]*\|>', '', text).strip()
 
 
 @app.post("/v1/audio/transcriptions")
-async def transcribe(
+def transcribe(
     file: UploadFile = File(...),
     model: str = Form(default="sensevoice"),
     language: Optional[str] = Form(default=None),
@@ -133,51 +361,35 @@ async def transcribe(
             detail=f"Model '{model}' not found. Available: {list(MODEL_CONFIGS.keys())}"
         )
 
-    # Save uploaded file
     suffix = os.path.splitext(file.filename)[1] if file.filename else ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
-        tmp.write(content)
+        shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
     try:
-        asr_model = load_model(model)
-        t0 = time.time()
-
-        generate_kwargs = {"input": tmp_path, "batch_size": 1}
-        if language:
-            generate_kwargs["language"] = language
-
-        result = asr_model.generate(**generate_kwargs)
-        elapsed = time.time() - t0
-
-        text = clean_text(result[0]["text"])
-
-        if response_format == "verbose_json":
-            segments = []
-            if "sentence_info" in result[0]:
-                for seg in result[0]["sentence_info"]:
-                    segments.append({
-                        "start": seg.get("start", 0) / 1000.0,
-                        "end": seg.get("end", 0) / 1000.0,
-                        "text": clean_text(seg.get("text", "")),
-                        "speaker": seg.get("spk", None),
-                    })
-            return JSONResponse({
-                "text": text,
-                "segments": segments,
-                "language": language or "auto",
-                "duration": round(elapsed, 3),
-                "model": model,
-            })
-        else:
-            return JSONResponse({"text": text})
-
-    except Exception as e:
-        logger.error(f"Transcription error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        result = inference_process.transcribe(
+            tmp_path,
+            model,
+            language,
+            response_format,
+        )
+        return JSONResponse(result)
+    except TranscriptionCancelled as exc:
+        raise HTTPException(status_code=499, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        logger.error(f"Transcription error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         os.unlink(tmp_path)
+
+
+@app.post("/v1/cancel")
+def cancel():
+    if not inference_process.cancel():
+        raise HTTPException(status_code=404, detail="no transcription is running")
+    return {"status": "cancelled"}
 
 
 @app.get("/v1/models")
@@ -190,7 +402,7 @@ async def list_models():
             "object": "model",
             "created": 1700000000,
             "owned_by": "funasr",
-            "ready": name in MODEL_REGISTRY,
+            "ready": name in inference_process.loaded_models(),
         })
     return JSONResponse({"object": "list", "data": models})
 
@@ -200,8 +412,8 @@ async def health():
     """Health check endpoint."""
     return {
         "status": "ok",
-        "device": DEVICE,
-        "models_loaded": list(MODEL_REGISTRY.keys()),
+        "device": inference_process.device,
+        "models_loaded": inference_process.loaded_models(),
         "models_available": list(MODEL_CONFIGS.keys()),
     }
 
@@ -214,14 +426,11 @@ def main():
     parser.add_argument("--model", default="sensevoice", help="Pre-load model at startup")
     args = parser.parse_args()
 
-    global DEVICE
-    DEVICE = args.device
-
-    # Pre-load default model
-    load_model(args.model)
+    inference_process.configure(args.device)
+    inference_process.preload(args.model)
 
     logger.info(f"FunASR API server starting on http://{args.host}:{args.port}")
-    logger.info(f"  Device: {DEVICE}")
+    logger.info(f"  Device: {inference_process.device}")
     logger.info(f"  Models: {list(MODEL_CONFIGS.keys())}")
     logger.info(f"  Docs:   http://{args.host}:{args.port}/docs")
     uvicorn.run(app, host=args.host, port=args.port)
