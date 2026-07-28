@@ -130,11 +130,19 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 	}
 	prevStatus := task.Status
 	task.Status = StatusCancelled
-	delete(tm.tasks, id)
 	if prevStatus == StatusPending {
 		tm.removePendingTask(task)
+		delete(tm.tasks, id)
 	}
 	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
+	select {
+	case task.ResultChan <- ASRTaskResult{
+		StatusCode: http.StatusBadRequest,
+		Body:       []byte(`{"error":"Task was cancelled"}`),
+		Err:        errors.New("task was cancelled"),
+	}:
+	default:
+	}
 	if prevStatus == StatusRunning {
 		if task.CancelFunc != nil {
 			task.CancelFunc()
@@ -143,17 +151,14 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		if cancelUpstreamFunc != nil {
 			cancelUpstreamFunc(task.Model, task.ID)
 		}
+		tm.mu.Lock()
+		if currentTask := tm.tasks[id]; currentTask == task {
+			delete(tm.tasks, id)
+		}
+		tm.mu.Unlock()
 	} else {
 		tm.mu.Unlock()
 		removeTemporaryFile(task.TempFilePath)
-	}
-	select {
-	case task.ResultChan <- ASRTaskResult{
-		StatusCode: http.StatusBadRequest,
-		Body:       []byte(`{"error":"Task was cancelled"}`),
-		Err:        errors.New("task was cancelled"),
-	}:
-	default:
 	}
 	return true
 }
@@ -535,6 +540,14 @@ func (s *service) transcribe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read uploaded audio"})
 		return
 	}
+	defer func() {
+		if input == nil {
+			return
+		}
+		if err := input.Close(); err != nil {
+			log.Printf("close uploaded audio: %v", err)
+		}
+	}()
 
 	// Create a temp file to store the audio
 	tempFile, err := os.CreateTemp("", "asr-upload-*.tmp")
@@ -548,21 +561,27 @@ func (s *service) transcribe(c *gin.Context) {
 	tempFileClosed := false
 	defer func() {
 		if !tempFileClosed {
-			tempFile.Close()
+			if err := tempFile.Close(); err != nil {
+				log.Printf("close temporary audio: %v", err)
+			}
 			removeTemporaryFile(tempPath)
 		}
 	}()
 
 	if _, err := io.Copy(tempFile, input); err != nil {
 		log.Printf("failed to write upload to temp file: %v", err)
-		if closeErr := input.Close(); closeErr != nil {
+		closeErr := input.Close()
+		input = nil
+		if closeErr != nil {
 			log.Printf("failed to close uploaded audio after copy error: %v", closeErr)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
 		return
 	}
-	if err := input.Close(); err != nil {
-		log.Printf("failed to close uploaded audio: %v", err)
+	closeErr := input.Close()
+	input = nil
+	if closeErr != nil {
+		log.Printf("failed to close uploaded audio: %v", closeErr)
 		removeTemporaryFile(tempPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
 		return
@@ -694,23 +713,12 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 				result := s.processTask(task)
 				task.CancelFunc()
 
-				tm.mu.Lock()
-				if task.Status == StatusRunning {
-					if result.Err != nil {
-						task.Status = StatusFailed
-						log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
-					} else {
-						task.Status = StatusCompleted
-						log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)
-					}
-				} else {
-					log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
-				}
-				delete(tm.tasks, task.ID)
-				tm.mu.Unlock()
-
+				publishResult := tm.finishTask(task, result)
 				removeTemporaryFile(task.TempFilePath)
 
+				if !publishResult {
+					continue
+				}
 				select {
 				case task.ResultChan <- result:
 				default:
@@ -719,6 +727,26 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 			}
 		}(queue)
 	}
+}
+
+func (tm *TaskManager) finishTask(task *ASRTask, result ASRTaskResult) bool {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if task.Status != StatusRunning {
+		log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
+		return false
+	}
+	if result.Err != nil {
+		task.Status = StatusFailed
+		log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
+	} else {
+		task.Status = StatusCompleted
+		log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)
+	}
+	if currentTask := tm.tasks[task.ID]; currentTask == task {
+		delete(tm.tasks, task.ID)
+	}
+	return true
 }
 
 func (tm *TaskManager) waitForPendingTask(queue *taskQueue) *ASRTask {
@@ -748,7 +776,11 @@ func removeTemporaryFile(path string) {
 
 func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err := task.Ctx.Err(); err != nil {
-		return ASRTaskResult{Err: err}
+		return ASRTaskResult{
+			StatusCode: http.StatusBadRequest,
+			Body:       []byte(`{"error":"Task was cancelled"}`),
+			Err:        err,
+		}
 	}
 
 	backend, ok := s.upstreams[task.Model]

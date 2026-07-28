@@ -76,6 +76,78 @@ func TestCancelRunningTaskPassesTaskIDToUpstream(t *testing.T) {
 	}
 }
 
+func TestCancelRunningTaskPublishesResultBeforeCancellingUpstream(t *testing.T) {
+	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
+	task := testTask("running-task", "whisperx", "")
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add running task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	cancelStarted := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	cancelled := make(chan bool, 1)
+	go func() {
+		cancelled <- manager.Cancel(task.ID, func(_, _ string) {
+			close(cancelStarted)
+			<-releaseCancel
+		})
+	}()
+
+	select {
+	case <-cancelStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream cancellation")
+	}
+
+	select {
+	case result := <-task.ResultChan:
+		if result.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected cancellation status %d, got %d", http.StatusBadRequest, result.StatusCode)
+		}
+		if result.Err == nil {
+			t.Fatal("expected cancellation result to contain an error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation result was blocked by upstream cancellation")
+	}
+
+	if err := manager.Add(testTask(task.ID, "whisperx", "")); err == nil {
+		t.Fatal("expected task ID to remain reserved during upstream cancellation")
+	}
+	close(releaseCancel)
+	if !<-cancelled {
+		t.Fatal("expected running task cancellation to succeed")
+	}
+}
+
+func TestCancelledWorkerDoesNotDeleteReplacementTask(t *testing.T) {
+	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
+	cancelledTask := testTask("reused-task", "whisperx", "")
+	if err := manager.Add(cancelledTask); err != nil {
+		t.Fatalf("add cancelled task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+	if !manager.Cancel(cancelledTask.ID, nil) {
+		t.Fatal("expected running task cancellation to succeed")
+	}
+
+	replacementTask := testTask(cancelledTask.ID, "whisperx", "")
+	if err := manager.Add(replacementTask); err != nil {
+		t.Fatalf("add replacement task: %v", err)
+	}
+	if manager.finishTask(cancelledTask, ASRTaskResult{StatusCode: http.StatusOK}) {
+		t.Fatal("expected cancelled worker result not to be published")
+	}
+
+	manager.mu.RLock()
+	currentTask := manager.tasks[replacementTask.ID]
+	manager.mu.RUnlock()
+	if currentTask != replacementTask {
+		t.Fatal("expected replacement task to remain registered")
+	}
+}
+
 func TestCancelUnknownTaskDoesNotCallUpstream(t *testing.T) {
 	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
 	cancelCalled := false
