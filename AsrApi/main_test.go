@@ -51,6 +51,45 @@ func TestCancelPendingTaskReleasesQueueCapacityAndRemovesFile(t *testing.T) {
 	}
 }
 
+func TestCancelRunningTaskPassesTaskIDToUpstream(t *testing.T) {
+	models := map[string]upstream{"whisperx": {}}
+	manager := NewTaskManager(1, models)
+	task := testTask("running-task", "whisperx", "")
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add running task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	var cancelledModel string
+	var cancelledTaskID string
+	if !manager.Cancel(task.ID, func(model, taskID string) {
+		cancelledModel = model
+		cancelledTaskID = taskID
+	}) {
+		t.Fatal("expected running task cancellation to succeed")
+	}
+	if cancelledModel != task.Model {
+		t.Fatalf("expected cancelled model %q, got %q", task.Model, cancelledModel)
+	}
+	if cancelledTaskID != task.ID {
+		t.Fatalf("expected cancelled task ID %q, got %q", task.ID, cancelledTaskID)
+	}
+}
+
+func TestCancelUnknownTaskDoesNotCallUpstream(t *testing.T) {
+	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
+	cancelCalled := false
+
+	if manager.Cancel("unknown-task", func(_, _ string) {
+		cancelCalled = true
+	}) {
+		t.Fatal("expected unknown task cancellation to fail")
+	}
+	if cancelCalled {
+		t.Fatal("expected unknown task not to reach upstream cancellation")
+	}
+}
+
 func TestTranscribeRejectsUploadBeforeReadingBodyWhenAdmissionIsFull(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := &service{uploadSem: make(chan struct{}, 1)}
@@ -130,6 +169,60 @@ func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
 
 	waitForTaskResult(t, whisperxTask)
 	waitForTaskResult(t, funasrTask)
+}
+
+func TestProcessTaskPassesTaskIDToUpstream(t *testing.T) {
+	const taskID = "bound-task"
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if actual := request.Header.Get("X-Task-Id"); actual != taskID {
+			t.Errorf("expected task ID %q, got %q", taskID, actual)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if _, err := writer.Write([]byte(`{"text":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer upstreamServer.Close()
+
+	audioPath := writeTestAudio(t, "bound.wav")
+	server := &service{
+		upstreams: map[string]upstream{
+			"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+		},
+		client: &http.Client{Timeout: time.Second},
+	}
+
+	result := server.processTask(testTask(taskID, "whisperx", audioPath))
+	if result.Err != nil {
+		t.Fatalf("process task: %v", result.Err)
+	}
+}
+
+func TestCancelUpstreamPassesTaskID(t *testing.T) {
+	const taskID = "cancelled-task"
+	requestReceived := make(chan struct{}, 1)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if actual := request.Header.Get("X-Task-Id"); actual != taskID {
+			t.Errorf("expected task ID %q, got %q", taskID, actual)
+		}
+		requestReceived <- struct{}{}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstreamServer.Close()
+
+	server := &service{
+		statusClient: &http.Client{Timeout: time.Second},
+	}
+	server.cancelUpstream(upstream{
+		url:   upstreamServer.URL,
+		token: "token",
+	}, taskID)
+
+	select {
+	case <-requestReceived:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for cancel request")
+	}
 }
 
 func testTask(id, model, path string) *ASRTask {

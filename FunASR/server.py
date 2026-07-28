@@ -27,7 +27,7 @@ import threading
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -202,9 +202,9 @@ class InferenceProcess:
                 raise RuntimeError("cannot configure a running inference process")
             self.device = device
 
-    def transcribe(self, audio_path, model, language, response_format):
+    def transcribe(self, task_id, audio_path, model, language, response_format):
         with self.run_lock:
-            task_id, generation, command_queue, result_queue = self._prepare_task()
+            task_id, generation, command_queue, result_queue = self._prepare_task(task_id)
             command_queue.put({
                 "action": "transcribe",
                 "task_id": task_id,
@@ -235,9 +235,11 @@ class InferenceProcess:
                     if self.generation == generation and self.active_task_id == task_id:
                         self.active_task_id = None
 
-    def cancel(self):
+    def cancel(self, task_id):
         with self.state_lock:
             if self.active_task_id is None or self.process is None:
+                return False
+            if not secrets.compare_digest(self.active_task_id, task_id):
                 return False
             process = self.process
             self.process = None
@@ -267,11 +269,11 @@ class InferenceProcess:
                 return []
             return [self.loaded_model]
 
-    def _prepare_task(self):
+    def _prepare_task(self, task_id=None):
         with self.state_lock:
             if self.process is None or not self.process.is_alive():
                 self._start_process()
-            task_id = secrets.token_hex(16)
+            task_id = task_id or secrets.token_hex(16)
             self.active_task_id = task_id
             return task_id, self.generation, self.command_queue, self.result_queue
 
@@ -344,6 +346,7 @@ def transcribe(
     model: str = Form(default="sensevoice"),
     language: Optional[str] = Form(default=None),
     response_format: Optional[str] = Form(default="json"),
+    x_task_id: str = Header(default="", alias="X-Task-Id"),
 ):
     """
     OpenAI-compatible audio transcription endpoint.
@@ -368,6 +371,7 @@ def transcribe(
 
     try:
         result = inference_process.transcribe(
+            x_task_id,
             tmp_path,
             model,
             language,
@@ -386,10 +390,12 @@ def transcribe(
 
 
 @app.post("/v1/cancel")
-def cancel():
-    if not inference_process.cancel():
-        raise HTTPException(status_code=404, detail="no transcription is running")
-    return {"status": "cancelled"}
+def cancel(x_task_id: str = Header(default="", alias="X-Task-Id")):
+    if not x_task_id:
+        raise HTTPException(status_code=400, detail="task ID is required")
+    if not inference_process.cancel(x_task_id):
+        raise HTTPException(status_code=404, detail="matching transcription is not running")
+    return {"status": "cancelled", "id": x_task_id}
 
 
 @app.get("/v1/models")

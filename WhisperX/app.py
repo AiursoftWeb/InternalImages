@@ -9,7 +9,7 @@ import threading
 import time
 
 import whisperx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from models_config import BAKED_MODELS
@@ -114,9 +114,9 @@ class InferenceProcess:
         self.active_task_id = None
         self.loaded_model = None
 
-    def transcribe(self, audio_path, model, language, response_format):
+    def transcribe(self, task_id, audio_path, model, language, response_format):
         with self.run_lock:
-            task_id, generation, command_queue, result_queue = self._prepare_task()
+            task_id, generation, command_queue, result_queue = self._prepare_task(task_id)
             command_queue.put({
                 "task_id": task_id,
                 "audio_path": audio_path,
@@ -131,9 +131,11 @@ class InferenceProcess:
                     if self.generation == generation and self.active_task_id == task_id:
                         self.active_task_id = None
 
-    def cancel(self):
+    def cancel(self, task_id):
         with self.state_lock:
             if self.active_task_id is None or self.process is None:
+                return False
+            if not secrets.compare_digest(self.active_task_id, task_id):
                 return False
             process = self.process
             self.process = None
@@ -163,11 +165,11 @@ class InferenceProcess:
                 return []
             return [self.loaded_model]
 
-    def _prepare_task(self):
+    def _prepare_task(self, task_id=None):
         with self.state_lock:
             if self.process is None or not self.process.is_alive():
                 self._start_process()
-            task_id = secrets.token_hex(16)
+            task_id = task_id or secrets.token_hex(16)
             self.active_task_id = task_id
             return task_id, self.generation, self.command_queue, self.result_queue
 
@@ -269,10 +271,12 @@ def list_models():
 
 
 @app.post("/v1/cancel")
-def cancel():
-    if not inference_process.cancel():
-        raise HTTPException(status_code=404, detail="no transcription is running")
-    return {"status": "cancelled"}
+def cancel(x_task_id: str = Header(default="", alias="X-Task-Id")):
+    if not x_task_id:
+        raise HTTPException(status_code=400, detail="task ID is required")
+    if not inference_process.cancel(x_task_id):
+        raise HTTPException(status_code=404, detail="matching transcription is not running")
+    return {"status": "cancelled", "id": x_task_id}
 
 
 @app.post("/v1/audio/transcriptions")
@@ -281,6 +285,7 @@ def transcribe(
     model: str = Form(default=""),
     language: str = Form(default=""),
     response_format: str = Form(default="json"),
+    x_task_id: str = Header(default="", alias="X-Task-Id"),
 ):
     model_name = model or os.getenv("WHISPERX_MODEL", "large-v3")
     print(f"[WhisperX] Received transcription request. Model: {model_name}, File: {file.filename}, Language: {language or 'auto'}")
@@ -292,6 +297,7 @@ def transcribe(
         print(f"[WhisperX] Saved temp audio file: {audio_file.name}. Starting transcription...")
         try:
             result = inference_process.transcribe(
+                x_task_id,
                 audio_file.name,
                 model_name,
                 language,

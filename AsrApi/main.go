@@ -117,7 +117,7 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	return nil
 }
 
-func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) bool {
+func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID string)) bool {
 	tm.mu.Lock()
 	task, ok := tm.tasks[id]
 	if !ok {
@@ -141,7 +141,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) 
 		}
 		tm.mu.Unlock()
 		if cancelUpstreamFunc != nil {
-			cancelUpstreamFunc(task.Model)
+			cancelUpstreamFunc(task.Model, task.ID)
 		}
 	} else {
 		tm.mu.Unlock()
@@ -683,6 +683,7 @@ func (s *service) cancelTask(c *gin.Context) {
 }
 
 func (s *service) startQueueWorkers(tm *TaskManager) {
+	// WhisperX 与 FunASR 可能部署在不同机器，因此各模型使用独立 worker。
 	for model, queue := range tm.queues {
 		log.Printf("[Queue] Starting task queue worker for model %s...", model)
 		go func(queue *taskQueue) {
@@ -786,6 +787,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	}
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Authorization", "Bearer "+backend.token)
+	request.Header.Set("X-Task-Id", task.ID)
 
 	log.Printf("[Queue] Sending HTTP post request to %s upstream for task %s", task.Model, task.ID)
 	response, err := s.client.Do(request)
@@ -814,7 +816,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	}
 }
 
-func (s *service) cancelTaskForModel(model string) {
+func (s *service) cancelTaskForModel(model, taskID string) {
 	if model != "whisperx" && model != "funasr" {
 		return
 	}
@@ -822,10 +824,10 @@ func (s *service) cancelTaskForModel(model string) {
 	if !ok {
 		return
 	}
-	s.cancelUpstream(backend)
+	s.cancelUpstream(backend, taskID)
 }
 
-func (s *service) cancelUpstream(backend upstream) {
+func (s *service) cancelUpstream(backend upstream, taskID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.url+"/v1/cancel", nil)
@@ -834,6 +836,7 @@ func (s *service) cancelUpstream(backend upstream) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+backend.token)
+	req.Header.Set("X-Task-Id", taskID)
 	resp, err := s.statusClient.Do(req)
 	if err != nil {
 		log.Printf("[Queue] Failed to send cancel request to upstream %s: %v", backend.url, err)
