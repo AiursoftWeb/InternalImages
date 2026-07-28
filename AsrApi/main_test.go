@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestTaskManagerUsesIndependentModelQueues(t *testing.T) {
@@ -26,6 +28,46 @@ func TestTaskManagerUsesIndependentModelQueues(t *testing.T) {
 	}
 	if err := manager.Add(testTask("whisperx-2", "whisperx", "")); err == nil {
 		t.Fatal("expected the whisperx queue to be full")
+	}
+}
+
+func TestCancelPendingTaskReleasesQueueCapacityAndRemovesFile(t *testing.T) {
+	models := map[string]upstream{"whisperx": {}}
+	manager := NewTaskManager(1, models)
+	audioPath := writeTestAudio(t, "cancelled.wav")
+	cancelledTask := testTask("cancelled", "whisperx", audioPath)
+	if err := manager.Add(cancelledTask); err != nil {
+		t.Fatalf("add task to cancel: %v", err)
+	}
+
+	if !manager.Cancel(cancelledTask.ID, nil) {
+		t.Fatal("expected pending task cancellation to succeed")
+	}
+	if _, err := os.Stat(audioPath); !os.IsNotExist(err) {
+		t.Fatalf("expected cancelled task file to be removed, got: %v", err)
+	}
+	if err := manager.Add(testTask("replacement", "whisperx", "")); err != nil {
+		t.Fatalf("expected cancelled task to release queue capacity: %v", err)
+	}
+}
+
+func TestTranscribeRejectsUploadBeforeReadingBodyWhenAdmissionIsFull(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := &service{uploadSem: make(chan struct{}, 1)}
+	server.uploadSem <- struct{}{}
+	body := &trackingReadCloser{}
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", body)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = request
+
+	server.transcribe(context)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+	if body.reads != 0 {
+		t.Fatalf("expected rejected upload body not to be read, got %d reads", body.reads)
 	}
 }
 
@@ -102,6 +144,19 @@ func testTask(id, model, path string) *ASRTask {
 		Ctx:          ctx,
 		CancelFunc:   cancel,
 	}
+}
+
+type trackingReadCloser struct {
+	reads int
+}
+
+func (body *trackingReadCloser) Read(_ []byte) (int, error) {
+	body.reads++
+	return 0, os.ErrClosed
+}
+
+func (body *trackingReadCloser) Close() error {
+	return nil
 }
 
 func writeTestAudio(t *testing.T, name string) string {

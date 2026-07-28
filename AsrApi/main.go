@@ -70,16 +70,26 @@ type ASRTaskResult struct {
 type TaskManager struct {
 	mu     sync.RWMutex
 	tasks  map[string]*ASRTask
-	queues map[string]chan *ASRTask
+	queues map[string]*taskQueue
+}
+
+type taskQueue struct {
+	pending  []*ASRTask
+	capacity int
+	notify   chan struct{}
 }
 
 func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
 	manager := &TaskManager{
 		tasks:  make(map[string]*ASRTask),
-		queues: make(map[string]chan *ASRTask, len(models)),
+		queues: make(map[string]*taskQueue, len(models)),
 	}
 	for model := range models {
-		manager.queues[model] = make(chan *ASRTask, queueSize)
+		manager.queues[model] = &taskQueue{
+			pending:  make([]*ASRTask, 0, queueSize),
+			capacity: queueSize,
+			notify:   make(chan struct{}, 1),
+		}
 	}
 	return manager
 }
@@ -94,15 +104,17 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	if !exists {
 		return fmt.Errorf("model %s does not have a task queue", task.Model)
 	}
-	tm.tasks[task.ID] = task
-	select {
-	case queue <- task:
-		log.Printf("[Queue] Task %s added to queue. Filename: %s, Model: %s, Level: %s (Queue size: %d)", task.ID, task.Filename, task.Model, task.Level, len(queue))
-		return nil
-	default:
-		delete(tm.tasks, task.ID)
+	if len(queue.pending) >= queue.capacity {
 		return fmt.Errorf("task queue is full, please try again later")
 	}
+	tm.tasks[task.ID] = task
+	queue.pending = append(queue.pending, task)
+	select {
+	case queue.notify <- struct{}{}:
+	default:
+	}
+	log.Printf("[Queue] Task %s added to queue. Filename: %s, Model: %s, Level: %s (Queue size: %d)", task.ID, task.Filename, task.Model, task.Level, len(queue.pending))
+	return nil
 }
 
 func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) bool {
@@ -119,6 +131,9 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) 
 	prevStatus := task.Status
 	task.Status = StatusCancelled
 	delete(tm.tasks, id)
+	if prevStatus == StatusPending {
+		tm.removePendingTask(task)
+	}
 	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
 	if prevStatus == StatusRunning {
 		if task.CancelFunc != nil {
@@ -130,6 +145,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) 
 		}
 	} else {
 		tm.mu.Unlock()
+		removeTemporaryFile(task.TempFilePath)
 	}
 	select {
 	case task.ResultChan <- ASRTaskResult{
@@ -142,6 +158,20 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model string)) 
 	return true
 }
 
+func (tm *TaskManager) removePendingTask(task *ASRTask) {
+	queue := tm.queues[task.Model]
+	for index, pendingTask := range queue.pending {
+		if pendingTask.ID != task.ID {
+			continue
+		}
+		copy(queue.pending[index:], queue.pending[index+1:])
+		lastIndex := len(queue.pending) - 1
+		queue.pending[lastIndex] = nil
+		queue.pending = queue.pending[:lastIndex]
+		return
+	}
+}
+
 type service struct {
 	token                 string
 	upstreams             map[string]upstream
@@ -152,6 +182,7 @@ type service struct {
 	funasrRealtimeEnabled bool
 	whisperxSingleModel   bool
 	taskManager           *TaskManager
+	uploadSem             chan struct{}
 }
 
 func main() {
@@ -282,6 +313,7 @@ func newServiceFromEnvironment() (*service, error) {
 		funasrRealtimeEnabled: funasrRealtimeEnabled,
 		whisperxSingleModel:   whisperxSingleModel,
 		taskManager:           tm,
+		uploadSem:             make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)),
 	}
 	s.startQueueWorkers(tm)
 	return s, nil
@@ -467,6 +499,19 @@ func generateTaskID() string {
 }
 
 func (s *service) transcribe(c *gin.Context) {
+	select {
+	case s.uploadSem <- struct{}{}:
+	default:
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many concurrent uploads, please retry later"})
+		return
+	}
+	uploadSlotHeld := true
+	defer func() {
+		if uploadSlotHeld {
+			<-s.uploadSem
+		}
+	}()
+
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 	modelName := c.PostForm("model")
 	_, ok := s.upstreams[modelName]
@@ -567,6 +612,8 @@ func (s *service) transcribe(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
+	<-s.uploadSem
+	uploadSlotHeld = false
 
 	c.Header("X-Task-Id", task.ID)
 
@@ -638,18 +685,9 @@ func (s *service) cancelTask(c *gin.Context) {
 func (s *service) startQueueWorkers(tm *TaskManager) {
 	for model, queue := range tm.queues {
 		log.Printf("[Queue] Starting task queue worker for model %s...", model)
-		go func(queue <-chan *ASRTask) {
-			for task := range queue {
-				tm.mu.Lock()
-				if task.Status == StatusCancelled {
-					tm.mu.Unlock()
-					log.Printf("[Queue] Task %s was cancelled before processing started. Cleaning up...", task.ID)
-					removeTemporaryFile(task.TempFilePath)
-					continue
-				}
-				task.Status = StatusRunning
-				tm.mu.Unlock()
-
+		go func(queue *taskQueue) {
+			for {
+				task := tm.waitForPendingTask(queue)
 				log.Printf("[Queue] Worker picked up task %s. Filename: %s", task.ID, task.Filename)
 
 				result := s.processTask(task)
@@ -679,6 +717,22 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 				}
 			}
 		}(queue)
+	}
+}
+
+func (tm *TaskManager) waitForPendingTask(queue *taskQueue) *ASRTask {
+	for {
+		tm.mu.Lock()
+		if len(queue.pending) > 0 {
+			task := queue.pending[0]
+			queue.pending[0] = nil
+			queue.pending = queue.pending[1:]
+			task.Status = StatusRunning
+			tm.mu.Unlock()
+			return task
+		}
+		tm.mu.Unlock()
+		<-queue.notify
 	}
 }
 
