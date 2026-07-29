@@ -115,6 +115,9 @@ docker run -d --name funasr-realtime \
 | `ASR_ENABLE_FUNASR` | 是否启用 FunASR 引擎相关功能。若为 `false`，则无需提供 FunASR 的 TOKEN 与 URL。 | `true` |
 | `ASR_ENABLE_FUNASR_REALTIME` | 是否在网页端启用/显示实时麦克风识别卡片（WS连接）。 | `true` |
 | `ASR_WHISPERX_SINGLE_MODEL` | 是否启用 WhisperX 单模型模式。若设为 `true`，前端将彻底隐藏档位选择并直接运行在 `large-v3`（默认模型）模式下。 | `false` |
+| `ASR_MAX_CONCURRENT_UPLOADS` | 网关同时接收并写入临时文件的上传数量上限。达到上限时，新请求会在读取请求体之前返回 `429`。 | `2` |
+| `ASR_MAX_CONCURRENT_TRANSCRIPTIONS` | 网关同时发送给离线识别引擎的转写任务数量上限。其余已上传任务在网关队列中等待。 | `2` |
+| `ASR_MAX_STORED_AUDIO_SIZE_MIB` | 排队中和运行中任务的临时音频文件总容量上限（MiB）。达到上限时，新任务返回 `429`。 | `512` |
 
 > **重要约束**：
 > - `ASR_ENABLE_WHISPERX` 和 `ASR_ENABLE_FUNASR` 不能同时为 `false`。网关启动时必须至少有一个引擎处于启用状态，否则会报错并拒绝启动。
@@ -204,6 +207,8 @@ curl http://localhost:8080/v1/audio/transcriptions \
   -F level=large-v3
 ```
 *注意：如果向已禁用的引擎发起转写请求，网关将直接返回 `400 Bad Request`，提示该模型不被支持或未启用。*
+
+如需自行指定任务 ID，可通过 `X-Task-Id` 请求头或 `task_id` 表单字段传入。任务 ID 最长为 128 个字符，并且只能包含 ASCII 字母、数字和 `-._~`。
 
 ---
 

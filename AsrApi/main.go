@@ -27,10 +27,13 @@ import (
 var distFS embed.FS
 
 const (
-	maxUploadSize         = 100 << 20
-	maxCancelTombstones   = 1024
-	cancelTombstoneTTL    = 10 * time.Minute
-	cancelUpstreamTimeout = 12 * time.Second
+	maxUploadSize                = 100 << 20
+	maxCancelRequestSize         = 4 << 10
+	maxTaskIDLength              = 128
+	defaultMaxStoredAudioSizeMiB = 512
+	maxCancelTombstones          = 1024
+	cancelTombstoneTTL           = 10 * time.Minute
+	cancelUpstreamTimeout        = 12 * time.Second
 )
 
 type upstream struct {
@@ -60,11 +63,13 @@ type ASRTask struct {
 	Filename  string     `json:"filename"`
 	CreatedAt time.Time  `json:"created_at"`
 
-	TempFilePath   string             `json:"-"`
-	ResponseFormat string             `json:"-"`
-	ResultChan     chan ASRTaskResult `json:"-"`
-	Ctx            context.Context    `json:"-"`
-	CancelFunc     context.CancelFunc `json:"-"`
+	TempFilePath    string             `json:"-"`
+	TempFileSize    int64              `json:"-"`
+	ResponseFormat  string             `json:"-"`
+	ResultChan      chan ASRTaskResult `json:"-"`
+	Ctx             context.Context    `json:"-"`
+	CancelFunc      context.CancelFunc `json:"-"`
+	storageReserved bool
 }
 
 type ASRTaskResult struct {
@@ -91,6 +96,8 @@ type TaskManager struct {
 	queues               map[string]*taskQueue
 	cancelledTaskIDs     map[string]cancellationRecord
 	cancellationAttempts map[string]*cancellationAttempt
+	maxStoredBytes       int64
+	storedBytes          int64
 }
 
 type taskQueue struct {
@@ -99,12 +106,13 @@ type taskQueue struct {
 	notify   chan struct{}
 }
 
-func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
+func NewTaskManager(queueSize int, maxStoredBytes int64, models map[string]upstream) *TaskManager {
 	manager := &TaskManager{
 		tasks:                make(map[string]*ASRTask),
 		queues:               make(map[string]*taskQueue, len(models)),
 		cancelledTaskIDs:     make(map[string]cancellationRecord),
 		cancellationAttempts: make(map[string]*cancellationAttempt),
+		maxStoredBytes:       maxStoredBytes,
 	}
 	for model := range models {
 		manager.queues[model] = &taskQueue{
@@ -132,6 +140,11 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	}
 	if len(queue.pending) >= queue.capacity {
 		return fmt.Errorf("task queue is full, please try again later")
+	}
+	if !task.storageReserved {
+		if err := tm.reserveTaskStorageLocked(task, task.TempFileSize); err != nil {
+			return err
+		}
 	}
 	tm.tasks[task.ID] = task
 	queue.pending = append(queue.pending, task)
@@ -178,6 +191,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
 		publishTaskResult(task, cancelledTaskResult())
 		removeTemporaryFile(task.TempFilePath)
+		tm.releaseTaskStorage(task)
 		return true, nil
 	}
 
@@ -261,6 +275,35 @@ func (tm *TaskManager) finishCancellationAttempt(id string, attempt *cancellatio
 func waitForCancellationAttempt(attempt *cancellationAttempt) (bool, error) {
 	<-attempt.done
 	return true, attempt.err
+}
+
+func (tm *TaskManager) reserveTaskStorage(task *ASRTask, size int64) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	return tm.reserveTaskStorageLocked(task, size)
+}
+
+func (tm *TaskManager) reserveTaskStorageLocked(task *ASRTask, size int64) error {
+	if size < 0 {
+		return errors.New("stored audio size must not be negative")
+	}
+	if size > tm.maxStoredBytes-tm.storedBytes {
+		return fmt.Errorf("stored audio capacity is full, please try again later")
+	}
+	tm.storedBytes += size
+	task.TempFileSize = size
+	task.storageReserved = true
+	return nil
+}
+
+func (tm *TaskManager) releaseTaskStorage(task *ASRTask) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if !task.storageReserved {
+		return
+	}
+	tm.storedBytes -= task.TempFileSize
+	task.storageReserved = false
 }
 
 func (tm *TaskManager) recordCancellationAttempt(id, model string, retryable bool) {
@@ -461,7 +504,8 @@ func newServiceFromEnvironment() (*service, error) {
 		}
 	}
 
-	tm := NewTaskManager(16, upstreams)
+	maxStoredBytes := int64(environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB)) << 20
+	tm := NewTaskManager(16, maxStoredBytes, upstreams)
 	s := &service{
 		token:                 token,
 		upstreams:             upstreams,
@@ -658,6 +702,25 @@ func generateTaskID() string {
 	return fmt.Sprintf("task_%d_%06d", time.Now().UnixNano(), rand.Intn(1000000))
 }
 
+func validateTaskID(id string) error {
+	if len(id) == 0 {
+		return errors.New("task id is required")
+	}
+	if len(id) > maxTaskIDLength {
+		return fmt.Errorf("task id must not exceed %d characters", maxTaskIDLength)
+	}
+	for _, char := range id {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			continue
+		}
+		if char == '-' || char == '.' || char == '_' || char == '~' {
+			continue
+		}
+		return errors.New("task id must contain only URL-safe ASCII characters")
+	}
+	return nil
+}
+
 func (s *service) transcribe(c *gin.Context) {
 	select {
 	case s.uploadSem <- struct{}{}:
@@ -673,6 +736,13 @@ func (s *service) transcribe(c *gin.Context) {
 	}()
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+	taskID := c.GetHeader("X-Task-Id")
+	if taskID != "" {
+		if err := validateTaskID(taskID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	modelName := c.PostForm("model")
 	_, ok := s.upstreams[modelName]
 	if !ok {
@@ -683,12 +753,40 @@ func (s *service) transcribe(c *gin.Context) {
 	level := c.PostForm("level")
 	language := c.PostForm("language")
 	responseFormat := c.PostForm("response_format")
+	if taskID == "" {
+		taskID = c.PostForm("task_id")
+	}
+	if taskID == "" {
+		taskID = generateTaskID()
+	}
+	if err := validateTaskID(taskID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "audio file is required"})
 		return
 	}
+	task := &ASRTask{
+		ID:       taskID,
+		Status:   StatusPending,
+		Model:    modelName,
+		Level:    level,
+		Language: language,
+		Filename: file.Filename,
+	}
+	if err := s.taskManager.reserveTaskStorage(task, file.Size); err != nil {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		return
+	}
+	taskStorageHandedOff := false
+	defer func() {
+		if !taskStorageHandedOff {
+			s.taskManager.releaseTaskStorage(task)
+		}
+	}()
 	input, err := file.Open()
 	if err != nil {
 		log.Printf("open uploaded audio: %v", err)
@@ -753,31 +851,14 @@ func (s *service) transcribe(c *gin.Context) {
 	}
 	tempFileClosed = true
 
-	// Read custom task ID if provided, otherwise generate one
-	taskID := c.GetHeader("X-Task-Id")
-	if taskID == "" {
-		taskID = c.PostForm("task_id")
-	}
-	if taskID == "" {
-		taskID = generateTaskID()
-	}
-
 	taskCtx, taskCancel := context.WithCancel(context.Background())
 
-	task := &ASRTask{
-		ID:             taskID,
-		Status:         StatusPending,
-		Model:          modelName,
-		Level:          level,
-		Language:       language,
-		Filename:       file.Filename,
-		TempFilePath:   tempPath,
-		ResponseFormat: responseFormat,
-		ResultChan:     make(chan ASRTaskResult, 1),
-		Ctx:            taskCtx,
-		CancelFunc:     taskCancel,
-		CreatedAt:      time.Now(),
-	}
+	task.TempFilePath = tempPath
+	task.ResponseFormat = responseFormat
+	task.ResultChan = make(chan ASRTaskResult, 1)
+	task.Ctx = taskCtx
+	task.CancelFunc = taskCancel
+	task.CreatedAt = time.Now()
 
 	log.Printf("[ASR API] Adding task %s for file %s to queue", task.ID, task.Filename)
 	if err := s.taskManager.Add(task); err != nil {
@@ -786,6 +867,7 @@ func (s *service) transcribe(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
+	taskStorageHandedOff = true
 	<-s.uploadSem
 	uploadSlotHeld = false
 
@@ -828,6 +910,7 @@ func (s *service) transcribe(c *gin.Context) {
 }
 
 func (s *service) cancelTask(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCancelRequestSize)
 	id := c.Param("id")
 	if id == "" {
 		id = c.Query("id")
@@ -846,6 +929,10 @@ func (s *service) cancelTask(c *gin.Context) {
 
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "task id is required"})
+		return
+	}
+	if err := validateTaskID(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -876,6 +963,7 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 
 				publishResult := tm.finishTask(task, result)
 				removeTemporaryFile(task.TempFilePath)
+				tm.releaseTaskStorage(task)
 
 				if !publishResult {
 					continue
