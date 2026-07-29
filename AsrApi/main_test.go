@@ -679,6 +679,105 @@ func TestProcessTaskCancelsUpstreamAfterTransportFailure(t *testing.T) {
 	}
 }
 
+func TestTransportFailureAndExternalCancellationShareUpstreamRequest(t *testing.T) {
+	const taskID = "shared-transport-failure"
+	cancelRequests := make(chan struct{}, 2)
+	releaseCancel := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() {
+			close(releaseCancel)
+		})
+	})
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/cancel" {
+			cancelRequests <- struct{}{}
+			<-releaseCancel
+			writer.WriteHeader(http.StatusAccepted)
+			return
+		}
+		panic(http.ErrAbortHandler)
+	}))
+	defer upstreamServer.Close()
+
+	models := map[string]upstream{
+		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+	}
+	manager := NewTaskManager(1, maxUploadSize, models)
+	server := &service{
+		upstreams:    models,
+		client:       &http.Client{Timeout: time.Second},
+		statusClient: &http.Client{Timeout: time.Second},
+		taskManager:  manager,
+	}
+	task := testTask(taskID, "whisperx", writeTestAudio(t, "shared-failure.wav"))
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	processResult := make(chan ASRTaskResult, 1)
+	go func() {
+		processResult <- server.processTask(task)
+	}()
+	select {
+	case <-cancelRequests:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for compensating cancellation")
+	}
+
+	cancelResult := make(chan struct {
+		found bool
+		err   error
+	}, 1)
+	go func() {
+		found, err := manager.Cancel(task.ID, server.cancelTaskForModel)
+		cancelResult <- struct {
+			found bool
+			err   error
+		}{found: found, err: err}
+	}()
+
+	select {
+	case <-cancelRequests:
+		t.Fatal("expected external cancellation to share the compensating request")
+	case result := <-cancelResult:
+		t.Fatalf("external cancellation returned before the shared request: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseOnce.Do(func() {
+		close(releaseCancel)
+	})
+	result := <-processResult
+	if result.Err == nil {
+		t.Fatal("expected transcription transport failure")
+	}
+	cancelled := <-cancelResult
+	if !cancelled.found {
+		t.Fatal("expected external cancellation to find the active attempt")
+	}
+	if cancelled.err != nil {
+		t.Fatalf("external cancellation: %v", cancelled.err)
+	}
+	found, err := manager.Cancel(task.ID, server.cancelTaskForModel)
+	if err != nil {
+		t.Fatalf("cancel task after compensating cancellation: %v", err)
+	}
+	if found {
+		t.Fatal("expected confirmed compensating cancellation not to call upstream again")
+	}
+	select {
+	case <-cancelRequests:
+		t.Fatal("expected exactly one upstream cancellation request")
+	default:
+	}
+	if !manager.finishTask(task, result) {
+		t.Fatal("expected failed task to finish after compensating cancellation")
+	}
+	manager.releaseTaskStorage(task)
+}
+
 func TestCancelUpstreamPassesTaskID(t *testing.T) {
 	const taskID = "cancelled-task"
 	requestReceived := make(chan struct{}, 1)

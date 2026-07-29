@@ -163,14 +163,17 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		tm.mu.Unlock()
 		return waitForCancellationAttempt(attempt)
 	}
-	task, ok := tm.tasks[id]
-	if !ok {
-		record, retryable := tm.cancelledTaskIDs[id]
-		if retryable && record.Retryable {
+	if record, exists := tm.cancelledTaskIDs[id]; exists {
+		if record.Retryable {
 			attempt := tm.startCancellationAttempt(id)
 			tm.mu.Unlock()
 			return tm.retryCancellation(id, record, attempt, cancelUpstreamFunc)
 		}
+		tm.mu.Unlock()
+		return false, nil
+	}
+	task, ok := tm.tasks[id]
+	if !ok {
 		tm.mu.Unlock()
 		return false, nil
 	}
@@ -277,6 +280,26 @@ func waitForCancellationAttempt(attempt *cancellationAttempt) (bool, error) {
 	return true, attempt.err
 }
 
+func (tm *TaskManager) runCompensatingCancellation(id, model string, cancelUpstreamFunc func() error) error {
+	tm.mu.Lock()
+	tm.pruneCancelledTaskIDs(time.Now())
+	if attempt, exists := tm.cancellationAttempts[id]; exists {
+		tm.mu.Unlock()
+		_, err := waitForCancellationAttempt(attempt)
+		return err
+	}
+	attempt := tm.startCancellationAttempt(id)
+	tm.mu.Unlock()
+
+	cancelErr := cancelUpstreamFunc()
+
+	tm.mu.Lock()
+	tm.recordCancelledTaskID(id, model, cancelErr != nil, time.Now())
+	tm.finishCancellationAttempt(id, attempt, cancelErr)
+	tm.mu.Unlock()
+	return cancelErr
+}
+
 func (tm *TaskManager) reserveTaskStorage(task *ASRTask, size int64) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -304,12 +327,6 @@ func (tm *TaskManager) releaseTaskStorage(task *ASRTask) {
 	}
 	tm.storedBytes -= task.TempFileSize
 	task.storageReserved = false
-}
-
-func (tm *TaskManager) recordCancellationAttempt(id, model string, retryable bool) {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-	tm.recordCancelledTaskID(id, model, retryable, time.Now())
 }
 
 func (tm *TaskManager) recordCancelledTaskID(id, model string, retryable bool, now time.Time) {
@@ -1098,9 +1115,14 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 }
 
 func (s *service) cancelUpstreamAfterRequestFailure(task *ASRTask, backend upstream) {
-	cancelErr := s.cancelUpstream(backend, task.ID)
-	if s.taskManager != nil {
-		s.taskManager.recordCancellationAttempt(task.ID, task.Model, cancelErr != nil)
+	cancelUpstreamFunc := func() error {
+		return s.cancelUpstream(backend, task.ID)
+	}
+	var cancelErr error
+	if s.taskManager == nil {
+		cancelErr = cancelUpstreamFunc()
+	} else {
+		cancelErr = s.taskManager.runCompensatingCancellation(task.ID, task.Model, cancelUpstreamFunc)
 	}
 	if cancelErr != nil {
 		log.Printf("[Queue] Failed to stop upstream task %s after transcription request failure: %v", task.ID, cancelErr)

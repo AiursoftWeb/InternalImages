@@ -223,21 +223,18 @@ class InferenceProcess:
 
             if result["task_id"] != task_id:
                 continue
-            if result["status"] == "model_loaded":
-                with self.state_lock:
-                    if self.generation != generation:
-                        raise TranscriptionCancelled("transcription was cancelled")
-                    self.loaded_model = result["model"]
-                continue
-            if result["status"] == "invalid_model":
-                raise ValueError(result["error"])
-            if result["status"] == "failed":
-                raise RuntimeError(result["error"])
             with self.state_lock:
                 if self.generation != generation:
                     raise TranscriptionCancelled("transcription was cancelled")
+                if result["status"] == "model_loaded":
+                    self.loaded_model = result["model"]
+                    continue
+                if result["status"] == "invalid_model":
+                    raise ValueError(result["error"])
+                if result["status"] == "failed":
+                    raise RuntimeError(result["error"])
                 self.loaded_model = result["model"]
-            return result["payload"]
+                return result["payload"]
 
     @staticmethod
     def _terminate_process(process):
