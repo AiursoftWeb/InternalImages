@@ -1,0 +1,194 @@
+package server
+
+import (
+	"embed"
+	"errors"
+	"io/fs"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+)
+
+type service struct {
+	token                 string
+	upstreams             map[string]upstream
+	client                *http.Client
+	statusClient          *http.Client
+	whisperxEnabled       bool
+	funasrEnabled         bool
+	funasrRealtimeEnabled bool
+	whisperxSingleModel   bool
+	taskManager           *TaskManager
+	uploadSem             chan struct{}
+	transcribeSem         chan struct{}
+}
+
+func Run(distFS embed.FS) error {
+	if err := loadDotenv(".env"); err != nil {
+		return err
+	}
+
+	server, err := newServiceFromEnvironment()
+	if err != nil {
+		return err
+	}
+
+	router, err := newRouter(server, distFS)
+	if err != nil {
+		return err
+	}
+
+	return router.Run(":" + environmentOrDefault("PORT", "8080"))
+}
+
+func loadDotenv(filename string) error {
+	if err := godotenv.Load(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func newRouter(server *service, distFS embed.FS) (*gin.Engine, error) {
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery())
+	dist, err := fs.Sub(distFS, "web/dist")
+	if err != nil {
+		return nil, err
+	}
+	assetsFS, err := fs.Sub(dist, "assets")
+	if err != nil {
+		return nil, err
+	}
+	router.StaticFS("/assets", http.FS(assetsFS))
+	router.GET("/", func(c *gin.Context) {
+		data, err := fs.ReadFile(dist, "index.html")
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	})
+	router.GET("/healthz", server.health)
+	router.GET("/config", server.getConfig)
+	v1 := router.Group("/v1")
+	v1.Use(server.authenticate)
+	v1.GET("/models", server.models)
+	v1.GET("/system", server.system)
+	v1.POST("/audio/transcriptions", server.transcribe)
+	v1.POST("/tasks/cancel", server.cancelTask)
+	v1.POST("/tasks/:id/cancel", server.cancelTask)
+	return router, nil
+}
+
+func newServiceFromEnvironment() (*service, error) {
+	token := os.Getenv("ASR_API_TOKEN")
+	if token == "" {
+		return nil, errors.New("ASR_API_TOKEN is required")
+	}
+
+	whisperxEnabled := environmentOrDefaultBool("ASR_ENABLE_WHISPERX", true)
+	funasrEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR", true)
+	funasrRealtimeEnabled := environmentOrDefaultBool("ASR_ENABLE_FUNASR_REALTIME", true)
+	whisperxSingleModel := environmentOrDefaultBool("ASR_WHISPERX_SINGLE_MODEL", false)
+
+	if !whisperxEnabled && !funasrEnabled {
+		return nil, errors.New("at least one of ASR_ENABLE_WHISPERX or ASR_ENABLE_FUNASR must be true")
+	}
+
+	var whisperXURL, whisperXToken string
+	if whisperxEnabled {
+		whisperXToken = os.Getenv("ASR_WHISPERX_TOKEN")
+		if whisperXToken == "" {
+			return nil, errors.New("ASR_WHISPERX_TOKEN is required when whisperx is enabled")
+		}
+		whisperXURL = strings.TrimRight(os.Getenv("ASR_WHISPERX_URL"), "/")
+		if whisperXURL == "" {
+			return nil, errors.New("ASR_WHISPERX_URL is required when whisperx is enabled")
+		}
+		if _, err := url.ParseRequestURI(whisperXURL); err != nil {
+			return nil, errors.New("ASR_WHISPERX_URL must be a valid URL")
+		}
+	}
+
+	var funASRURL, funASRToken string
+	if funasrEnabled {
+		funASRToken = os.Getenv("ASR_FUNASR_TOKEN")
+		if funASRToken == "" {
+			return nil, errors.New("ASR_FUNASR_TOKEN is required when funasr is enabled")
+		}
+		funASRURL = strings.TrimRight(os.Getenv("ASR_FUNASR_URL"), "/")
+		if funASRURL == "" {
+			return nil, errors.New("ASR_FUNASR_URL is required when funasr is enabled")
+		}
+		if _, err := url.ParseRequestURI(funASRURL); err != nil {
+			return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
+		}
+	}
+
+	upstreams := make(map[string]upstream)
+	if whisperxEnabled {
+		upstreams["whisperx"] = upstream{
+			url:   whisperXURL,
+			model: environmentOrDefault("ASR_WHISPERX_MODEL", "large-v3"),
+			token: whisperXToken,
+		}
+	}
+	if funasrEnabled {
+		upstreams["funasr"] = upstream{
+			url:   funASRURL,
+			model: environmentOrDefault("ASR_FUNASR_MODEL", "sensevoice"),
+			token: funASRToken,
+		}
+	}
+
+	maxStoredBytes := int64(environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB)) << 20
+	tm := NewTaskManager(16, maxStoredBytes, upstreams)
+	s := &service{
+		token:                 token,
+		upstreams:             upstreams,
+		client:                &http.Client{Timeout: 10 * time.Minute},
+		statusClient:          &http.Client{Timeout: cancelUpstreamTimeout},
+		whisperxEnabled:       whisperxEnabled,
+		funasrEnabled:         funasrEnabled,
+		funasrRealtimeEnabled: funasrRealtimeEnabled,
+		whisperxSingleModel:   whisperxSingleModel,
+		taskManager:           tm,
+		uploadSem:             make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_UPLOADS", 2)),
+		transcribeSem:         make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)),
+	}
+	s.startQueueWorkers(tm)
+	return s, nil
+}
+
+func environmentOrDefault(name, defaultValue string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func environmentOrDefaultInt(name string, defaultValue int) int {
+	if value := os.Getenv(name); value != "" {
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultValue
+}
+
+func environmentOrDefaultBool(name string, defaultValue bool) bool {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
+	if b, err := strconv.ParseBool(value); err == nil {
+		return b
+	}
+	return defaultValue
+}
