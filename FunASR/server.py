@@ -51,6 +51,8 @@ async def require_model_token(request: Request, call_next):
 
 MODEL_REGISTRY = {}
 DEVICE = "cpu"
+CANCEL_TOMBSTONE_TTL = 10 * 60
+MAX_CANCEL_TOMBSTONES = 1024
 
 MODEL_CONFIGS = {
     "sensevoice": {
@@ -195,6 +197,7 @@ class InferenceProcess:
         self.generation = 0
         self.active_task_id = None
         self.loaded_model = None
+        self.cancelled_task_ids = {}
 
     def configure(self, device):
         with self.state_lock:
@@ -237,10 +240,11 @@ class InferenceProcess:
 
     def cancel(self, task_id):
         with self.state_lock:
+            self._record_cancelled_task(task_id)
             if self.active_task_id is None or self.process is None:
-                return False
+                return "accepted"
             if not secrets.compare_digest(self.active_task_id, task_id):
-                return False
+                return "accepted"
             process = self.process
             self.process = None
             self.command_queue = None
@@ -249,7 +253,7 @@ class InferenceProcess:
             self.loaded_model = None
             self.generation += 1
             self._terminate_process(process)
-            return True
+            return "cancelled"
 
     def stop(self):
         with self.state_lock:
@@ -271,11 +275,31 @@ class InferenceProcess:
 
     def _prepare_task(self, task_id=None):
         with self.state_lock:
+            task_id = task_id or secrets.token_hex(16)
+            self._prune_cancelled_tasks()
+            if task_id in self.cancelled_task_ids:
+                raise TranscriptionCancelled("transcription was cancelled before execution")
             if self.process is None or not self.process.is_alive():
                 self._start_process()
-            task_id = task_id or secrets.token_hex(16)
             self.active_task_id = task_id
             return task_id, self.generation, self.command_queue, self.result_queue
+
+    def _record_cancelled_task(self, task_id):
+        self._prune_cancelled_tasks()
+        self.cancelled_task_ids[task_id] = time.monotonic() + CANCEL_TOMBSTONE_TTL
+        while len(self.cancelled_task_ids) > MAX_CANCEL_TOMBSTONES:
+            oldest_task_id = min(self.cancelled_task_ids, key=self.cancelled_task_ids.get)
+            del self.cancelled_task_ids[oldest_task_id]
+
+    def _prune_cancelled_tasks(self):
+        now = time.monotonic()
+        expired_task_ids = [
+            task_id
+            for task_id, expires_at in self.cancelled_task_ids.items()
+            if expires_at <= now
+        ]
+        for task_id in expired_task_ids:
+            del self.cancelled_task_ids[task_id]
 
     def _start_process(self):
         self.command_queue = self.context.Queue()
@@ -393,9 +417,12 @@ def transcribe(
 def cancel(x_task_id: str = Header(default="", alias="X-Task-Id")):
     if not x_task_id:
         raise HTTPException(status_code=400, detail="task ID is required")
-    if not inference_process.cancel(x_task_id):
-        raise HTTPException(status_code=404, detail="matching transcription is not running")
-    return {"status": "cancelled", "id": x_task_id}
+    status = inference_process.cancel(x_task_id)
+    status_code = 200 if status == "cancelled" else 202
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": status, "id": x_task_id},
+    )
 
 
 @app.get("/v1/models")

@@ -26,7 +26,12 @@ import (
 //go:embed web/dist
 var distFS embed.FS
 
-const maxUploadSize = 100 << 20
+const (
+	maxUploadSize         = 100 << 20
+	maxCancelTombstones   = 1024
+	cancelTombstoneTTL    = 10 * time.Minute
+	cancelUpstreamTimeout = 12 * time.Second
+)
 
 type upstream struct {
 	url   string
@@ -37,11 +42,13 @@ type upstream struct {
 type TaskStatus string
 
 const (
-	StatusPending   TaskStatus = "pending"
-	StatusRunning   TaskStatus = "running"
-	StatusCompleted TaskStatus = "completed"
-	StatusFailed    TaskStatus = "failed"
-	StatusCancelled TaskStatus = "cancelled"
+	StatusPending      TaskStatus = "pending"
+	StatusRunning      TaskStatus = "running"
+	StatusCancelling   TaskStatus = "cancelling"
+	StatusCancelFailed TaskStatus = "cancel_failed"
+	StatusCompleted    TaskStatus = "completed"
+	StatusFailed       TaskStatus = "failed"
+	StatusCancelled    TaskStatus = "cancelled"
 )
 
 type ASRTask struct {
@@ -67,10 +74,17 @@ type ASRTaskResult struct {
 	Err        error
 }
 
+type cancellationRecord struct {
+	Model     string
+	ExpiresAt time.Time
+	Retryable bool
+}
+
 type TaskManager struct {
-	mu     sync.RWMutex
-	tasks  map[string]*ASRTask
-	queues map[string]*taskQueue
+	mu               sync.RWMutex
+	tasks            map[string]*ASRTask
+	queues           map[string]*taskQueue
+	cancelledTaskIDs map[string]cancellationRecord
 }
 
 type taskQueue struct {
@@ -81,8 +95,9 @@ type taskQueue struct {
 
 func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
 	manager := &TaskManager{
-		tasks:  make(map[string]*ASRTask),
-		queues: make(map[string]*taskQueue, len(models)),
+		tasks:            make(map[string]*ASRTask),
+		queues:           make(map[string]*taskQueue, len(models)),
+		cancelledTaskIDs: make(map[string]cancellationRecord),
 	}
 	for model := range models {
 		manager.queues[model] = &taskQueue{
@@ -97,6 +112,10 @@ func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
 func (tm *TaskManager) Add(task *ASRTask) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+	tm.pruneCancelledTaskIDs(time.Now())
+	if _, exists := tm.cancelledTaskIDs[task.ID]; exists {
+		return fmt.Errorf("task %s was recently cancelled", task.ID)
+	}
 	if _, exists := tm.tasks[task.ID]; exists {
 		return fmt.Errorf("task %s already exists", task.ID)
 	}
@@ -117,50 +136,151 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	return nil
 }
 
-func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID string)) bool {
+func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
 	tm.mu.Lock()
+	tm.pruneCancelledTaskIDs(time.Now())
 	task, ok := tm.tasks[id]
 	if !ok {
+		record, retryable := tm.cancelledTaskIDs[id]
 		tm.mu.Unlock()
-		return false
+		if retryable && record.Retryable {
+			return tm.retryCancellation(id, record, cancelUpstreamFunc)
+		}
+		return false, nil
 	}
 	if task.Status == StatusCompleted || task.Status == StatusFailed || task.Status == StatusCancelled {
 		tm.mu.Unlock()
-		return false
+		return false, nil
 	}
 	prevStatus := task.Status
-	task.Status = StatusCancelled
 	if prevStatus == StatusPending {
+		task.Status = StatusCancelled
 		tm.removePendingTask(task)
 		delete(tm.tasks, id)
-	}
-	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
-	select {
-	case task.ResultChan <- ASRTaskResult{
-		StatusCode: http.StatusBadRequest,
-		Body:       []byte(`{"error":"Task was cancelled"}`),
-		Err:        errors.New("task was cancelled"),
-	}:
-	default:
-	}
-	if prevStatus == StatusRunning {
+		tm.recordCancelledTaskID(id, task.Model, false, time.Now())
 		if task.CancelFunc != nil {
 			task.CancelFunc()
 		}
 		tm.mu.Unlock()
-		if cancelUpstreamFunc != nil {
-			cancelUpstreamFunc(task.Model, task.ID)
-		}
-		tm.mu.Lock()
-		if currentTask := tm.tasks[id]; currentTask == task {
-			delete(tm.tasks, id)
-		}
-		tm.mu.Unlock()
-	} else {
-		tm.mu.Unlock()
+		log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
+		publishTaskResult(task, cancelledTaskResult())
 		removeTemporaryFile(task.TempFilePath)
+		return true, nil
 	}
-	return true
+
+	task.Status = StatusCancelling
+	if task.CancelFunc != nil {
+		task.CancelFunc()
+	}
+	tm.mu.Unlock()
+
+	var cancelErr error
+	if cancelUpstreamFunc != nil {
+		cancelErr = cancelUpstreamFunc(task.Model, task.ID)
+	}
+
+	tm.mu.Lock()
+	if currentTask := tm.tasks[id]; currentTask == task {
+		if cancelErr == nil {
+			task.Status = StatusCancelled
+		} else {
+			task.Status = StatusCancelFailed
+		}
+		delete(tm.tasks, id)
+		tm.recordCancelledTaskID(id, task.Model, cancelErr != nil, time.Now())
+	}
+	tm.mu.Unlock()
+
+	if cancelErr != nil {
+		log.Printf("[Queue] Failed to confirm cancellation for task %s: %v", id, cancelErr)
+		publishTaskResult(task, ASRTaskResult{
+			StatusCode: http.StatusBadGateway,
+			Body:       []byte(`{"error":"failed to confirm upstream cancellation"}`),
+			Err:        cancelErr,
+		})
+		return true, cancelErr
+	}
+
+	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
+	publishTaskResult(task, cancelledTaskResult())
+	return true, nil
+}
+
+func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
+	var cancelErr error
+	if cancelUpstreamFunc != nil {
+		cancelErr = cancelUpstreamFunc(record.Model, id)
+	}
+
+	tm.mu.Lock()
+	if currentRecord, exists := tm.cancelledTaskIDs[id]; exists {
+		currentRecord.ExpiresAt = time.Now().Add(cancelTombstoneTTL)
+		if cancelErr == nil {
+			currentRecord.Retryable = false
+		}
+		tm.cancelledTaskIDs[id] = currentRecord
+	}
+	tm.mu.Unlock()
+
+	if cancelErr != nil {
+		log.Printf("[Queue] Failed to confirm cancellation retry for task %s: %v", id, cancelErr)
+		return true, cancelErr
+	}
+	log.Printf("[Queue] Upstream cancellation retry succeeded for task %s", id)
+	return true, nil
+}
+
+func (tm *TaskManager) recordCancellationAttempt(id, model string, retryable bool) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.recordCancelledTaskID(id, model, retryable, time.Now())
+}
+
+func (tm *TaskManager) recordCancelledTaskID(id, model string, retryable bool, now time.Time) {
+	tm.pruneCancelledTaskIDs(now)
+	if currentRecord, exists := tm.cancelledTaskIDs[id]; exists && !currentRecord.Retryable {
+		retryable = false
+	}
+	tm.cancelledTaskIDs[id] = cancellationRecord{
+		Model:     model,
+		ExpiresAt: now.Add(cancelTombstoneTTL),
+		Retryable: retryable,
+	}
+	if len(tm.cancelledTaskIDs) > maxCancelTombstones {
+		oldestID := id
+		oldestExpiry := tm.cancelledTaskIDs[id].ExpiresAt
+		for cancelledID, record := range tm.cancelledTaskIDs {
+			if record.ExpiresAt.Before(oldestExpiry) {
+				oldestID = cancelledID
+				oldestExpiry = record.ExpiresAt
+			}
+		}
+		delete(tm.cancelledTaskIDs, oldestID)
+	}
+}
+
+func (tm *TaskManager) pruneCancelledTaskIDs(now time.Time) {
+	for id, record := range tm.cancelledTaskIDs {
+		if !record.ExpiresAt.After(now) {
+			delete(tm.cancelledTaskIDs, id)
+		}
+	}
+}
+
+func cancelledTaskResult() ASRTaskResult {
+	return ASRTaskResult{
+		StatusCode: http.StatusBadRequest,
+		Body:       []byte(`{"error":"Task was cancelled"}`),
+		Err:        errors.New("task was cancelled"),
+	}
+}
+
+func publishTaskResult(task *ASRTask, result ASRTaskResult) {
+	select {
+	case task.ResultChan <- result:
+	default:
+		log.Printf("[Queue] Task %s result channel is full (handler probably returned already)", task.ID)
+	}
 }
 
 func (tm *TaskManager) removePendingTask(task *ASRTask) {
@@ -188,6 +308,7 @@ type service struct {
 	whisperxSingleModel   bool
 	taskManager           *TaskManager
 	uploadSem             chan struct{}
+	transcribeSem         chan struct{}
 }
 
 func main() {
@@ -312,13 +433,14 @@ func newServiceFromEnvironment() (*service, error) {
 		token:                 token,
 		upstreams:             upstreams,
 		client:                &http.Client{Timeout: 10 * time.Minute},
-		statusClient:          &http.Client{Timeout: 5 * time.Second},
+		statusClient:          &http.Client{Timeout: cancelUpstreamTimeout},
 		whisperxEnabled:       whisperxEnabled,
 		funasrEnabled:         funasrEnabled,
 		funasrRealtimeEnabled: funasrRealtimeEnabled,
 		whisperxSingleModel:   whisperxSingleModel,
 		taskManager:           tm,
-		uploadSem:             make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)),
+		uploadSem:             make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_UPLOADS", 2)),
+		transcribeSem:         make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)),
 	}
 	s.startQueueWorkers(tm)
 	return s, nil
@@ -665,7 +787,9 @@ func (s *service) transcribe(c *gin.Context) {
 
 	case <-c.Request.Context().Done():
 		log.Printf("[ASR API] Client disconnected during execution of task %s, triggering cancellation...", task.ID)
-		s.taskManager.Cancel(task.ID, s.cancelTaskForModel)
+		if _, err := s.taskManager.Cancel(task.ID, s.cancelTaskForModel); err != nil {
+			log.Printf("[ASR API] Failed to confirm cancellation after client disconnected for task %s: %v", task.ID, err)
+		}
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
 	}
 }
@@ -692,9 +816,13 @@ func (s *service) cancelTask(c *gin.Context) {
 		return
 	}
 
-	success := s.taskManager.Cancel(id, s.cancelTaskForModel)
-	if !success {
+	found, err := s.taskManager.Cancel(id, s.cancelTaskForModel)
+	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("task %s not found or already completed", id)})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to confirm upstream cancellation"})
 		return
 	}
 
@@ -719,11 +847,7 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 				if !publishResult {
 					continue
 				}
-				select {
-				case task.ResultChan <- result:
-				default:
-					log.Printf("[Queue] Task %s result channel is full (handler probably returned already)", task.ID)
-				}
+				publishTaskResult(task, result)
 			}
 		}(queue)
 	}
@@ -776,12 +900,13 @@ func removeTemporaryFile(path string) {
 
 func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err := task.Ctx.Err(); err != nil {
-		return ASRTaskResult{
-			StatusCode: http.StatusBadRequest,
-			Body:       []byte(`{"error":"Task was cancelled"}`),
-			Err:        err,
-		}
+		return cancelledTaskResult()
 	}
+
+	if !s.acquireTranscriptionSlot(task.Ctx) {
+		return cancelledTaskResult()
+	}
+	defer s.releaseTranscriptionSlot()
 
 	backend, ok := s.upstreams[task.Model]
 	if !ok {
@@ -824,6 +949,9 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	log.Printf("[Queue] Sending HTTP post request to %s upstream for task %s", task.Model, task.ID)
 	response, err := s.client.Do(request)
 	if err != nil {
+		if task.Ctx.Err() == nil {
+			s.cancelUpstreamAfterRequestFailure(task, backend)
+		}
 		return ASRTaskResult{
 			StatusCode: http.StatusBadGateway,
 			Body:       []byte(`{"error":"model service is unavailable or request was cancelled"}`),
@@ -848,34 +976,71 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	}
 }
 
-func (s *service) cancelTaskForModel(model, taskID string) {
+func (s *service) cancelUpstreamAfterRequestFailure(task *ASRTask, backend upstream) {
+	cancelErr := s.cancelUpstream(backend, task.ID)
+	if s.taskManager != nil {
+		s.taskManager.recordCancellationAttempt(task.ID, task.Model, cancelErr != nil)
+	}
+	if cancelErr != nil {
+		log.Printf("[Queue] Failed to stop upstream task %s after transcription request failure: %v", task.ID, cancelErr)
+	}
+}
+
+func (s *service) acquireTranscriptionSlot(ctx context.Context) bool {
+	if s.transcribeSem == nil {
+		return true
+	}
+	select {
+	case s.transcribeSem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (s *service) releaseTranscriptionSlot() {
+	if s.transcribeSem != nil {
+		<-s.transcribeSem
+	}
+}
+
+func (s *service) cancelTaskForModel(model, taskID string) error {
 	if model != "whisperx" && model != "funasr" {
-		return
+		return fmt.Errorf("model %s does not support task cancellation", model)
 	}
 	backend, ok := s.upstreams[model]
 	if !ok {
-		return
+		return fmt.Errorf("model %s is not configured", model)
 	}
-	s.cancelUpstream(backend, taskID)
+	return s.cancelUpstream(backend, taskID)
 }
 
-func (s *service) cancelUpstream(backend upstream, taskID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (s *service) cancelUpstream(backend upstream, taskID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cancelUpstreamTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.url+"/v1/cancel", nil)
 	if err != nil {
-		log.Printf("[Queue] Failed to create cancel request for upstream %s: %v", backend.url, err)
-		return
+		return fmt.Errorf("create cancel request for upstream %s: %w", backend.url, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+backend.token)
 	req.Header.Set("X-Task-Id", taskID)
 	resp, err := s.statusClient.Do(req)
 	if err != nil {
-		log.Printf("[Queue] Failed to send cancel request to upstream %s: %v", backend.url, err)
-		return
+		return fmt.Errorf("send cancel request to upstream %s: %w", backend.url, err)
 	}
-	defer resp.Body.Close()
-	log.Printf("[Queue] Sent cancel request to upstream %s, response status: %d", backend.url, resp.StatusCode)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("[Queue] Failed to close cancel response from upstream %s: %v", backend.url, err)
+		}
+	}()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return fmt.Errorf("read cancel response from upstream %s: %w", backend.url, err)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("upstream %s returned cancellation status %d", backend.url, resp.StatusCode)
+	}
+	log.Printf("[Queue] Upstream %s accepted cancellation for task %s with status %d", backend.url, taskID, resp.StatusCode)
+	return nil
 }
 
 func buildUpstreamBody(input io.Reader, filename, model, language, responseFormat string) (io.Reader, string) {
