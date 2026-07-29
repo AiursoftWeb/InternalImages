@@ -148,6 +148,75 @@ func TestCancelRunningTaskWaitsForUpstreamConfirmationBeforePublishingResult(t *
 	}
 }
 
+func TestConcurrentCancellationSharesUpstreamResult(t *testing.T) {
+	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
+	task := testTask("running-task", "whisperx", "")
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add running task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	cancelCalls := make(chan struct{}, 2)
+	releaseCancel := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() {
+			close(releaseCancel)
+		})
+	})
+	upstreamErr := errors.New("upstream unavailable")
+	cancelUpstream := func(_, _ string) error {
+		cancelCalls <- struct{}{}
+		<-releaseCancel
+		return upstreamErr
+	}
+	results := make(chan struct {
+		found bool
+		err   error
+	}, 2)
+	cancel := func() {
+		found, err := manager.Cancel(task.ID, cancelUpstream)
+		results <- struct {
+			found bool
+			err   error
+		}{found: found, err: err}
+	}
+
+	go cancel()
+	select {
+	case <-cancelCalls:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream cancellation")
+	}
+	go cancel()
+
+	select {
+	case <-cancelCalls:
+		t.Fatal("expected concurrent cancellation to share the upstream request")
+	case result := <-results:
+		t.Fatalf("concurrent cancellation returned before upstream result: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseOnce.Do(func() {
+		close(releaseCancel)
+	})
+	for range 2 {
+		result := <-results
+		if !result.found {
+			t.Fatal("expected both cancellation calls to find the running task")
+		}
+		if !errors.Is(result.err, upstreamErr) {
+			t.Fatalf("expected shared upstream error, got %v", result.err)
+		}
+	}
+	select {
+	case <-cancelCalls:
+		t.Fatal("expected exactly one upstream cancellation call")
+	default:
+	}
+}
+
 func TestCancelRunningTaskRemovesTaskWhenUpstreamCancellationFails(t *testing.T) {
 	manager := NewTaskManager(1, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")

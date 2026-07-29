@@ -80,11 +80,17 @@ type cancellationRecord struct {
 	Retryable bool
 }
 
+type cancellationAttempt struct {
+	done chan struct{}
+	err  error
+}
+
 type TaskManager struct {
-	mu               sync.RWMutex
-	tasks            map[string]*ASRTask
-	queues           map[string]*taskQueue
-	cancelledTaskIDs map[string]cancellationRecord
+	mu                   sync.RWMutex
+	tasks                map[string]*ASRTask
+	queues               map[string]*taskQueue
+	cancelledTaskIDs     map[string]cancellationRecord
+	cancellationAttempts map[string]*cancellationAttempt
 }
 
 type taskQueue struct {
@@ -95,9 +101,10 @@ type taskQueue struct {
 
 func NewTaskManager(queueSize int, models map[string]upstream) *TaskManager {
 	manager := &TaskManager{
-		tasks:            make(map[string]*ASRTask),
-		queues:           make(map[string]*taskQueue, len(models)),
-		cancelledTaskIDs: make(map[string]cancellationRecord),
+		tasks:                make(map[string]*ASRTask),
+		queues:               make(map[string]*taskQueue, len(models)),
+		cancelledTaskIDs:     make(map[string]cancellationRecord),
+		cancellationAttempts: make(map[string]*cancellationAttempt),
 	}
 	for model := range models {
 		manager.queues[model] = &taskQueue{
@@ -139,13 +146,19 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
 	tm.mu.Lock()
 	tm.pruneCancelledTaskIDs(time.Now())
+	if attempt, exists := tm.cancellationAttempts[id]; exists {
+		tm.mu.Unlock()
+		return waitForCancellationAttempt(attempt)
+	}
 	task, ok := tm.tasks[id]
 	if !ok {
 		record, retryable := tm.cancelledTaskIDs[id]
-		tm.mu.Unlock()
 		if retryable && record.Retryable {
-			return tm.retryCancellation(id, record, cancelUpstreamFunc)
+			attempt := tm.startCancellationAttempt(id)
+			tm.mu.Unlock()
+			return tm.retryCancellation(id, record, attempt, cancelUpstreamFunc)
 		}
+		tm.mu.Unlock()
 		return false, nil
 	}
 	if task.Status == StatusCompleted || task.Status == StatusFailed || task.Status == StatusCancelled {
@@ -168,6 +181,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		return true, nil
 	}
 
+	attempt := tm.startCancellationAttempt(id)
 	task.Status = StatusCancelling
 	if task.CancelFunc != nil {
 		task.CancelFunc()
@@ -189,6 +203,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		delete(tm.tasks, id)
 		tm.recordCancelledTaskID(id, task.Model, cancelErr != nil, time.Now())
 	}
+	tm.finishCancellationAttempt(id, attempt, cancelErr)
 	tm.mu.Unlock()
 
 	if cancelErr != nil {
@@ -206,7 +221,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 	return true, nil
 }
 
-func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
+func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, attempt *cancellationAttempt, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
 	var cancelErr error
 	if cancelUpstreamFunc != nil {
 		cancelErr = cancelUpstreamFunc(record.Model, id)
@@ -220,6 +235,7 @@ func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, c
 		}
 		tm.cancelledTaskIDs[id] = currentRecord
 	}
+	tm.finishCancellationAttempt(id, attempt, cancelErr)
 	tm.mu.Unlock()
 
 	if cancelErr != nil {
@@ -228,6 +244,23 @@ func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, c
 	}
 	log.Printf("[Queue] Upstream cancellation retry succeeded for task %s", id)
 	return true, nil
+}
+
+func (tm *TaskManager) startCancellationAttempt(id string) *cancellationAttempt {
+	attempt := &cancellationAttempt{done: make(chan struct{})}
+	tm.cancellationAttempts[id] = attempt
+	return attempt
+}
+
+func (tm *TaskManager) finishCancellationAttempt(id string, attempt *cancellationAttempt, err error) {
+	attempt.err = err
+	close(attempt.done)
+	delete(tm.cancellationAttempts, id)
+}
+
+func waitForCancellationAttempt(attempt *cancellationAttempt) (bool, error) {
+	<-attempt.done
+	return true, attempt.err
 }
 
 func (tm *TaskManager) recordCancellationAttempt(id, model string, retryable bool) {
