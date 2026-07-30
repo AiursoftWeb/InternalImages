@@ -1,11 +1,16 @@
 import os
 
-# Curated WhisperX model levels baked into the image at build time.
-# Edit this list and rebuild to change the offline-available models.
-# Any other whisperx model name may still be requested at runtime; it will
-# be downloaded on demand (requires network access on first use).
-if os.getenv("SINGLE_MODEL", "false").lower() == "true":
-    BAKED_MODELS = ["large-v3"]
-else:
-    BAKED_MODELS = ["small", "medium", "large-v3"]
 
+def baked_models(single_model):
+    if (single_model or "true").lower() == "true":
+        return ["large-v3"]
+    return ["small", "medium", "large-v3"]
+
+
+BAKED_MODELS = baked_models(os.getenv("SINGLE_MODEL"))
+
+
+def ensure_baked_model(name):
+    if name not in BAKED_MODELS:
+        allowed_models = ", ".join(BAKED_MODELS)
+        raise ValueError(f"model '{name}' is not baked into this image; allowed models: {allowed_models}")

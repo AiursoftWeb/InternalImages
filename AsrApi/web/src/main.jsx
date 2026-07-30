@@ -88,6 +88,20 @@ function defaultRealtimeUrl() {
   return `${protocol}//${window.location.hostname}:10095`
 }
 
+function parseRealtimeMessage(data) {
+  const message = JSON.parse(data)
+  if (message === null || Array.isArray(message) || typeof message !== 'object') {
+    throw new TypeError('Realtime message must be an object')
+  }
+  if ('is_final' in message && typeof message.is_final !== 'boolean') {
+    throw new TypeError('Realtime message is_final must be a boolean')
+  }
+  if ('text' in message && typeof message.text !== 'string') {
+    throw new TypeError('Realtime message text must be a string')
+  }
+  return message
+}
+
 function resampleAudio(samples, sourceRate, targetRate) {
   if (sourceRate === targetRate) return samples
   const outputLength = Math.round(samples.length * targetRate / sourceRate)
@@ -139,7 +153,7 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
-  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: false })
+  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: true })
   const [modelOptions, setModelOptions] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState('')
@@ -385,9 +399,14 @@ function App() {
         is_speaking: true,
       }))
       try {
-        microphoneRef.current = await startMicrophone((pcm) => {
+        const stopMicrophone = await startMicrophone((pcm) => {
           if (socket.readyState === WebSocket.OPEN) socket.send(pcm)
         })
+        if (socketRef.current !== socket || socket.readyState !== WebSocket.OPEN) {
+          stopMicrophone()
+          return
+        }
+        microphoneRef.current = stopMicrophone
         setRealtimeStatus('正在实时识别')
       } catch (microphoneError) {
         stoppingRealtimeRef.current = true
@@ -397,7 +416,15 @@ function App() {
     }
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data)
+      let message
+      try {
+        message = parseRealtimeMessage(event.data)
+      } catch {
+        stoppingRealtimeRef.current = true
+        setRealtimeError('实时服务返回了无效的 JSON 消息。')
+        socket.close(1003, 'Invalid JSON response')
+        return
+      }
       if (message.is_final) {
         setRealtimeFinal(message.text || '')
         stoppingRealtimeRef.current = true
@@ -522,7 +549,7 @@ function App() {
                                 <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
                                 {levelOptions.map((option) => (
                                   <MenuItem key={option.id} value={option.id}>
-                                    {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                                    {option.id}
                                   </MenuItem>
                                 ))}
                               </>
@@ -545,7 +572,7 @@ function App() {
                   <Button component="label" variant="outlined" color="primary" startIcon={<CloudUploadOutlinedIcon />} sx={{ minHeight: 88, borderStyle: 'dashed', justifyContent: 'flex-start', px: 3, textTransform: 'none' }}>
                     <Box textAlign="left">
                       <Typography fontWeight={600}>{file ? file.name : '选择音频文件'}</Typography>
-                      <Typography variant="body2" color="text.secondary">支持服务端接受的音频格式，文件上限 100 MiB</Typography>
+                      <Typography variant="body2" color="text.secondary">支持服务端接受的音频格式，音频文件上限 100 MiB</Typography>
                     </Box>
                     <input hidden type="file" accept="audio/*" onChange={(event) => setFile(event.target.files?.[0] || null)} />
                   </Button>

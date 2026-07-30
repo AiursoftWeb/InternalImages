@@ -1,6 +1,6 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
-ARG SINGLE_MODEL=false
+ARG SINGLE_MODEL=true
 ENV SINGLE_MODEL=${SINGLE_MODEL}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -30,6 +30,9 @@ RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart
 # comfortably on one RTX 3090 (24G) leaving headroom for other services.
 COPY models_config.py bake_models.py /app/
 RUN python bake_models.py
+
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 COPY app.py /app/app.py
 
