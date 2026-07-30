@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"embed"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -1302,19 +1304,53 @@ func TestNewServiceFromEnvironmentValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("success_valid_env", func(t *testing.T) {
+	t.Run("funasr_missing_token", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "false")
+		t.Setenv("ASR_ENABLE_FUNASR", "true")
+		t.Setenv("ASR_FUNASR_TOKEN", "")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "ASR_FUNASR_TOKEN is required") {
+			t.Fatalf("expected ASR_FUNASR_TOKEN error, got: %v", err)
+		}
+	})
+
+	t.Run("funasr_missing_url", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "false")
+		t.Setenv("ASR_ENABLE_FUNASR", "true")
+		t.Setenv("ASR_FUNASR_TOKEN", "ftoken")
+		t.Setenv("ASR_FUNASR_URL", "")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "ASR_FUNASR_URL is required") {
+			t.Fatalf("expected ASR_FUNASR_URL error, got: %v", err)
+		}
+	})
+
+	t.Run("funasr_invalid_url", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "false")
+		t.Setenv("ASR_ENABLE_FUNASR", "true")
+		t.Setenv("ASR_FUNASR_TOKEN", "ftoken")
+		t.Setenv("ASR_FUNASR_URL", "ftp://invalid")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "ASR_FUNASR_URL") {
+			t.Fatalf("expected ASR_FUNASR_URL invalid error, got: %v", err)
+		}
+	})
+
+	t.Run("both_engines_success", func(t *testing.T) {
 		t.Setenv("ASR_API_TOKEN", "test-token")
 		t.Setenv("ASR_ENABLE_WHISPERX", "true")
 		t.Setenv("ASR_WHISPERX_TOKEN", "wtoken")
 		t.Setenv("ASR_WHISPERX_URL", "http://localhost:8000")
-		t.Setenv("ASR_ENABLE_FUNASR", "false")
+		t.Setenv("ASR_ENABLE_FUNASR", "true")
+		t.Setenv("ASR_FUNASR_TOKEN", "ftoken")
+		t.Setenv("ASR_FUNASR_URL", "http://localhost:8001")
 
 		svc, err := newServiceFromEnvironment()
 		if err != nil {
 			t.Fatalf("expected success, got error: %v", err)
 		}
-		if svc == nil || !svc.whisperxEnabled || svc.funasrEnabled {
-			t.Fatalf("unexpected service instance: %+v", svc)
+		if svc == nil || len(svc.upstreams) != 2 {
+			t.Fatalf("expected 2 upstreams, got: %+v", svc)
 		}
 	})
 }
@@ -1441,4 +1477,448 @@ func TestCancelTaskForModel(t *testing.T) {
 		}
 	})
 }
+
+func TestNewRouterIntegration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &service{
+		token:           "test-token",
+		whisperxEnabled: true,
+		funasrEnabled:   false,
+		upstreams:       map[string]upstream{},
+		taskManager:     NewTaskManager(10, maxAudioFileSize, map[string]upstream{}),
+		uploadSem:       make(chan struct{}, 10),
+	}
+	router, err := newRouter(svc, embed.FS{})
+	if err != nil {
+		t.Fatalf("newRouter failed: %v", err)
+	}
+
+	t.Run("healthz_public", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected 204, got %d", rec.Code)
+		}
+	})
+
+	t.Run("config_public", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/config", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("models_unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("transcribe_unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("cancel_unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/tasks/task123/cancel", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", rec.Code)
+		}
+	})
+}
+
+func TestCancelTaskHandlerVariations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Task-Id") == "fail-upstream" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstreamServer.Close()
+
+	svc := &service{
+		upstreams: map[string]upstream{
+			"whisperx": {url: upstreamServer.URL, token: "token"},
+		},
+		taskManager:  NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		statusClient: &http.Client{Timeout: time.Second},
+	}
+
+	task1 := testTask("task-in-manager", "whisperx", "")
+	if err := svc.taskManager.Add(task1); err != nil {
+		t.Fatalf("failed to add task: %v", err)
+	}
+
+	taskFail := testTask("fail-upstream", "whisperx", "")
+	taskFail.Status = StatusRunning
+	if err := svc.taskManager.Add(taskFail); err != nil {
+		t.Fatalf("failed to add fail task: %v", err)
+	}
+
+	t.Run("missing_id", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/cancel", nil)
+		svc.cancelTask(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("invalid_id_format", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/cancel", nil)
+		c.Params = gin.Params{{Key: "id", Value: "invalid/task"}}
+		svc.cancelTask(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/cancel", nil)
+		c.Params = gin.Params{{Key: "id", Value: "nonexistent-task"}}
+		svc.cancelTask(c)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", rec.Code)
+		}
+	})
+
+	t.Run("cancel_query_param", func(t *testing.T) {
+		taskQ := testTask("task-query", "whisperx", "")
+		_ = svc.taskManager.Add(taskQ)
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/cancel?id=task-query", nil)
+		svc.cancelTask(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("cancel_json_body", func(t *testing.T) {
+		taskJ := testTask("task-json", "whisperx", "")
+		_ = svc.taskManager.Add(taskJ)
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		jsonBody := bytes.NewBufferString(`{"id":"task-json"}`)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/cancel", jsonBody)
+		c.Request.Header.Set("Content-Type", "application/json")
+		svc.cancelTask(c)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+	})
+
+	t.Run("upstream_error_returns_502", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/tasks/fail-upstream/cancel", nil)
+		c.Params = gin.Params{{Key: "id", Value: "fail-upstream"}}
+		svc.cancelTask(c)
+		if rec.Code != http.StatusBadGateway {
+			t.Fatalf("expected 502, got %d", rec.Code)
+		}
+	})
+}
+
+func TestTranscribeHandler_UploadValidationAndErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("generateTaskID", func(t *testing.T) {
+		id := generateTaskID()
+		if err := validateTaskID(id); err != nil {
+			t.Fatalf("generated task id should be valid, got: %v", err)
+		}
+	})
+
+	t.Run("missing_file_part", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		_ = writer.WriteField("model", "whisperx")
+		_ = writer.Close()
+
+		svc := &service{
+			uploadSem:   make(chan struct{}, 1),
+			taskManager: NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		}
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", &body)
+		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+		svc.transcribe(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for missing file, got %d", rec.Code)
+		}
+	})
+
+	t.Run("invalid_multipart_body", func(t *testing.T) {
+		svc := &service{
+			uploadSem:   make(chan struct{}, 1),
+			taskManager: NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		}
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", strings.NewReader("not a multipart body"))
+		c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=invalid")
+
+		svc.transcribe(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for invalid multipart, got %d", rec.Code)
+		}
+	})
+
+	t.Run("form_field_too_large", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		largeVal := strings.Repeat("a", maxTranscriptionFormFieldSize+10)
+		_ = writer.WriteField("model", largeVal)
+		filePart, _ := writer.CreateFormFile("file", "audio.wav")
+		_, _ = io.WriteString(filePart, "fake audio")
+		_ = writer.Close()
+
+		svc := &service{
+			uploadSem:   make(chan struct{}, 1),
+			taskManager: NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		}
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", &body)
+		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+		svc.transcribe(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for oversized form field, got %d", rec.Code)
+		}
+	})
+
+	t.Run("unsupported_model", func(t *testing.T) {
+		req := newMultipartTranscriptionRequest(t, "audio data", map[string]string{"model": "nonexistent_model"})
+		svc := &service{
+			uploadSem:   make(chan struct{}, 1),
+			upstreams:   map[string]upstream{"whisperx": {}},
+			taskManager: NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		}
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = req
+
+		svc.transcribe(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for unsupported model, got %d", rec.Code)
+		}
+	})
+
+	t.Run("upload_sem_full", func(t *testing.T) {
+		svc := &service{
+			uploadSem:   make(chan struct{}, 1),
+			taskManager: NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+		}
+		svc.uploadSem <- struct{}{}
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", nil)
+
+		svc.transcribe(c)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected 429 when upload sem full, got %d", rec.Code)
+		}
+	})
+}
+
+func TestUpstreamStatusAndSystemHandlerEdgeCases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("system_with_funasr_enabled", func(t *testing.T) {
+		funasrServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer funasrServer.Close()
+
+		svc := &service{
+			whisperxEnabled: false,
+			funasrEnabled:   true,
+			upstreams: map[string]upstream{
+				"funasr": {url: funasrServer.URL, token: "token"},
+			},
+			statusClient: &http.Client{Timeout: time.Second},
+		}
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/system", nil)
+
+		svc.system(c)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), `"id":"funasr"`) || !strings.Contains(rec.Body.String(), `"upstream_status":"available"`) {
+			t.Fatalf("unexpected response: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("upstream_status_health_failure", func(t *testing.T) {
+		badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer badServer.Close()
+
+		svc := &service{
+			statusClient: &http.Client{Timeout: time.Second},
+		}
+		st := svc.upstreamStatus(context.Background(), upstream{url: badServer.URL})
+		if st != "unavailable" {
+			t.Fatalf("expected unavailable for 500 health status, got %s", st)
+		}
+	})
+}
+
+func TestTaskManagerRecordAndPruneCancelledTaskIDs(t *testing.T) {
+	tm := NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}})
+
+	now := time.Now()
+	for i := 0; i < maxCancelTombstones+10; i++ {
+		tm.recordCancelledTaskID(fmt.Sprintf("task-%d", i), "whisperx", false, now)
+	}
+
+	tm.mu.Lock()
+	count := len(tm.cancelledTaskIDs)
+	tm.mu.Unlock()
+
+	if count > maxCancelTombstones {
+		t.Fatalf("expected max cancelledTaskIDs count <= %d, got %d", maxCancelTombstones, count)
+	}
+}
+
+func TestTranscribeHandler_SuccessfulExecutionAndClientDisconnect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("successful_transcription_end_to_end", func(t *testing.T) {
+		upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"text":"hello world"}`))
+		}))
+		defer upstreamServer.Close()
+
+		svc := &service{
+			uploadSem: make(chan struct{}, 10),
+			upstreams: map[string]upstream{
+				"whisperx": {url: upstreamServer.URL, token: "token"},
+			},
+			taskManager:  NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+			client:       &http.Client{Timeout: time.Second},
+			statusClient: &http.Client{Timeout: time.Second},
+		}
+
+		go svc.startQueueWorkers(svc.taskManager)
+
+		req := newMultipartTranscriptionRequest(t, "audio content", map[string]string{
+			"model":           "whisperx",
+			"level":           "segment",
+			"language":        "en",
+			"response_format": "json",
+			"task_id":         "valid-task-id",
+		})
+		req.Header.Set("X-Task-Id", "valid-task-id")
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = req
+
+		svc.transcribe(c)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (body: %s)", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `"hello world"`) {
+			t.Fatalf("unexpected body: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("client_disconnect_triggers_cancellation", func(t *testing.T) {
+		upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer upstreamServer.Close()
+
+		svc := &service{
+			uploadSem: make(chan struct{}, 10),
+			upstreams: map[string]upstream{
+				"whisperx": {url: upstreamServer.URL, token: "token"},
+			},
+			taskManager:  NewTaskManager(10, maxAudioFileSize, map[string]upstream{"whisperx": {}}),
+			statusClient: &http.Client{Timeout: time.Second},
+		}
+
+		req := newMultipartTranscriptionRequest(t, "audio content", map[string]string{
+			"model": "whisperx",
+		})
+		ctx, cancel := context.WithCancel(req.Context())
+		req = req.WithContext(ctx)
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = req
+
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			cancel()
+		}()
+
+		svc.transcribe(c)
+
+		if rec.Code != http.StatusRequestTimeout {
+			t.Fatalf("expected 408 on client disconnect, got %d", rec.Code)
+		}
+	})
+}
+
+func TestTaskManagerReserveStorageAndPublishResult(t *testing.T) {
+	tm := NewTaskManager(10, 100, map[string]upstream{"whisperx": {}})
+	task := testTask("storage-task", "whisperx", "")
+
+	if err := tm.reserveTaskStorage(task, 50); err != nil {
+		t.Fatalf("expected reserveTaskStorage success, got: %v", err)
+	}
+
+	if err := tm.reserveTaskStorage(task, -10); err == nil {
+		t.Fatal("expected error for negative size")
+	}
+
+	if err := tm.reserveTaskStorage(task, 100); err == nil {
+		t.Fatal("expected error for exceeding storage capacity")
+	}
+
+	task.ResultChan = make(chan ASRTaskResult, 1)
+	task.ResultChan <- ASRTaskResult{StatusCode: 200}
+	publishTaskResult(task, ASRTaskResult{StatusCode: 500})
+}
+
+
+
 
