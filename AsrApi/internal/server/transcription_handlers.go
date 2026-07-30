@@ -7,12 +7,28 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+var (
+	errAudioFileRequired      = errors.New("audio file is required")
+	errInvalidMultipartUpload = errors.New("invalid multipart upload")
+)
+
+type transcriptionUpload struct {
+	Model          string
+	Level          string
+	Language       string
+	ResponseFormat string
+	TaskID         string
+	Filename       string
+	TempFilePath   string
+}
 
 func generateTaskID() string {
 	return fmt.Sprintf("task_%d_%06d", time.Now().UnixNano(), rand.Intn(1000000))
@@ -59,118 +75,59 @@ func (s *service) transcribe(c *gin.Context) {
 			return
 		}
 	}
-	modelName := c.PostForm("model")
-	_, ok := s.upstreams[modelName]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %s is not supported or not enabled", modelName)})
-		return
-	}
 
-	level := c.PostForm("level")
-	language := c.PostForm("language")
-	responseFormat := c.PostForm("response_format")
-	if taskID == "" {
-		taskID = c.PostForm("task_id")
-	}
-	if taskID == "" {
-		taskID = generateTaskID()
-	}
-	if err := validateTaskID(taskID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	file, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "audio file is required"})
-		return
-	}
-	task := &ASRTask{
-		ID:       taskID,
-		Status:   StatusPending,
-		Model:    modelName,
-		Level:    level,
-		Language: language,
-		Filename: file.Filename,
-	}
-	if err := s.taskManager.reserveTaskStorage(task, file.Size); err != nil {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
-		return
-	}
+	task := &ASRTask{Status: StatusPending}
 	taskStorageHandedOff := false
 	defer func() {
 		if !taskStorageHandedOff {
 			s.taskManager.releaseTaskStorage(task)
 		}
 	}()
-	input, err := file.Open()
+	upload, err := s.readTranscriptionUpload(c.Request, task)
 	if err != nil {
-		log.Printf("open uploaded audio: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot read uploaded audio"})
+		switch {
+		case errors.Is(err, errStoredAudioCapacity):
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		case errors.Is(err, errAudioFileRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": errAudioFileRequired.Error()})
+		case errors.Is(err, errInvalidMultipartUpload):
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidMultipartUpload.Error()})
+		default:
+			log.Printf("failed to store uploaded audio: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+		}
 		return
 	}
-	defer func() {
-		if input == nil {
-			return
-		}
-		if err := input.Close(); err != nil {
-			log.Printf("close uploaded audio: %v", err)
-		}
-	}()
 
-	// Create a temp file to store the audio
-	tempFile, err := os.CreateTemp("", "asr-upload-*.tmp")
-	if err != nil {
-		log.Printf("failed to create temp file: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+	modelName := upload.Model
+	_, ok := s.upstreams[modelName]
+	if !ok {
+		removeTemporaryFile(upload.TempFilePath)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %s is not supported or not enabled", modelName)})
 		return
 	}
-	tempPath := tempFile.Name()
 
-	tempFileClosed := false
-	defer func() {
-		if !tempFileClosed {
-			if err := tempFile.Close(); err != nil {
-				log.Printf("close temporary audio: %v", err)
-			}
-			removeTemporaryFile(tempPath)
-		}
-	}()
-
-	if _, err := io.Copy(tempFile, input); err != nil {
-		log.Printf("failed to write upload to temp file: %v", err)
-		closeErr := input.Close()
-		input = nil
-		if closeErr != nil {
-			log.Printf("failed to close uploaded audio after copy error: %v", closeErr)
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
+	if taskID == "" {
+		taskID = upload.TaskID
+	}
+	if taskID == "" {
+		taskID = generateTaskID()
+	}
+	if err := validateTaskID(taskID); err != nil {
+		removeTemporaryFile(upload.TempFilePath)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	closeErr := input.Close()
-	input = nil
-	if closeErr != nil {
-		log.Printf("failed to close uploaded audio: %v", closeErr)
-		removeTemporaryFile(tempPath)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
-		return
-	}
-	if c.Request.MultipartForm != nil {
-		if err := c.Request.MultipartForm.RemoveAll(); err != nil {
-			log.Printf("failed to remove multipart temporary files: %v", err)
-		}
-	}
-	if err := tempFile.Close(); err != nil {
-		log.Printf("failed to close temporary audio: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
-		return
-	}
-	tempFileClosed = true
 
 	taskCtx, taskCancel := context.WithCancel(context.Background())
 
-	task.TempFilePath = tempPath
-	task.ResponseFormat = responseFormat
+	task.ID = taskID
+	task.Model = modelName
+	task.Level = upload.Level
+	task.Language = upload.Language
+	task.Filename = upload.Filename
+	task.TempFilePath = upload.TempFilePath
+	task.ResponseFormat = upload.ResponseFormat
 	task.ResultChan = make(chan ASRTaskResult, 1)
 	task.Ctx = taskCtx
 	task.CancelFunc = taskCancel
@@ -179,7 +136,7 @@ func (s *service) transcribe(c *gin.Context) {
 	log.Printf("[ASR API] Adding task %s for file %s to queue", task.ID, task.Filename)
 	if err := s.taskManager.Add(task); err != nil {
 		taskCancel()
-		removeTemporaryFile(tempPath)
+		removeTemporaryFile(upload.TempFilePath)
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 		return
 	}
@@ -222,6 +179,150 @@ func (s *service) transcribe(c *gin.Context) {
 			log.Printf("[ASR API] Failed to confirm cancellation after client disconnected for task %s: %v", task.ID, err)
 		}
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
+	}
+}
+
+func (s *service) readTranscriptionUpload(request *http.Request, task *ASRTask) (transcriptionUpload, error) {
+	reader, err := request.MultipartReader()
+	if err != nil {
+		return transcriptionUpload{}, errors.Join(errInvalidMultipartUpload, err)
+	}
+
+	var upload transcriptionUpload
+	complete := false
+	defer func() {
+		if !complete {
+			removeTemporaryFile(upload.TempFilePath)
+		}
+	}()
+
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return transcriptionUpload{}, errors.Join(errInvalidMultipartUpload, nextErr)
+		}
+		if err := s.fillTranscriptionUploadFromPart(&upload, task, part); err != nil {
+			if closeErr := part.Close(); closeErr != nil {
+				log.Printf("close multipart upload part after error: %v", closeErr)
+			}
+			return transcriptionUpload{}, err
+		}
+		if err := part.Close(); err != nil {
+			return transcriptionUpload{}, errors.Join(errInvalidMultipartUpload, err)
+		}
+	}
+	if upload.TempFilePath == "" {
+		return transcriptionUpload{}, errAudioFileRequired
+	}
+	complete = true
+	return upload, nil
+}
+
+func (s *service) fillTranscriptionUploadFromPart(upload *transcriptionUpload, task *ASRTask, part *multipart.Part) error {
+	if part.FormName() == "file" && part.FileName() != "" {
+		if upload.TempFilePath != "" {
+			return nil
+		}
+		path, err := s.storeAudioPart(part, task)
+		if err != nil {
+			return err
+		}
+		upload.Filename = part.FileName()
+		upload.TempFilePath = path
+		return nil
+	}
+
+	switch part.FormName() {
+	case "model", "level", "language", "response_format", "task_id":
+	default:
+		return nil
+	}
+	value, err := readTranscriptionFormField(part)
+	if err != nil {
+		return err
+	}
+	switch part.FormName() {
+	case "model":
+		upload.Model = value
+	case "level":
+		upload.Level = value
+	case "language":
+		upload.Language = value
+	case "response_format":
+		upload.ResponseFormat = value
+	case "task_id":
+		upload.TaskID = value
+	}
+	return nil
+}
+
+func readTranscriptionFormField(part io.Reader) (string, error) {
+	value, err := io.ReadAll(io.LimitReader(part, maxTranscriptionFormFieldSize+1))
+	if err != nil {
+		return "", errors.Join(errInvalidMultipartUpload, err)
+	}
+	if len(value) > maxTranscriptionFormFieldSize {
+		return "", errInvalidMultipartUpload
+	}
+	return string(value), nil
+}
+
+func (s *service) storeAudioPart(input io.Reader, task *ASRTask) (string, error) {
+	tempFile, err := os.CreateTemp("", "asr-upload-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tempPath := tempFile.Name()
+	complete := false
+	closed := false
+	defer func() {
+		if !closed {
+			if err := tempFile.Close(); err != nil {
+				log.Printf("close temporary audio: %v", err)
+			}
+		}
+		if !complete {
+			removeTemporaryFile(tempPath)
+		}
+	}()
+
+	if err := s.copyAudioWithStorageReservation(tempFile, input, task); err != nil {
+		return "", err
+	}
+	closeErr := tempFile.Close()
+	closed = true
+	if closeErr != nil {
+		return "", closeErr
+	}
+	complete = true
+	return tempPath, nil
+}
+
+func (s *service) copyAudioWithStorageReservation(output io.Writer, input io.Reader, task *ASRTask) error {
+	buffer := make([]byte, 32<<10)
+	for {
+		count, readErr := input.Read(buffer)
+		if count > 0 {
+			if err := s.taskManager.growTaskStorage(task, int64(count)); err != nil {
+				return err
+			}
+			written, err := output.Write(buffer[:count])
+			if err != nil {
+				return err
+			}
+			if written != count {
+				return io.ErrShortWrite
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return errors.Join(errInvalidMultipartUpload, readErr)
+		}
 	}
 }
 

@@ -117,7 +117,7 @@ docker run -d --name funasr-realtime \
 | `ASR_WHISPERX_SINGLE_MODEL` | 是否启用 WhisperX 单模型模式。若设为 `true`，前端将彻底隐藏档位选择并直接运行在 `large-v3`（默认模型）模式下。 | `false` |
 | `ASR_MAX_CONCURRENT_UPLOADS` | 网关同时接收并写入临时文件的上传数量上限。达到上限时，新请求会在读取请求体之前返回 `429`。 | `2` |
 | `ASR_MAX_CONCURRENT_TRANSCRIPTIONS` | 不同模型之间同时执行转写任务的全局上限。同一模型固定使用单 worker 串行执行，因此实际并发数不会超过已启用的离线模型数量；其余任务在对应模型队列中等待。 | `2` |
-| `ASR_MAX_STORED_AUDIO_SIZE_MIB` | 排队中和运行中任务的临时音频文件总容量上限（MiB）。达到上限时，新任务返回 `429`。 | `512` |
+| `ASR_MAX_STORED_AUDIO_SIZE_MIB` | 正在上传、排队中和运行中任务的临时音频文件总容量上限（MiB）。达到上限时，新任务返回 `429`。 | `512` |
 
 > **重要约束**：
 > - `ASR_ENABLE_WHISPERX` 和 `ASR_ENABLE_FUNASR` 不能同时为 `false`。网关启动时必须至少有一个引擎处于启用状态，否则会报错并拒绝启动。

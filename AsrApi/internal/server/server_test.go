@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -490,6 +492,63 @@ func TestTranscribeRejectsUploadBeforeReadingBodyWhenAdmissionIsFull(t *testing.
 	}
 }
 
+func TestReadTranscriptionUploadStreamsIntoReservedStorage(t *testing.T) {
+	manager := NewTaskManager(1, 5, map[string]upstream{"whisperx": {}})
+	server := &service{taskManager: manager}
+	task := &ASRTask{}
+	request := newMultipartTranscriptionRequest(t, "audio", map[string]string{
+		"model":           "whisperx",
+		"level":           "large-v3",
+		"language":        "en",
+		"response_format": "json",
+		"task_id":         "streamed-task",
+	})
+
+	upload, err := server.readTranscriptionUpload(request, task)
+	if err != nil {
+		t.Fatalf("read transcription upload: %v", err)
+	}
+	t.Cleanup(func() {
+		removeTemporaryFile(upload.TempFilePath)
+		manager.releaseTaskStorage(task)
+	})
+
+	if request.MultipartForm == nil || len(request.MultipartForm.File) != 0 {
+		t.Fatal("expected MultipartReader to avoid buffering uploaded files")
+	}
+	if task.TempFileSize != 5 {
+		t.Fatalf("expected 5 reserved bytes, got %d", task.TempFileSize)
+	}
+	if upload.Model != "whisperx" || upload.Level != "large-v3" || upload.Language != "en" {
+		t.Fatalf("unexpected upload fields: %+v", upload)
+	}
+	if upload.ResponseFormat != "json" || upload.TaskID != "streamed-task" {
+		t.Fatalf("unexpected upload metadata: %+v", upload)
+	}
+	content, err := os.ReadFile(upload.TempFilePath)
+	if err != nil {
+		t.Fatalf("read stored audio: %v", err)
+	}
+	if string(content) != "audio" {
+		t.Fatalf("expected stored audio %q, got %q", "audio", content)
+	}
+}
+
+func TestReadTranscriptionUploadEnforcesStorageLimitWhileStreaming(t *testing.T) {
+	manager := NewTaskManager(1, 4, map[string]upstream{"whisperx": {}})
+	server := &service{taskManager: manager}
+	task := &ASRTask{}
+	request := newMultipartTranscriptionRequest(t, "audio", map[string]string{"model": "whisperx"})
+
+	if _, err := server.readTranscriptionUpload(request, task); !errors.Is(err, errStoredAudioCapacity) {
+		t.Fatalf("expected stored audio capacity error, got %v", err)
+	}
+	manager.releaseTaskStorage(task)
+	if manager.storedBytes != 0 {
+		t.Fatalf("expected rejected upload reservation to be released, got %d bytes", manager.storedBytes)
+	}
+}
+
 func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})
@@ -943,6 +1002,30 @@ func writeTestAudio(t *testing.T, name string) string {
 		t.Fatalf("write test audio: %v", err)
 	}
 	return path
+}
+
+func newMultipartTranscriptionRequest(t *testing.T, audio string, fields map[string]string) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range fields {
+		if err := writer.WriteField(name, value); err != nil {
+			t.Fatalf("write multipart field %s: %v", name, err)
+		}
+	}
+	filePart, err := writer.CreateFormFile("file", "audio.wav")
+	if err != nil {
+		t.Fatalf("create multipart audio: %v", err)
+	}
+	if _, err := io.WriteString(filePart, audio); err != nil {
+		t.Fatalf("write multipart audio: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	return request
 }
 
 func waitForStartedModel(t *testing.T, started <-chan string) string {

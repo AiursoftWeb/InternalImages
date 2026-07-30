@@ -11,14 +11,17 @@ import (
 )
 
 const (
-	maxUploadSize                = 100 << 20
-	maxCancelRequestSize         = 4 << 10
-	maxTaskIDLength              = 128
-	defaultMaxStoredAudioSizeMiB = 512
-	maxCancelTombstones          = 1024
-	cancelTombstoneTTL           = 10 * time.Minute
-	cancelUpstreamTimeout        = 12 * time.Second
+	maxUploadSize                 = 100 << 20
+	maxTranscriptionFormFieldSize = 4 << 10
+	maxCancelRequestSize          = 4 << 10
+	maxTaskIDLength               = 128
+	defaultMaxStoredAudioSizeMiB  = 512
+	maxCancelTombstones           = 1024
+	cancelTombstoneTTL            = 10 * time.Minute
+	cancelUpstreamTimeout         = 12 * time.Second
 )
+
+var errStoredAudioCapacity = errors.New("stored audio capacity is full, please try again later")
 
 type upstream struct {
 	url   string
@@ -295,10 +298,25 @@ func (tm *TaskManager) reserveTaskStorageLocked(task *ASRTask, size int64) error
 		return errors.New("stored audio size must not be negative")
 	}
 	if size > tm.maxStoredBytes-tm.storedBytes {
-		return fmt.Errorf("stored audio capacity is full, please try again later")
+		return errStoredAudioCapacity
 	}
 	tm.storedBytes += size
 	task.TempFileSize = size
+	task.storageReserved = true
+	return nil
+}
+
+func (tm *TaskManager) growTaskStorage(task *ASRTask, additionalBytes int64) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if additionalBytes < 0 {
+		return errors.New("additional stored audio size must not be negative")
+	}
+	if additionalBytes > tm.maxStoredBytes-tm.storedBytes {
+		return errStoredAudioCapacity
+	}
+	tm.storedBytes += additionalBytes
+	task.TempFileSize += additionalBytes
 	task.storageReserved = true
 	return nil
 }
