@@ -16,7 +16,7 @@ stages:
   script:
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
     - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
-    - docker buildx build $CONTEXT --platform $PLATFORMS -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
+    - docker buildx build $BUILD_ARGS $CONTEXT --platform $PLATFORMS -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
@@ -253,6 +253,7 @@ deploy_whisperx:
     PLATFORMS: "linux/amd64"
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
+    BUILD_ARGS: "--build-arg SINGLE_MODEL=true"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
