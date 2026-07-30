@@ -112,6 +112,42 @@ func TestValidateUpstreamURL(t *testing.T) {
 	}
 }
 
+func TestModelsReturnsBadGatewayWhenAnyUpstreamFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	availableUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if _, err := writer.Write([]byte(`{"data":[{"id":"large-v3"}]}`)); err != nil {
+			t.Errorf("write available upstream response: %v", err)
+		}
+	}))
+	defer availableUpstream.Close()
+	failedUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer failedUpstream.Close()
+
+	server := &service{
+		upstreams: map[string]upstream{
+			"whisperx": {url: availableUpstream.URL},
+			"funasr":   {url: failedUpstream.URL},
+		},
+		statusClient: &http.Client{Timeout: time.Second},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = request
+
+	server.models(context)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected status %d, got %d", http.StatusBadGateway, recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "failed to list models from upstream services") {
+		t.Fatalf("unexpected models error response %q", recorder.Body.String())
+	}
+}
+
 func TestTranscribeRejectsInvalidHeaderTaskIDBeforeReadingBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := &service{uploadSem: make(chan struct{}, 1)}

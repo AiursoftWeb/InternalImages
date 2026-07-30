@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,26 +35,34 @@ type modelEntry struct {
 }
 
 func (s *service) models(c *gin.Context) {
-	var (
-		mutex   sync.Mutex
-		wg      sync.WaitGroup
-		entries = make([]modelEntry, 0)
-	)
+	type upstreamResult struct {
+		entries []modelEntry
+		err     error
+		url     string
+	}
+	results := make(chan upstreamResult, len(s.upstreams))
 	for _, backend := range s.upstreams {
-		wg.Add(1)
 		go func(backend upstream) {
-			defer wg.Done()
 			remote, err := s.upstreamModels(c.Request.Context(), backend)
-			if err != nil {
-				log.Printf("list models from %s: %v", backend.url, err)
-				return
-			}
-			mutex.Lock()
-			entries = append(entries, remote...)
-			mutex.Unlock()
+			results <- upstreamResult{entries: remote, err: err, url: backend.url}
 		}(backend)
 	}
-	wg.Wait()
+
+	entries := make([]modelEntry, 0)
+	upstreamFailed := false
+	for range s.upstreams {
+		result := <-results
+		if result.err != nil {
+			log.Printf("list models from %s: %v", result.url, result.err)
+			upstreamFailed = true
+			continue
+		}
+		entries = append(entries, result.entries...)
+	}
+	if upstreamFailed {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to list models from upstream services"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"object": "list", "data": entries})
 }
 
