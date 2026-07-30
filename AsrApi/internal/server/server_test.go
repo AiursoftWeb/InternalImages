@@ -112,6 +112,30 @@ func TestValidateUpstreamURL(t *testing.T) {
 	}
 }
 
+func TestEnvironmentOrDefaultIntRejectsInvalidExplicitValue(t *testing.T) {
+	invalidValues := []string{"", "0", "-1", "many"}
+	for _, value := range invalidValues {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("ASR_TEST_POSITIVE_INT", value)
+			if _, err := environmentOrDefaultInt("ASR_TEST_POSITIVE_INT", 2); err == nil {
+				t.Fatalf("expected integer value %q to be rejected", value)
+			} else if !strings.Contains(err.Error(), "ASR_TEST_POSITIVE_INT") {
+				t.Fatalf("expected error to name environment variable, got %v", err)
+			}
+		})
+	}
+}
+
+func TestEnvironmentOrDefaultBoolRejectsInvalidExplicitValue(t *testing.T) {
+	t.Setenv("ASR_TEST_BOOL", "enabled")
+
+	if _, err := environmentOrDefaultBool("ASR_TEST_BOOL", true); err == nil {
+		t.Fatal("expected invalid boolean value to be rejected")
+	} else if !strings.Contains(err.Error(), "ASR_TEST_BOOL") {
+		t.Fatalf("expected error to name environment variable, got %v", err)
+	}
+}
+
 func TestModelsReturnsBadGatewayWhenAnyUpstreamFails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	availableUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
