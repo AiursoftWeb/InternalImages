@@ -51,7 +51,8 @@ docker build -t asr-api:local ./AsrApi
 ```
 
 > **提示**：
-> - `WhisperX` 在构建时会按照 `WhisperX/models_config.py` 中的 `BAKED_MODELS` 预下载模型权重并烘焙入镜像，因此首次构建拉取模型耗时较长，但运行期不需要连接公网下载模型。**如果希望只构建仅包含 `large-v3` 的精简镜像以减小体积（从约 16GB 减小），可在构建时传入 `--build-arg SINGLE_MODEL=true`。**
+> - `WhisperX` 默认只将 `large-v3` 模型权重烘焙入镜像。运行时仅允许使用 `WhisperX/models_config.py` 中的 `BAKED_MODELS` 白名单，且容器强制使用离线模式，不会下载模型。
+> - 如需构建包含 `small`、`medium` 和 `large-v3` 的多模型镜像，使用 `docker build --build-arg SINGLE_MODEL=false -t whisperx:local ./WhisperX`，并在启动网关时设置 `ASR_WHISPERX_SINGLE_MODEL=false`。
 > - `asr-api` 采用多阶段构建，会自动调用 `node:24` 环境对 `web/` 前端进行编译，然后通过 `golang:1.24` 编译后端并打包成 Distroless 镜像。
 
 ---
@@ -114,7 +115,7 @@ docker run -d --name funasr-realtime \
 | `ASR_ENABLE_WHISPERX` | 是否启用 WhisperX 引擎相关功能。若为 `false`，则无需提供 WhisperX 的 TOKEN 与 URL。 | `true` |
 | `ASR_ENABLE_FUNASR` | 是否启用 FunASR 引擎相关功能。若为 `false`，则无需提供 FunASR 的 TOKEN 与 URL。 | `true` |
 | `ASR_ENABLE_FUNASR_REALTIME` | 是否在网页端启用/显示实时麦克风识别卡片（WS连接）。 | `true` |
-| `ASR_WHISPERX_SINGLE_MODEL` | 是否启用 WhisperX 单模型模式。若设为 `true`，前端将彻底隐藏档位选择并直接运行在 `large-v3`（默认模型）模式下。 | `false` |
+| `ASR_WHISPERX_SINGLE_MODEL` | 是否启用 WhisperX 单模型模式。若设为 `true`，前端将彻底隐藏档位选择并直接运行在 `large-v3`（默认模型）模式下。构建多模型镜像时需显式设为 `false`。 | `true` |
 | `ASR_MAX_CONCURRENT_UPLOADS` | 网关同时接收并写入临时文件的上传数量上限，范围为 1–1024。达到上限时，新请求会在读取请求体之前返回 `429`。 | `2` |
 | `ASR_MAX_CONCURRENT_TRANSCRIPTIONS` | 不同模型之间同时执行转写任务的全局上限，范围为 1–1024。同一模型固定使用单 worker 串行执行，因此实际并发数不会超过已启用的离线模型数量；其余任务在对应模型队列中等待。 | `2` |
 | `ASR_MAX_STORED_AUDIO_SIZE_MIB` | 正在上传、排队中和运行中任务的临时音频文件总容量上限（MiB），范围为 1–1048576。达到上限时，新任务返回 `429`。 | `512` |
@@ -124,7 +125,7 @@ docker run -d --name funasr-realtime \
 > - WhisperX 和 FunASR 各自使用一个独立 worker。同一模型的任务会串行执行，避免争抢同一 GPU；两个模型部署在不同设备时，可以在全局并发上限允许的情况下并行执行。
 > - 显式设置的布尔变量必须是有效布尔值（如 `true` 或 `false`），并发数及存储容量必须是表中范围内的整数；格式或范围无效时网关会报错并拒绝启动。
 
-#### 场景 A：全模型启用模式（默认）
+#### 场景 A：全部引擎启用模式（默认）
 如果全部部署，则运行以下命令：
 ```sh
 docker run -d --name asr-api \
@@ -141,7 +142,7 @@ docker run -d --name asr-api \
 #### 场景 B：仅部署 WhisperX 模式（精简模式）
 如果在生产中只打算部署 `WhisperX + large-v3`：
 1. 无需启动 `funasr` 与 `funasr-realtime` 容器。
-2. 启动 `asr-api` 时将 FunASR 和实时功能开关设为 `false`，并开启 WhisperX 单模型参数：
+2. 启动 `asr-api` 时将 FunASR 和实时功能开关设为 `false`；WhisperX 单模型模式默认已经启用：
 ```sh
 docker run -d --name asr-api \
   --network asr-net \
@@ -149,7 +150,6 @@ docker run -d --name asr-api \
   -e ASR_API_TOKEN=change-me \
   -e ASR_ENABLE_FUNASR=false \
   -e ASR_ENABLE_FUNASR_REALTIME=false \
-  -e ASR_WHISPERX_SINGLE_MODEL=true \
   -e ASR_WHISPERX_TOKEN=change-me-whisperx \
   -e ASR_WHISPERX_URL=http://whisperx:8000 \
   asr-api:local

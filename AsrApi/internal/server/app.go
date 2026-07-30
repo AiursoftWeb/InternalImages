@@ -204,7 +204,7 @@ func loadServiceEnvironment() (serviceEnvironment, error) {
 	if settings.funasrRealtimeEnabled, err = environmentOrDefaultBool("ASR_ENABLE_FUNASR_REALTIME", true); err != nil {
 		return serviceEnvironment{}, err
 	}
-	if settings.whisperxSingleModel, err = environmentOrDefaultBool("ASR_WHISPERX_SINGLE_MODEL", false); err != nil {
+	if settings.whisperxSingleModel, err = environmentOrDefaultBool("ASR_WHISPERX_SINGLE_MODEL", true); err != nil {
 		return serviceEnvironment{}, err
 	}
 	if settings.maxStoredAudioSizeMiB, err = environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB, maxConfiguredStoredAudioMiB); err != nil {

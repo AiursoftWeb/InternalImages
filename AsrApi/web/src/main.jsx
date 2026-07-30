@@ -153,7 +153,7 @@ async function startMicrophone(onAudio) {
 function App() {
   const [token, setToken] = useState('')
   const [model, setModel] = useState('funasr')
-  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: false })
+  const [config, setConfig] = useState({ whisperx: true, funasr: true, funasrrealtime: true, whisperx_single_model: true })
   const [modelOptions, setModelOptions] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState('')
@@ -549,7 +549,7 @@ function App() {
                                 <MenuItem value=""><em>默认（{model} 默认档）</em></MenuItem>
                                 {levelOptions.map((option) => (
                                   <MenuItem key={option.id} value={option.id}>
-                                    {option.id}{option.baked === false ? '（运行时下载）' : ''}
+                                    {option.id}
                                   </MenuItem>
                                 ))}
                               </>

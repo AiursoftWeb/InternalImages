@@ -12,7 +12,7 @@ import whisperx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from models_config import BAKED_MODELS
+from models_config import BAKED_MODELS, ensure_baked_model
 
 app = FastAPI()
 model_token = os.getenv("ASR_WHISPERX_TOKEN", "").strip()
@@ -32,8 +32,7 @@ class TranscriptionCancelled(Exception):
 def load_model(name: str):
     """Lazily load a whisperx model and cache it. Unknown or unloadable names
     raise so the caller can return a clear error instead of a 500."""
-    if name not in BAKED_MODELS:
-        raise ValueError("model is not allowed")
+    ensure_baked_model(name)
 
     with MODEL_LOCK:
         if name in MODEL_REGISTRY:
@@ -279,15 +278,6 @@ def list_models():
             "baked": True,
             "loaded": name in loaded,
         })
-    for name in loaded:
-        if name not in BAKED_MODELS:
-            data.append({
-                "id": name,
-                "object": "model",
-                "owned_by": "whisperx",
-                "baked": False,
-                "loaded": True,
-            })
     return {"object": "list", "data": data}
 
 
@@ -312,6 +302,10 @@ def transcribe(
     x_task_id: str = Header(default="", alias="X-Task-Id"),
 ):
     model_name = model or os.getenv("WHISPERX_MODEL", "large-v3")
+    try:
+        ensure_baked_model(model_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     print(f"[WhisperX] Received transcription request. Model: {model_name}, File: {file.filename}, Language: {language or 'auto'}")
     start_time = time.time()
 

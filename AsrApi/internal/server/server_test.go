@@ -1255,6 +1255,9 @@ func TestLoadServiceEnvironmentValidAndDefaults(t *testing.T) {
 	if !env.whisperxEnabled || env.funasrEnabled {
 		t.Fatalf("unexpected bool settings: %+v", env)
 	}
+	if !env.whisperxSingleModel {
+		t.Fatal("expected WhisperX single-model mode to be enabled by default")
+	}
 	if env.maxConcurrentUploads != 5 {
 		t.Fatalf("expected maxConcurrentUploads=5, got %d", env.maxConcurrentUploads)
 	}
