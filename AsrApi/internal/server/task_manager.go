@@ -22,9 +22,13 @@ const (
 	maxCancelTombstones           = 1024
 	cancelTombstoneTTL            = 10 * time.Minute
 	cancelUpstreamTimeout         = 12 * time.Second
+	cancelTaskCleanupTimeout      = 12 * time.Second
 )
 
-var errStoredAudioCapacity = errors.New("stored audio capacity is full, please try again later")
+var (
+	errStoredAudioCapacity = errors.New("stored audio capacity is full, please try again later")
+	errTaskCleanupTimeout  = errors.New("timed out waiting for cancelled task cleanup")
+)
 
 type upstream struct {
 	url   string
@@ -60,6 +64,8 @@ type ASRTask struct {
 	Ctx             context.Context    `json:"-"`
 	CancelFunc      context.CancelFunc `json:"-"`
 	storageReserved bool
+	cleanupDone     chan struct{}
+	cleanupOnce     sync.Once
 }
 
 type ASRTaskResult struct {
@@ -117,6 +123,9 @@ func NewTaskManager(queueSize int, maxStoredBytes int64, models map[string]upstr
 func (tm *TaskManager) Add(task *ASRTask) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+	if task.cleanupDone == nil {
+		task.cleanupDone = make(chan struct{})
+	}
 	tm.pruneCancelledTaskIDs(time.Now())
 	if _, exists := tm.cancelledTaskIDs[task.ID]; exists {
 		return fmt.Errorf("task %s was recently cancelled", task.ID)
@@ -182,9 +191,8 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		}
 		tm.mu.Unlock()
 		log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
+		tm.completeTaskCleanup(task)
 		publishTaskResult(task, cancelledTaskResult())
-		removeTemporaryFile(task.TempFilePath)
-		tm.releaseTaskStorage(task)
 		return true, nil
 	}
 
@@ -226,6 +234,26 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 	log.Printf("[Queue] Task %s is cancelled. Previous status: %s", id, prevStatus)
 	publishTaskResult(task, cancelledTaskResult())
 	return true, nil
+}
+
+func (tm *TaskManager) CancelAndWait(id string, cancelUpstreamFunc func(model, taskID string) error, cleanupTimeout time.Duration) (bool, error) {
+	tm.mu.RLock()
+	task := tm.tasks[id]
+	tm.mu.RUnlock()
+
+	found, err := tm.Cancel(id, cancelUpstreamFunc)
+	if !found || err != nil || task == nil {
+		return found, err
+	}
+
+	timer := time.NewTimer(cleanupTimeout)
+	defer timer.Stop()
+	select {
+	case <-task.cleanupDone:
+		return true, nil
+	case <-timer.C:
+		return true, errTaskCleanupTimeout
+	}
 }
 
 func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, attempt *cancellationAttempt, cancelUpstreamFunc func(model, taskID string) error) (bool, error) {
@@ -332,6 +360,14 @@ func (tm *TaskManager) releaseTaskStorage(task *ASRTask) {
 	}
 	tm.storedBytes -= task.TempFileSize
 	task.storageReserved = false
+}
+
+func (tm *TaskManager) completeTaskCleanup(task *ASRTask) {
+	removeTemporaryFile(task.TempFilePath)
+	tm.releaseTaskStorage(task)
+	task.cleanupOnce.Do(func() {
+		close(task.cleanupDone)
+	})
 }
 
 func (tm *TaskManager) recordCancelledTaskID(id, model string, retryable bool, now time.Time) {

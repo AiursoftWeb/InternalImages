@@ -24,8 +24,7 @@ func (s *service) startQueueWorkers(tm *TaskManager) {
 				task.CancelFunc()
 
 				publishResult := tm.finishTask(task, result)
-				removeTemporaryFile(task.TempFilePath)
-				tm.releaseTaskStorage(task)
+				tm.completeTaskCleanup(task)
 
 				if !publishResult {
 					continue

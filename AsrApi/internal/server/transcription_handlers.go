@@ -169,7 +169,7 @@ func (s *service) transcribe(c *gin.Context) {
 
 	case <-c.Request.Context().Done():
 		log.Printf("[ASR API] Client disconnected during execution of task %s, triggering cancellation...", task.ID)
-		if _, err := s.taskManager.Cancel(task.ID, s.cancelTaskForModel); err != nil {
+		if _, err := s.taskManager.CancelAndWait(task.ID, s.cancelTaskForModel, cancelTaskCleanupTimeout); err != nil {
 			log.Printf("[ASR API] Failed to confirm cancellation after client disconnected for task %s: %v", task.ID, err)
 		}
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
@@ -366,12 +366,16 @@ func (s *service) cancelTask(c *gin.Context) {
 		return
 	}
 
-	found, err := s.taskManager.Cancel(id, s.cancelTaskForModel)
+	found, err := s.taskManager.CancelAndWait(id, s.cancelTaskForModel, cancelTaskCleanupTimeout)
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("task %s not found or already completed", id)})
 		return
 	}
 	if err != nil {
+		if errors.Is(err, errTaskCleanupTimeout) {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to confirm upstream cancellation"})
 		return
 	}

@@ -29,6 +29,10 @@ class TranscriptionCancelled(Exception):
     pass
 
 
+class TranscriptionBusy(Exception):
+    pass
+
+
 def load_model(name: str):
     """Lazily load a whisperx model and cache it. Unknown or unloadable names
     raise so the caller can return a clear error instead of a 500."""
@@ -113,12 +117,21 @@ class InferenceProcess:
         self.result_queue = None
         self.generation = 0
         self.active_task_id = None
+        self.active_task_done = None
         self.loaded_model = None
         self.cancelled_task_ids = {}
 
     def transcribe(self, task_id, audio_path, model, language, response_format):
-        with self.run_lock:
-            task_id, generation, command_queue, result_queue = self._prepare_task(task_id)
+        if not self.run_lock.acquire(blocking=False):
+            raise TranscriptionBusy("another transcription is already running")
+
+        task_done = None
+        command_queue = None
+        result_queue = None
+        generation = None
+        cancelled = False
+        try:
+            task_id, generation, command_queue, result_queue, task_done = self._prepare_task(task_id)
             command_queue.put({
                 "task_id": task_id,
                 "audio_path": audio_path,
@@ -126,14 +139,26 @@ class InferenceProcess:
                 "language": language,
                 "response_format": response_format,
             })
-            try:
-                return self._wait_for_result(task_id, generation, result_queue)
-            finally:
+            result = self._wait_for_result(task_id, generation, result_queue)
+        finally:
+            if generation is not None:
                 with self.state_lock:
+                    cancelled = self.generation != generation
                     if self.generation == generation and self.active_task_id == task_id:
                         self.active_task_id = None
+                        self.active_task_done = None
+                if cancelled:
+                    self._close_queue(command_queue)
+                    self._close_queue(result_queue)
+                task_done.set()
+            self.run_lock.release()
+
+        if cancelled:
+            raise TranscriptionCancelled("transcription was cancelled")
+        return result
 
     def cancel(self, task_id):
+        task_done = None
         with self.state_lock:
             self._record_cancelled_task(task_id)
             if self.active_task_id is None or self.process is None:
@@ -141,26 +166,35 @@ class InferenceProcess:
             if not secrets.compare_digest(self.active_task_id, task_id):
                 return "accepted"
             process = self.process
+            task_done = self.active_task_done
             self.process = None
             self.command_queue = None
             self.result_queue = None
             self.active_task_id = None
+            self.active_task_done = None
             self.loaded_model = None
             self.generation += 1
             self._terminate_process(process)
-            return "cancelled"
+        if task_done is not None and not task_done.wait(timeout=10):
+            raise RuntimeError("timed out waiting for cancelled transcription cleanup")
+        return "cancelled"
 
     def stop(self):
         with self.state_lock:
             process = self.process
+            command_queue = self.command_queue
+            result_queue = self.result_queue
             self.process = None
             self.command_queue = None
             self.result_queue = None
             self.active_task_id = None
+            self.active_task_done = None
             self.loaded_model = None
             self.generation += 1
             if process is not None:
                 self._terminate_process(process)
+            self._close_queue(command_queue)
+            self._close_queue(result_queue)
 
     def loaded_models(self):
         with self.state_lock:
@@ -177,7 +211,8 @@ class InferenceProcess:
             if self.process is None or not self.process.is_alive():
                 self._start_process()
             self.active_task_id = task_id
-            return task_id, self.generation, self.command_queue, self.result_queue
+            self.active_task_done = threading.Event()
+            return task_id, self.generation, self.command_queue, self.result_queue, self.active_task_done
 
     def _record_cancelled_task(self, task_id):
         self._prune_cancelled_tasks()
@@ -245,6 +280,16 @@ class InferenceProcess:
         if process.is_alive():
             process.kill()
             process.join()
+
+    @staticmethod
+    def _close_queue(process_queue):
+        if process_queue is None:
+            return
+        try:
+            process_queue.close()
+            process_queue.join_thread()
+        except (OSError, ValueError) as exc:
+            print(f"[WhisperX] Failed to close inference queue: {exc}")
 
 
 inference_process = InferenceProcess()
@@ -321,6 +366,8 @@ def transcribe(
                 language,
                 response_format,
             )
+        except TranscriptionBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except TranscriptionCancelled as exc:
             raise HTTPException(status_code=499, detail=str(exc)) from exc
         except ValueError as exc:
