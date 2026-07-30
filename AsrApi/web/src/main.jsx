@@ -385,9 +385,14 @@ function App() {
         is_speaking: true,
       }))
       try {
-        microphoneRef.current = await startMicrophone((pcm) => {
+        const stopMicrophone = await startMicrophone((pcm) => {
           if (socket.readyState === WebSocket.OPEN) socket.send(pcm)
         })
+        if (socketRef.current !== socket || socket.readyState !== WebSocket.OPEN) {
+          stopMicrophone()
+          return
+        }
+        microphoneRef.current = stopMicrophone
         setRealtimeStatus('正在实时识别')
       } catch (microphoneError) {
         stoppingRealtimeRef.current = true
