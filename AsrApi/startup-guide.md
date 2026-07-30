@@ -212,6 +212,8 @@ curl http://localhost:8080/v1/audio/transcriptions \
 
 如需自行指定任务 ID，可通过 `X-Task-Id` 请求头或 `task_id` 表单字段传入。任务 ID 最长为 128 个字符，并且只能包含 ASCII 字母、数字和 `-._~`。
 
+单个音频文件最大为 100 MiB。网关会为 multipart 边界、文件名和表单字段额外预留 1 MiB 请求空间；该空间不计入音频文件大小上限。
+
 ---
 
 ## 网页测试方法

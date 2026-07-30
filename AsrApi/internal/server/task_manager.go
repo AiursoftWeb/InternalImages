@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	maxUploadSize                 = 100 << 20
+	maxAudioFileSize              = 100 << 20
+	maxUploadRequestOverhead      = 1 << 20
 	maxTranscriptionFormFieldSize = 4 << 10
 	maxCancelRequestSize          = 4 << 10
 	maxTaskIDLength               = 128

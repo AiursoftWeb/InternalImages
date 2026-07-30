@@ -558,7 +558,7 @@ function App() {
                   <Button component="label" variant="outlined" color="primary" startIcon={<CloudUploadOutlinedIcon />} sx={{ minHeight: 88, borderStyle: 'dashed', justifyContent: 'flex-start', px: 3, textTransform: 'none' }}>
                     <Box textAlign="left">
                       <Typography fontWeight={600}>{file ? file.name : '选择音频文件'}</Typography>
-                      <Typography variant="body2" color="text.secondary">支持服务端接受的音频格式，文件上限 100 MiB</Typography>
+                      <Typography variant="body2" color="text.secondary">支持服务端接受的音频格式，音频文件上限 100 MiB</Typography>
                     </Box>
                     <input hidden type="file" accept="audio/*" onChange={(event) => setFile(event.target.files?.[0] || null)} />
                   </Button>

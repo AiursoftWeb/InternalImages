@@ -67,7 +67,7 @@ func (s *service) transcribe(c *gin.Context) {
 		}
 	}()
 
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioFileSize+maxUploadRequestOverhead)
 	taskID := c.GetHeader("X-Task-Id")
 	if taskID != "" {
 		if err := validateTaskID(taskID); err != nil {
@@ -180,7 +180,7 @@ func transcriptionUploadErrorResponse(err error) (int, string) {
 	var maxBytesError *http.MaxBytesError
 	switch {
 	case errors.As(err, &maxBytesError):
-		return http.StatusRequestEntityTooLarge, fmt.Sprintf("upload exceeds %d MiB limit", maxUploadSize>>20)
+		return http.StatusRequestEntityTooLarge, fmt.Sprintf("audio file exceeds %d MiB limit", maxAudioFileSize>>20)
 	case errors.Is(err, errStoredAudioCapacity):
 		return http.StatusTooManyRequests, err.Error()
 	case errors.Is(err, errAudioFileRequired):
@@ -316,6 +316,9 @@ func (s *service) copyAudioWithStorageReservation(output io.Writer, input io.Rea
 	for {
 		count, readErr := input.Read(buffer)
 		if count > 0 {
+			if task.TempFileSize+int64(count) > maxAudioFileSize {
+				return &http.MaxBytesError{Limit: maxAudioFileSize}
+			}
 			if err := s.taskManager.growTaskStorage(task, int64(count)); err != nil {
 				return err
 			}

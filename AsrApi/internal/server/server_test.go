@@ -23,7 +23,7 @@ func TestTaskManagerUsesIndependentModelQueues(t *testing.T) {
 		"whisperx": {},
 		"funasr":   {},
 	}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 
 	if err := manager.Add(testTask("whisperx-1", "whisperx", "")); err != nil {
 		t.Fatalf("add whisperx task: %v", err)
@@ -217,7 +217,7 @@ func TestCancelTaskLimitsRequestBody(t *testing.T) {
 
 func TestCancelPendingTaskReleasesQueueCapacityAndRemovesFile(t *testing.T) {
 	models := map[string]upstream{"whisperx": {}}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	audioPath := writeTestAudio(t, "cancelled.wav")
 	cancelledTask := testTask("cancelled", "whisperx", audioPath)
 	if err := manager.Add(cancelledTask); err != nil {
@@ -241,7 +241,7 @@ func TestCancelPendingTaskReleasesQueueCapacityAndRemovesFile(t *testing.T) {
 
 func TestCancelRunningTaskPassesTaskIDToUpstream(t *testing.T) {
 	models := map[string]upstream{"whisperx": {}}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	task := testTask("running-task", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add running task: %v", err)
@@ -270,7 +270,7 @@ func TestCancelRunningTaskPassesTaskIDToUpstream(t *testing.T) {
 }
 
 func TestCancelRunningTaskWaitsForUpstreamConfirmationBeforePublishingResult(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add running task: %v", err)
@@ -332,7 +332,7 @@ func TestCancelRunningTaskWaitsForUpstreamConfirmationBeforePublishingResult(t *
 }
 
 func TestConcurrentCancellationSharesUpstreamResult(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add running task: %v", err)
@@ -401,7 +401,7 @@ func TestConcurrentCancellationSharesUpstreamResult(t *testing.T) {
 }
 
 func TestCancelRunningTaskRemovesTaskWhenUpstreamCancellationFails(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add running task: %v", err)
@@ -489,7 +489,7 @@ func TestCancelRunningTaskRemovesTaskWhenUpstreamCancellationFails(t *testing.T)
 }
 
 func TestCancelledTaskIDCannotBeReusedDuringTombstoneTTL(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	cancelledTask := testTask("reused-task", "whisperx", "")
 	if err := manager.Add(cancelledTask); err != nil {
 		t.Fatalf("add cancelled task: %v", err)
@@ -513,7 +513,7 @@ func TestCancelledTaskIDCannotBeReusedDuringTombstoneTTL(t *testing.T) {
 }
 
 func TestCancelledTaskIDCanBeReusedAfterTombstoneExpires(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("reusable-task", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add task: %v", err)
@@ -538,7 +538,7 @@ func TestCancelledTaskIDCanBeReusedAfterTombstoneExpires(t *testing.T) {
 }
 
 func TestCancelUnknownTaskDoesNotCallUpstream(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	cancelCalled := false
 
 	found, err := manager.Cancel("unknown-task", func(_, _ string) error {
@@ -634,7 +634,7 @@ func TestReadTranscriptionUploadEnforcesStorageLimitWhileStreaming(t *testing.T)
 }
 
 func TestTranscriptionUploadErrorResponseReturnsRequestEntityTooLarge(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	server := &service{taskManager: manager}
 	task := &ASRTask{}
 	request := newMultipartTranscriptionRequest(t, "audio", map[string]string{"model": "whisperx"})
@@ -647,9 +647,47 @@ func TestTranscriptionUploadErrorResponseReturnsRequestEntityTooLarge(t *testing
 	if statusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, statusCode)
 	}
-	if message != "upload exceeds 100 MiB limit" {
+	if message != "audio file exceeds 100 MiB limit" {
 		t.Fatalf("unexpected oversized upload message %q", message)
 	}
+}
+
+func TestCopyAudioAllowsExactFileSizeLimit(t *testing.T) {
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
+	manager.storedBytes = maxAudioFileSize - 1
+	task := &ASRTask{
+		TempFileSize:    maxAudioFileSize - 1,
+		storageReserved: true,
+	}
+	server := &service{taskManager: manager}
+
+	if err := server.copyAudioWithStorageReservation(io.Discard, strings.NewReader("a"), task); err != nil {
+		t.Fatalf("copy audio at exact file size limit: %v", err)
+	}
+	if task.TempFileSize != maxAudioFileSize {
+		t.Fatalf("expected stored size %d, got %d", maxAudioFileSize, task.TempFileSize)
+	}
+	manager.releaseTaskStorage(task)
+}
+
+func TestCopyAudioRejectsFileLargerThanLimit(t *testing.T) {
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
+	manager.storedBytes = maxAudioFileSize - 1
+	task := &ASRTask{
+		TempFileSize:    maxAudioFileSize - 1,
+		storageReserved: true,
+	}
+	server := &service{taskManager: manager}
+
+	err := server.copyAudioWithStorageReservation(io.Discard, strings.NewReader("ab"), task)
+	var maxBytesError *http.MaxBytesError
+	if !errors.As(err, &maxBytesError) {
+		t.Fatalf("expected audio file size error, got %v", err)
+	}
+	if maxBytesError.Limit != maxAudioFileSize {
+		t.Fatalf("expected audio limit %d, got %d", maxAudioFileSize, maxBytesError.Limit)
+	}
+	manager.releaseTaskStorage(task)
 }
 
 func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
@@ -681,7 +719,7 @@ func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
 		"whisperx": {url: whisperxServer.URL, model: "large-v3", token: "token"},
 		"funasr":   {url: funasrServer.URL, model: "sensevoice", token: "token"},
 	}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	server := &service{
 		upstreams:     models,
 		client:        &http.Client{Timeout: time.Second},
@@ -736,7 +774,7 @@ func TestQueueWorkerProcessesSameModelSerially(t *testing.T) {
 	models := map[string]upstream{
 		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
 	}
-	manager := NewTaskManager(2, maxUploadSize, models)
+	manager := NewTaskManager(2, maxAudioFileSize, models)
 	server := &service{
 		upstreams:     models,
 		client:        &http.Client{Timeout: time.Second},
@@ -803,7 +841,7 @@ func TestQueueWorkersRespectGlobalTranscriptionLimit(t *testing.T) {
 		"whisperx": {url: whisperxServer.URL, model: "large-v3", token: "token"},
 		"funasr":   {url: funasrServer.URL, model: "sensevoice", token: "token"},
 	}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	server := &service{
 		upstreams:     models,
 		client:        &http.Client{Timeout: time.Second},
@@ -864,7 +902,7 @@ func TestProcessTaskPassesTaskIDToUpstream(t *testing.T) {
 }
 
 func TestFinishTaskMarksUpstreamErrorStatusAsFailed(t *testing.T) {
-	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("upstream-error", "whisperx", "")
 	if err := manager.Add(task); err != nil {
 		t.Fatalf("add upstream error task: %v", err)
@@ -903,7 +941,7 @@ func TestProcessTaskCancelsUpstreamAfterTransportFailure(t *testing.T) {
 	models := map[string]upstream{
 		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
 	}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	server := &service{
 		upstreams:    models,
 		client:       &http.Client{Timeout: time.Second},
@@ -950,7 +988,7 @@ func TestTransportFailureAndExternalCancellationShareUpstreamRequest(t *testing.
 	models := map[string]upstream{
 		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
 	}
-	manager := NewTaskManager(1, maxUploadSize, models)
+	manager := NewTaskManager(1, maxAudioFileSize, models)
 	server := &service{
 		upstreams:    models,
 		client:       &http.Client{Timeout: time.Second},
