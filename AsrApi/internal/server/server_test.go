@@ -1240,3 +1240,205 @@ func waitForTaskResult(t *testing.T, task *ASRTask) {
 		t.Fatalf("timed out waiting for task %s", task.ID)
 	}
 }
+
+func TestLoadServiceEnvironmentValidAndDefaults(t *testing.T) {
+	t.Setenv("ASR_ENABLE_WHISPERX", "true")
+	t.Setenv("ASR_ENABLE_FUNASR", "false")
+	t.Setenv("ASR_MAX_CONCURRENT_UPLOADS", "5")
+
+	env, err := loadServiceEnvironment()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !env.whisperxEnabled || env.funasrEnabled {
+		t.Fatalf("unexpected bool settings: %+v", env)
+	}
+	if env.maxConcurrentUploads != 5 {
+		t.Fatalf("expected maxConcurrentUploads=5, got %d", env.maxConcurrentUploads)
+	}
+}
+
+func TestLoadServiceEnvironmentRejectsInvalidValues(t *testing.T) {
+	t.Run("invalid_bool", func(t *testing.T) {
+		t.Setenv("ASR_ENABLE_WHISPERX", "invalid_bool")
+		if _, err := loadServiceEnvironment(); err == nil {
+			t.Fatal("expected error for invalid bool")
+		}
+	})
+
+	t.Run("exceeds_max_int", func(t *testing.T) {
+		t.Setenv("ASR_MAX_CONCURRENT_UPLOADS", "2000")
+		if _, err := loadServiceEnvironment(); err == nil {
+			t.Fatal("expected error for int exceeding max limit")
+		}
+	})
+}
+
+func TestNewServiceFromEnvironmentValidation(t *testing.T) {
+	t.Run("missing_token", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "ASR_API_TOKEN is required") {
+			t.Fatalf("expected ASR_API_TOKEN error, got: %v", err)
+		}
+	})
+
+	t.Run("both_disabled", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "false")
+		t.Setenv("ASR_ENABLE_FUNASR", "false")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "at least one of ASR_ENABLE_WHISPERX or ASR_ENABLE_FUNASR must be true") {
+			t.Fatalf("expected at least one engine error, got: %v", err)
+		}
+	})
+
+	t.Run("missing_whisperx_url", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "true")
+		t.Setenv("ASR_WHISPERX_TOKEN", "wtoken")
+		t.Setenv("ASR_WHISPERX_URL", "")
+		t.Setenv("ASR_ENABLE_FUNASR", "false")
+		if _, err := newServiceFromEnvironment(); err == nil || !strings.Contains(err.Error(), "ASR_WHISPERX_URL is required") {
+			t.Fatalf("expected ASR_WHISPERX_URL error, got: %v", err)
+		}
+	})
+
+	t.Run("success_valid_env", func(t *testing.T) {
+		t.Setenv("ASR_API_TOKEN", "test-token")
+		t.Setenv("ASR_ENABLE_WHISPERX", "true")
+		t.Setenv("ASR_WHISPERX_TOKEN", "wtoken")
+		t.Setenv("ASR_WHISPERX_URL", "http://localhost:8000")
+		t.Setenv("ASR_ENABLE_FUNASR", "false")
+
+		svc, err := newServiceFromEnvironment()
+		if err != nil {
+			t.Fatalf("expected success, got error: %v", err)
+		}
+		if svc == nil || !svc.whisperxEnabled || svc.funasrEnabled {
+			t.Fatalf("unexpected service instance: %+v", svc)
+		}
+	})
+}
+
+func TestHealthAndGetConfigHandlers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &service{
+		whisperxEnabled:       true,
+		funasrEnabled:         false,
+		funasrRealtimeEnabled: true,
+		whisperxSingleModel:   false,
+	}
+
+	t.Run("healthz", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		svc.health(c)
+		if c.Writer.Status() != http.StatusNoContent {
+			t.Fatalf("expected status %d, got %d", http.StatusNoContent, c.Writer.Status())
+		}
+	})
+
+	t.Run("getConfig", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		svc.getConfig(c)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+		}
+		if !strings.Contains(recorder.Body.String(), `"whisperx":true`) {
+			t.Fatalf("unexpected config response: %s", recorder.Body.String())
+		}
+	})
+}
+
+func TestSystemEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstreamServer.Close()
+
+	svc := &service{
+		whisperxEnabled: true,
+		funasrEnabled:   false,
+		upstreams: map[string]upstream{
+			"whisperx": {url: upstreamServer.URL, token: "token"},
+		},
+		statusClient: &http.Client{Timeout: time.Second},
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/system", nil)
+
+	svc.system(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), `"upstream_status":"available"`) {
+		t.Fatalf("unexpected system response: %s", recorder.Body.String())
+	}
+}
+
+func TestAuthenticateMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &service{token: "secret-token"}
+
+	t.Run("unauthorized_missing_token", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		svc.authenticate(c)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", recorder.Code)
+		}
+	})
+
+	t.Run("authorized_correct_token", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		c.Request.Header.Set("Authorization", "Bearer secret-token")
+		svc.authenticate(c)
+		if recorder.Code == http.StatusUnauthorized {
+			t.Fatal("expected request to pass authentication")
+		}
+	})
+}
+
+func TestCancelTaskForModel(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Task-Id") == "test-task" {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer upstreamServer.Close()
+
+	svc := &service{
+		upstreams: map[string]upstream{
+			"whisperx": {url: upstreamServer.URL, token: "token"},
+		},
+		statusClient: &http.Client{Timeout: time.Second},
+	}
+
+	t.Run("unsupported_model", func(t *testing.T) {
+		if err := svc.cancelTaskForModel("unsupported", "task1"); err == nil {
+			t.Fatal("expected error for unsupported model")
+		}
+	})
+
+	t.Run("model_not_configured", func(t *testing.T) {
+		if err := svc.cancelTaskForModel("funasr", "task1"); err == nil {
+			t.Fatal("expected error when model is not in upstreams")
+		}
+	})
+
+	t.Run("successful_cancellation", func(t *testing.T) {
+		if err := svc.cancelTaskForModel("whisperx", "test-task"); err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+	})
+}
+
