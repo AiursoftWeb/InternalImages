@@ -3,6 +3,7 @@ package server
 import (
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -111,8 +112,8 @@ func newServiceFromEnvironment() (*service, error) {
 		if whisperXURL == "" {
 			return nil, errors.New("ASR_WHISPERX_URL is required when whisperx is enabled")
 		}
-		if _, err := url.ParseRequestURI(whisperXURL); err != nil {
-			return nil, errors.New("ASR_WHISPERX_URL must be a valid URL")
+		if err := validateUpstreamURL(whisperXURL); err != nil {
+			return nil, fmt.Errorf("ASR_WHISPERX_URL %w", err)
 		}
 	}
 
@@ -126,8 +127,8 @@ func newServiceFromEnvironment() (*service, error) {
 		if funASRURL == "" {
 			return nil, errors.New("ASR_FUNASR_URL is required when funasr is enabled")
 		}
-		if _, err := url.ParseRequestURI(funASRURL); err != nil {
-			return nil, errors.New("ASR_FUNASR_URL must be a valid URL")
+		if err := validateUpstreamURL(funASRURL); err != nil {
+			return nil, fmt.Errorf("ASR_FUNASR_URL %w", err)
 		}
 	}
 
@@ -166,6 +167,21 @@ func newServiceFromEnvironment() (*service, error) {
 	}
 	s.startQueueWorkers(tm)
 	return s, nil
+}
+
+func validateUpstreamURL(value string) error {
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil {
+		return errors.New("must be a valid absolute URL")
+	}
+	isHTTP := strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")
+	if parsed.Host == "" || !isHTTP {
+		return errors.New("must be an absolute HTTP(S) URL")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("must not contain a query or fragment")
+	}
+	return nil
 }
 
 func environmentOrDefault(name, defaultValue string) string {

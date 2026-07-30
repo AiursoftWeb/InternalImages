@@ -88,6 +88,30 @@ func TestValidateTaskID(t *testing.T) {
 	}
 }
 
+func TestValidateUpstreamURL(t *testing.T) {
+	validURLs := []string{
+		"http://localhost:8000",
+		"https://asr.example.com/base",
+	}
+	for _, value := range validURLs {
+		if err := validateUpstreamURL(value); err != nil {
+			t.Fatalf("validate upstream URL %q: %v", value, err)
+		}
+	}
+
+	invalidURLs := []string{
+		"/upstream",
+		"ftp://asr.example.com",
+		"http:///missing-host",
+		"http://asr.example.com?token=value",
+	}
+	for _, value := range invalidURLs {
+		if err := validateUpstreamURL(value); err == nil {
+			t.Fatalf("expected upstream URL %q to be rejected", value)
+		}
+	}
+}
+
 func TestTranscribeRejectsInvalidHeaderTaskIDBeforeReadingBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := &service{uploadSem: make(chan struct{}, 1)}
