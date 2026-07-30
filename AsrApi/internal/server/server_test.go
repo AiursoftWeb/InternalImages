@@ -913,27 +913,40 @@ func TestProcessTaskPassesTaskIDToUpstream(t *testing.T) {
 	}
 }
 
-func TestFinishTaskMarksUpstreamErrorStatusAsFailed(t *testing.T) {
-	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
-	task := testTask("upstream-error", "whisperx", "")
-	if err := manager.Add(task); err != nil {
-		t.Fatalf("add upstream error task: %v", err)
-	}
-	manager.waitForPendingTask(manager.queues["whisperx"])
-	result := ASRTaskResult{
-		StatusCode: http.StatusServiceUnavailable,
-		Body:       []byte(`{"error":"unavailable"}`),
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
+func TestFinishTaskMarksNonSuccessfulUpstreamStatusAsFailed(t *testing.T) {
+	testCases := []struct {
+		name       string
+		taskID     string
+		statusCode int
+	}{
+		{name: "redirect", taskID: "upstream-redirect", statusCode: http.StatusNotModified},
+		{name: "server error", taskID: "upstream-error", statusCode: http.StatusServiceUnavailable},
 	}
 
-	if !manager.finishTask(task, result) {
-		t.Fatal("expected upstream error result to be published")
-	}
-	if task.Status != StatusFailed {
-		t.Fatalf("expected task status %q, got %q", StatusFailed, task.Status)
-	}
-	if result.Err != nil {
-		t.Fatalf("expected upstream response to remain transferable, got %v", result.Err)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
+			task := testTask(testCase.taskID, "whisperx", "")
+			if err := manager.Add(task); err != nil {
+				t.Fatalf("add unsuccessful upstream task: %v", err)
+			}
+			manager.waitForPendingTask(manager.queues["whisperx"])
+			result := ASRTaskResult{
+				StatusCode: testCase.statusCode,
+				Body:       []byte(`{"error":"upstream request failed"}`),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}
+
+			if !manager.finishTask(task, result) {
+				t.Fatal("expected unsuccessful upstream result to be published")
+			}
+			if task.Status != StatusFailed {
+				t.Fatalf("expected task status %q, got %q", StatusFailed, task.Status)
+			}
+			if result.Err != nil {
+				t.Fatalf("expected upstream response to remain transferable, got %v", result.Err)
+			}
+		})
 	}
 }
 
