@@ -85,17 +85,11 @@ func (s *service) transcribe(c *gin.Context) {
 	}()
 	upload, err := s.readTranscriptionUpload(c.Request, task)
 	if err != nil {
-		switch {
-		case errors.Is(err, errStoredAudioCapacity):
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
-		case errors.Is(err, errAudioFileRequired):
-			c.JSON(http.StatusBadRequest, gin.H{"error": errAudioFileRequired.Error()})
-		case errors.Is(err, errInvalidMultipartUpload):
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidMultipartUpload.Error()})
-		default:
+		statusCode, message := transcriptionUploadErrorResponse(err)
+		if statusCode == http.StatusInternalServerError {
 			log.Printf("failed to store uploaded audio: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store uploaded audio"})
 		}
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
@@ -179,6 +173,22 @@ func (s *service) transcribe(c *gin.Context) {
 			log.Printf("[ASR API] Failed to confirm cancellation after client disconnected for task %s: %v", task.ID, err)
 		}
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "client disconnected"})
+	}
+}
+
+func transcriptionUploadErrorResponse(err error) (int, string) {
+	var maxBytesError *http.MaxBytesError
+	switch {
+	case errors.As(err, &maxBytesError):
+		return http.StatusRequestEntityTooLarge, fmt.Sprintf("upload exceeds %d MiB limit", maxUploadSize>>20)
+	case errors.Is(err, errStoredAudioCapacity):
+		return http.StatusTooManyRequests, err.Error()
+	case errors.Is(err, errAudioFileRequired):
+		return http.StatusBadRequest, errAudioFileRequired.Error()
+	case errors.Is(err, errInvalidMultipartUpload):
+		return http.StatusBadRequest, errInvalidMultipartUpload.Error()
+	default:
+		return http.StatusInternalServerError, "failed to store uploaded audio"
 	}
 }
 

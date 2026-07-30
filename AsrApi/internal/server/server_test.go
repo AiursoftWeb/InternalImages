@@ -549,6 +549,25 @@ func TestReadTranscriptionUploadEnforcesStorageLimitWhileStreaming(t *testing.T)
 	}
 }
 
+func TestTranscriptionUploadErrorResponseReturnsRequestEntityTooLarge(t *testing.T) {
+	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	server := &service{taskManager: manager}
+	task := &ASRTask{}
+	request := newMultipartTranscriptionRequest(t, "audio", map[string]string{"model": "whisperx"})
+	request.Body = http.MaxBytesReader(httptest.NewRecorder(), request.Body, 4)
+
+	_, err := server.readTranscriptionUpload(request, task)
+	manager.releaseTaskStorage(task)
+	statusCode, message := transcriptionUploadErrorResponse(err)
+
+	if statusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, statusCode)
+	}
+	if message != "upload exceeds 100 MiB limit" {
+		t.Fatalf("unexpected oversized upload message %q", message)
+	}
+}
+
 func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})
