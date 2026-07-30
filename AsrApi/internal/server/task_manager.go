@@ -17,6 +17,8 @@ const (
 	maxCancelRequestSize          = 4 << 10
 	maxTaskIDLength               = 128
 	defaultMaxStoredAudioSizeMiB  = 512
+	maxConfiguredStoredAudioMiB   = 1 << 20
+	maxConfiguredConcurrency      = 1024
 	maxCancelTombstones           = 1024
 	cancelTombstoneTTL            = 10 * time.Minute
 	cancelUpstreamTimeout         = 12 * time.Second

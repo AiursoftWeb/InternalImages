@@ -113,16 +113,28 @@ func TestValidateUpstreamURL(t *testing.T) {
 }
 
 func TestEnvironmentOrDefaultIntRejectsInvalidExplicitValue(t *testing.T) {
-	invalidValues := []string{"", "0", "-1", "many"}
+	invalidValues := []string{"", "0", "-1", "11", "many"}
 	for _, value := range invalidValues {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("ASR_TEST_POSITIVE_INT", value)
-			if _, err := environmentOrDefaultInt("ASR_TEST_POSITIVE_INT", 2); err == nil {
+			if _, err := environmentOrDefaultInt("ASR_TEST_POSITIVE_INT", 2, 10); err == nil {
 				t.Fatalf("expected integer value %q to be rejected", value)
 			} else if !strings.Contains(err.Error(), "ASR_TEST_POSITIVE_INT") {
 				t.Fatalf("expected error to name environment variable, got %v", err)
 			}
 		})
+	}
+}
+
+func TestEnvironmentOrDefaultIntAcceptsMaximumValue(t *testing.T) {
+	t.Setenv("ASR_TEST_POSITIVE_INT", "10")
+
+	value, err := environmentOrDefaultInt("ASR_TEST_POSITIVE_INT", 2, 10)
+	if err != nil {
+		t.Fatalf("parse maximum integer value: %v", err)
+	}
+	if value != 10 {
+		t.Fatalf("expected maximum value 10, got %d", value)
 	}
 }
 

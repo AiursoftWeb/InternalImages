@@ -207,13 +207,13 @@ func loadServiceEnvironment() (serviceEnvironment, error) {
 	if settings.whisperxSingleModel, err = environmentOrDefaultBool("ASR_WHISPERX_SINGLE_MODEL", false); err != nil {
 		return serviceEnvironment{}, err
 	}
-	if settings.maxStoredAudioSizeMiB, err = environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB); err != nil {
+	if settings.maxStoredAudioSizeMiB, err = environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB, maxConfiguredStoredAudioMiB); err != nil {
 		return serviceEnvironment{}, err
 	}
-	if settings.maxConcurrentUploads, err = environmentOrDefaultInt("ASR_MAX_CONCURRENT_UPLOADS", 2); err != nil {
+	if settings.maxConcurrentUploads, err = environmentOrDefaultInt("ASR_MAX_CONCURRENT_UPLOADS", 2, maxConfiguredConcurrency); err != nil {
 		return serviceEnvironment{}, err
 	}
-	if settings.maxConcurrentTranscriptions, err = environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2); err != nil {
+	if settings.maxConcurrentTranscriptions, err = environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2, maxConfiguredConcurrency); err != nil {
 		return serviceEnvironment{}, err
 	}
 	return settings, nil
@@ -226,14 +226,14 @@ func environmentOrDefault(name, defaultValue string) string {
 	return defaultValue
 }
 
-func environmentOrDefaultInt(name string, defaultValue int) (int, error) {
+func environmentOrDefaultInt(name string, defaultValue, maxValue int) (int, error) {
 	value, exists := os.LookupEnv(name)
 	if !exists {
 		return defaultValue, nil
 	}
 	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, value)
+	if err != nil || parsed <= 0 || parsed > maxValue {
+		return 0, fmt.Errorf("%s must be an integer between 1 and %d, got %q", name, maxValue, value)
 	}
 	return parsed, nil
 }
