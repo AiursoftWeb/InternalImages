@@ -43,9 +43,13 @@ func (tm *TaskManager) finishTask(task *ASRTask, result ASRTaskResult) bool {
 		log.Printf("[Queue] Worker finished task %s. Current status: %s", task.ID, task.Status)
 		return false
 	}
-	if result.Err != nil {
+	if result.Err != nil || result.StatusCode >= http.StatusBadRequest {
 		task.Status = StatusFailed
-		log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
+		if result.Err != nil {
+			log.Printf("[Queue] Worker finished task %s. Result: Failure (%v)", task.ID, result.Err)
+		} else {
+			log.Printf("[Queue] Worker finished task %s. Result: Failure (upstream status %d)", task.ID, result.StatusCode)
+		}
 	} else {
 		task.Status = StatusCompleted
 		log.Printf("[Queue] Worker finished task %s. Result: Success", task.ID)

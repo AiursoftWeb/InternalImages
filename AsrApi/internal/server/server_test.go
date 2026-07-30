@@ -803,6 +803,30 @@ func TestProcessTaskPassesTaskIDToUpstream(t *testing.T) {
 	}
 }
 
+func TestFinishTaskMarksUpstreamErrorStatusAsFailed(t *testing.T) {
+	manager := NewTaskManager(1, maxUploadSize, map[string]upstream{"whisperx": {}})
+	task := testTask("upstream-error", "whisperx", "")
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add upstream error task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+	result := ASRTaskResult{
+		StatusCode: http.StatusServiceUnavailable,
+		Body:       []byte(`{"error":"unavailable"}`),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}
+
+	if !manager.finishTask(task, result) {
+		t.Fatal("expected upstream error result to be published")
+	}
+	if task.Status != StatusFailed {
+		t.Fatalf("expected task status %q, got %q", StatusFailed, task.Status)
+	}
+	if result.Err != nil {
+		t.Fatalf("expected upstream response to remain transferable, got %v", result.Err)
+	}
+}
+
 func TestProcessTaskCancelsUpstreamAfterTransportFailure(t *testing.T) {
 	const taskID = "transport-failure"
 	cancelledTaskID := make(chan string, 1)
