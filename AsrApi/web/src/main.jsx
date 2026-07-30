@@ -402,7 +402,15 @@ function App() {
     }
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data)
+      let message
+      try {
+        message = JSON.parse(event.data)
+      } catch {
+        stoppingRealtimeRef.current = true
+        setRealtimeError('实时服务返回了无效的 JSON 消息。')
+        socket.close(1003, 'Invalid JSON response')
+        return
+      }
       if (message.is_final) {
         setRealtimeFinal(message.text || '')
         stoppingRealtimeRef.current = true
