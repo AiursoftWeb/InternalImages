@@ -88,6 +88,20 @@ function defaultRealtimeUrl() {
   return `${protocol}//${window.location.hostname}:10095`
 }
 
+function parseRealtimeMessage(data) {
+  const message = JSON.parse(data)
+  if (message === null || Array.isArray(message) || typeof message !== 'object') {
+    throw new TypeError('Realtime message must be an object')
+  }
+  if ('is_final' in message && typeof message.is_final !== 'boolean') {
+    throw new TypeError('Realtime message is_final must be a boolean')
+  }
+  if ('text' in message && typeof message.text !== 'string') {
+    throw new TypeError('Realtime message text must be a string')
+  }
+  return message
+}
+
 function resampleAudio(samples, sourceRate, targetRate) {
   if (sourceRate === targetRate) return samples
   const outputLength = Math.round(samples.length * targetRate / sourceRate)
@@ -404,7 +418,7 @@ function App() {
     socket.onmessage = (event) => {
       let message
       try {
-        message = JSON.parse(event.data)
+        message = parseRealtimeMessage(event.data)
       } catch {
         stoppingRealtimeRef.current = true
         setRealtimeError('实时服务返回了无效的 JSON 消息。')
