@@ -552,6 +552,67 @@ func TestQueueWorkersProcessDifferentModelsConcurrently(t *testing.T) {
 	waitForTaskResult(t, funasrTask)
 }
 
+func TestQueueWorkerProcessesSameModelSerially(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	})
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		started <- request.Header.Get("X-Task-Id")
+		<-release
+		writer.Header().Set("Content-Type", "application/json")
+		if _, err := writer.Write([]byte(`{"text":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer upstreamServer.Close()
+
+	models := map[string]upstream{
+		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+	}
+	manager := NewTaskManager(2, maxUploadSize, models)
+	server := &service{
+		upstreams:     models,
+		client:        &http.Client{Timeout: time.Second},
+		taskManager:   manager,
+		transcribeSem: make(chan struct{}, 2),
+	}
+	server.startQueueWorkers(manager)
+
+	firstTask := testTask("whisperx-first", "whisperx", writeTestAudio(t, "first.wav"))
+	secondTask := testTask("whisperx-second", "whisperx", writeTestAudio(t, "second.wav"))
+	if err := manager.Add(firstTask); err != nil {
+		t.Fatalf("add first whisperx task: %v", err)
+	}
+	if err := manager.Add(secondTask); err != nil {
+		t.Fatalf("add second whisperx task: %v", err)
+	}
+
+	firstStarted := waitForStartedModel(t, started)
+	if firstStarted != firstTask.ID {
+		t.Fatalf("expected first task %q to start, got %q", firstTask.ID, firstStarted)
+	}
+	select {
+	case taskID := <-started:
+		t.Fatalf("expected same-model task to remain queued, but %s started", taskID)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseOnce.Do(func() {
+		close(release)
+	})
+	secondStarted := waitForStartedModel(t, started)
+	if secondStarted != secondTask.ID {
+		t.Fatalf("expected second task %q to start, got %q", secondTask.ID, secondStarted)
+	}
+	waitForTaskResult(t, firstTask)
+	waitForTaskResult(t, secondTask)
+}
+
 func TestQueueWorkersRespectGlobalTranscriptionLimit(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})

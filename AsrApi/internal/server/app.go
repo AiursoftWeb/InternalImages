@@ -149,6 +149,8 @@ func newServiceFromEnvironment() (*service, error) {
 
 	maxStoredBytes := int64(environmentOrDefaultInt("ASR_MAX_STORED_AUDIO_SIZE_MIB", defaultMaxStoredAudioSizeMiB)) << 20
 	tm := NewTaskManager(16, maxStoredBytes, upstreams)
+	// 每个模型只有一个串行 worker；此限制仅约束不同模型同时占用的全局资源。
+	maxConcurrentTranscriptions := environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)
 	s := &service{
 		token:                 token,
 		upstreams:             upstreams,
@@ -160,7 +162,7 @@ func newServiceFromEnvironment() (*service, error) {
 		whisperxSingleModel:   whisperxSingleModel,
 		taskManager:           tm,
 		uploadSem:             make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_UPLOADS", 2)),
-		transcribeSem:         make(chan struct{}, environmentOrDefaultInt("ASR_MAX_CONCURRENT_TRANSCRIPTIONS", 2)),
+		transcribeSem:         make(chan struct{}, maxConcurrentTranscriptions),
 	}
 	s.startQueueWorkers(tm)
 	return s, nil

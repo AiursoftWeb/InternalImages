@@ -12,7 +12,7 @@ import (
 )
 
 func (s *service) startQueueWorkers(tm *TaskManager) {
-	// WhisperX 与 FunASR 可能部署在不同机器，因此各模型使用独立 worker。
+	// 同一模型串行执行以避免争抢同一 GPU；不同模型使用独立 worker 以支持部署在不同设备。
 	for model, queue := range tm.queues {
 		log.Printf("[Queue] Starting task queue worker for model %s...", model)
 		go func(queue *taskQueue) {
