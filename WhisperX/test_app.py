@@ -122,6 +122,27 @@ class InferenceProcessTests(unittest.TestCase):
         self.assertFalse(cancel_thread.is_alive())
         self.assertEqual(result, ["cancelled"])
 
+    def test_completion_signal_follows_admission_release(self):
+        process = self.app.InferenceProcess()
+        run_lock = TrackingRunLock()
+        task_done = TrackingEvent(run_lock)
+        command_queue = FakeQueue()
+        result_queue = object()
+        process.run_lock = run_lock
+        process._prepare_task = lambda _: (
+            "active",
+            process.generation,
+            command_queue,
+            result_queue,
+            task_done,
+        )
+        process._wait_for_result = lambda *_: {"text": "done"}
+
+        result = process.transcribe("active", "/tmp/audio.wav", "large-v3", "", "json")
+
+        self.assertEqual(result, {"text": "done"})
+        self.assertTrue(task_done.admission_released)
+
 
 class FakeProcess:
     def __init__(self):
@@ -140,6 +161,34 @@ class FakeProcess:
 
     def kill(self):
         self.alive = False
+
+
+class TrackingRunLock:
+    def __init__(self):
+        self.locked = False
+
+    def acquire(self, blocking=True):
+        if self.locked:
+            return False
+        self.locked = True
+        return True
+
+    def release(self):
+        self.locked = False
+
+
+class TrackingEvent:
+    def __init__(self, run_lock):
+        self.run_lock = run_lock
+        self.admission_released = False
+
+    def set(self):
+        self.admission_released = not self.run_lock.locked
+
+
+class FakeQueue:
+    def put(self, _):
+        return None
 
 
 if __name__ == "__main__":

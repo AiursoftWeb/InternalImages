@@ -298,6 +298,15 @@ func waitForCancellationAttempt(attempt *cancellationAttempt) (bool, error) {
 	return true, attempt.err
 }
 
+func (tm *TaskManager) waitForTaskCancellation(id string) {
+	tm.mu.RLock()
+	attempt := tm.cancellationAttempts[id]
+	tm.mu.RUnlock()
+	if attempt != nil {
+		<-attempt.done
+	}
+}
+
 func (tm *TaskManager) runCompensatingCancellation(id, model string, cancelUpstreamFunc func() error) error {
 	tm.mu.Lock()
 	tm.pruneCancelledTaskIDs(time.Now())
