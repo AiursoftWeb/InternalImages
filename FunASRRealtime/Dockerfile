@@ -1,5 +1,7 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
+ARG USE_PYPI_MIRROR=false
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -18,7 +20,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
-RUN pip install "funasr==1.3.14" "modelscope==1.38.1" "websockets==12.0" "scipy==1.15.3"
+RUN if [ "$USE_PYPI_MIRROR" = "true" ]; then \
+        PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple; \
+    else \
+        PIP_INDEX_URL=https://pypi.org/simple; \
+    fi \
+    && pip install --index-url "$PIP_INDEX_URL" "funasr==1.3.14" "modelscope==1.38.1" "websockets==12.0" "scipy==1.15.3"
 
 # Bake models into the image at build time (CPU-only download) so they are
 # not fetched at runtime; server.py reloads them onto the GPU via --device cuda.

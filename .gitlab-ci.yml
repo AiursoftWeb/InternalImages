@@ -253,7 +253,7 @@ deploy_whisperx:
     PLATFORMS: "linux/amd64"
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
-    BUILD_ARGS: "--build-arg SINGLE_MODEL=true"
+    BUILD_ARGS: "--build-arg SINGLE_MODEL=true --build-arg USE_PYPI_MIRROR=true"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
@@ -270,6 +270,7 @@ deploy_funasr:
     PLATFORMS: "linux/amd64"
     IMAGE_NAME: "funasr"
     CONTEXT: "./FunASR"
+    BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
@@ -286,6 +287,7 @@ deploy_funasr_realtime:
     PLATFORMS: "linux/amd64"
     IMAGE_NAME: "funasr-realtime"
     CONTEXT: "./FunASRRealtime"
+    BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes:

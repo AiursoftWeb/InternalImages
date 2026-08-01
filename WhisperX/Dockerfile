@@ -1,6 +1,7 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 
 ARG SINGLE_MODEL=true
+ARG USE_PYPI_MIRROR=false
 ENV SINGLE_MODEL=${SINGLE_MODEL}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -20,7 +21,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
-RUN pip install "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
+RUN if [ "$USE_PYPI_MIRROR" = "true" ]; then \
+        PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple; \
+    else \
+        PIP_INDEX_URL=https://pypi.org/simple; \
+    fi \
+    && pip install --index-url "$PIP_INDEX_URL" "fastapi==0.116.1" "uvicorn[standard]==0.35.0" "python-multipart==0.0.20" "whisperx==3.8.6"
 
 # Bake the curated WhisperX model levels (models_config.BAKED_MODELS) into the
 # image at build time so ops can switch offline. Edit BAKED_MODELS and rebuild
