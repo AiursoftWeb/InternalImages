@@ -20,7 +20,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
+RUN pip install --timeout 600 --retries 10 --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
 RUN if [ "$USE_PYPI_MIRROR" = "true" ]; then \
         PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple; \
     else \
