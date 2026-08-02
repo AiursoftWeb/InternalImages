@@ -90,12 +90,18 @@ type cancellationAttempt struct {
 	err  error
 }
 
+type modelAdmissionBlock struct {
+	taskID string
+	done   chan struct{}
+}
+
 type TaskManager struct {
 	mu                   sync.RWMutex
 	tasks                map[string]*ASRTask
 	queues               map[string]*taskQueue
 	cancelledTaskIDs     map[string]cancellationRecord
 	cancellationAttempts map[string]*cancellationAttempt
+	modelAdmissionBlocks map[string]*modelAdmissionBlock
 	maxStoredBytes       int64
 	storedBytes          int64
 }
@@ -112,6 +118,7 @@ func NewTaskManager(queueSize int, maxStoredBytes int64, models map[string]upstr
 		queues:               make(map[string]*taskQueue, len(models)),
 		cancelledTaskIDs:     make(map[string]cancellationRecord),
 		cancellationAttempts: make(map[string]*cancellationAttempt),
+		modelAdmissionBlocks: make(map[string]*modelAdmissionBlock),
 		maxStoredBytes:       maxStoredBytes,
 	}
 	for model := range models {
@@ -133,6 +140,9 @@ func (tm *TaskManager) Add(task *ASRTask) error {
 	tm.pruneCancelledTaskIDs(time.Now())
 	if _, exists := tm.cancelledTaskIDs[task.ID]; exists {
 		return fmt.Errorf("task %s was recently cancelled", task.ID)
+	}
+	if _, blocked := tm.blockedModelForTaskIDLocked(task.ID); blocked {
+		return fmt.Errorf("task %s cancellation remains unresolved", task.ID)
 	}
 	if _, exists := tm.tasks[task.ID]; exists {
 		return fmt.Errorf("task %s already exists", task.ID)
@@ -174,6 +184,11 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		}
 		tm.mu.Unlock()
 		return false, nil
+	}
+	if model, blocked := tm.blockedModelForTaskIDLocked(id); blocked {
+		attempt := tm.startCancellationAttempt(id)
+		tm.mu.Unlock()
+		return tm.retryCancellation(id, cancellationRecord{Model: model}, attempt, cancelUpstreamFunc)
 	}
 	task, ok := tm.tasks[id]
 	if !ok {
@@ -222,6 +237,7 @@ func (tm *TaskManager) Cancel(id string, cancelUpstreamFunc func(model, taskID s
 		delete(tm.tasks, id)
 		tm.recordCancelledTaskID(id, task.Model, cancelErr != nil, time.Now())
 	}
+	tm.updateModelAdmissionAfterCancellationLocked(id, task.Model, cancelErr)
 	tm.finishCancellationAttempt(id, attempt, cancelErr)
 	tm.mu.Unlock()
 
@@ -274,6 +290,7 @@ func (tm *TaskManager) retryCancellation(id string, record cancellationRecord, a
 		}
 		tm.cancelledTaskIDs[id] = currentRecord
 	}
+	tm.updateModelAdmissionAfterCancellationLocked(id, record.Model, cancelErr)
 	tm.finishCancellationAttempt(id, attempt, cancelErr)
 	tm.mu.Unlock()
 
@@ -302,12 +319,57 @@ func waitForCancellationAttempt(attempt *cancellationAttempt) (bool, error) {
 	return true, attempt.err
 }
 
-func (tm *TaskManager) waitForTaskCancellation(id string) {
+func (tm *TaskManager) waitForTaskCancellation(id string) error {
 	tm.mu.RLock()
 	attempt := tm.cancellationAttempts[id]
 	tm.mu.RUnlock()
-	if attempt != nil {
-		<-attempt.done
+	if attempt == nil {
+		return nil
+	}
+	<-attempt.done
+	return attempt.err
+}
+
+func (tm *TaskManager) waitForModelAdmission(ctx context.Context, model string) bool {
+	tm.mu.RLock()
+	block := tm.modelAdmissionBlocks[model]
+	tm.mu.RUnlock()
+	if block == nil {
+		return true
+	}
+	select {
+	case <-block.done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (tm *TaskManager) blockedModelForTaskIDLocked(id string) (string, bool) {
+	for model, block := range tm.modelAdmissionBlocks {
+		if block.taskID == id {
+			return model, true
+		}
+	}
+	return "", false
+}
+
+func (tm *TaskManager) updateModelAdmissionAfterCancellationLocked(id, model string, cancelErr error) {
+	block := tm.modelAdmissionBlocks[model]
+	if cancelErr != nil {
+		if block == nil {
+			tm.modelAdmissionBlocks[model] = &modelAdmissionBlock{
+				taskID: id,
+				done:   make(chan struct{}),
+			}
+			log.Printf("[Queue] Blocking admission for model %s after task %s cancellation failed", model, id)
+		}
+		return
+	}
+	if block != nil && block.taskID == id {
+		close(block.done)
+		delete(tm.modelAdmissionBlocks, model)
+		log.Printf("[Queue] Restored admission for model %s after task %s cancellation retry succeeded", model, id)
 	}
 }
 
@@ -326,6 +388,7 @@ func (tm *TaskManager) runCompensatingCancellation(id, model string, cancelUpstr
 
 	tm.mu.Lock()
 	tm.recordCancelledTaskID(id, model, cancelErr != nil, time.Now())
+	tm.updateModelAdmissionAfterCancellationLocked(id, model, cancelErr)
 	tm.finishCancellationAttempt(id, attempt, cancelErr)
 	tm.mu.Unlock()
 	return cancelErr

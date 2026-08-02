@@ -143,6 +143,61 @@ class InferenceProcessTests(unittest.TestCase):
         self.assertEqual(result, {"text": "done"})
         self.assertTrue(task_done.admission_released)
 
+    def test_cancel_waits_while_admission_release_is_in_progress(self):
+        process = self.app.InferenceProcess()
+        run_lock = BlockingReleaseRunLock()
+        task_done = threading.Event()
+        fake_process = FakeProcess()
+        command_queue = FakeQueue()
+        result_queue = FakeQueue()
+        process.run_lock = run_lock
+
+        def prepare_task(_):
+            with process.state_lock:
+                process.process = fake_process
+                process.command_queue = command_queue
+                process.result_queue = result_queue
+                process.active_task_id = "active"
+                process.active_task_done = task_done
+                return (
+                    "active",
+                    process.generation,
+                    command_queue,
+                    result_queue,
+                    task_done,
+                )
+
+        process._prepare_task = prepare_task
+        process._wait_for_result = lambda *_: {"text": "done"}
+        transcription_errors = []
+        transcription_thread = threading.Thread(
+            target=lambda: self._transcribe_and_capture_error(process, transcription_errors)
+        )
+        transcription_thread.start()
+        self.assertTrue(run_lock.release_started.wait(timeout=1))
+
+        cancel_result = []
+        cancel_thread = threading.Thread(target=lambda: cancel_result.append(process.cancel("active")))
+        cancel_thread.start()
+        self.assertTrue(fake_process.terminated.wait(timeout=1))
+        self.assertTrue(cancel_thread.is_alive())
+
+        run_lock.allow_release.set()
+        transcription_thread.join(timeout=1)
+        cancel_thread.join(timeout=1)
+        self.assertFalse(transcription_thread.is_alive())
+        self.assertFalse(cancel_thread.is_alive())
+        self.assertEqual(cancel_result, ["cancelled"])
+        self.assertEqual(len(transcription_errors), 1)
+        self.assertIsInstance(transcription_errors[0], self.app.TranscriptionCancelled)
+
+    @staticmethod
+    def _transcribe_and_capture_error(process, errors):
+        try:
+            process.transcribe("active", "/tmp/audio.wav", "large-v3", "", "json")
+        except Exception as exc:
+            errors.append(exc)
+
 
 class FakeProcess:
     def __init__(self):
@@ -186,8 +241,26 @@ class TrackingEvent:
         self.admission_released = not self.run_lock.locked
 
 
+class BlockingReleaseRunLock(TrackingRunLock):
+    def __init__(self):
+        super().__init__()
+        self.release_started = threading.Event()
+        self.allow_release = threading.Event()
+
+    def release(self):
+        self.release_started.set()
+        self.allow_release.wait(timeout=1)
+        super().release()
+
+
 class FakeQueue:
     def put(self, _):
+        return None
+
+    def close(self):
+        return None
+
+    def join_thread(self):
         return None
 
 

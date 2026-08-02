@@ -228,7 +228,7 @@ func loadServiceEnvironment() (serviceEnvironment, error) {
 	if settings.segmentDurationSeconds, err = environmentOrDefaultInt("ASR_RECOMMENDED_SEGMENT_DURATION_SECONDS", defaultSegmentDurationSeconds, maxConfiguredDurationSeconds); err != nil {
 		return serviceEnvironment{}, err
 	}
-	if settings.segmentOverlapSeconds, err = environmentOrDefaultInt("ASR_SEGMENT_OVERLAP_SECONDS", defaultSegmentOverlapSeconds, maxConfiguredDurationSeconds); err != nil {
+	if settings.segmentOverlapSeconds, err = environmentOrDefaultNonNegativeInt("ASR_SEGMENT_OVERLAP_SECONDS", defaultSegmentOverlapSeconds, maxConfiguredDurationSeconds); err != nil {
 		return serviceEnvironment{}, err
 	}
 	if settings.segmentOverlapSeconds >= settings.segmentDurationSeconds {
@@ -255,6 +255,18 @@ func environmentOrDefaultInt(name string, defaultValue, maxValue int) (int, erro
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 || parsed > maxValue {
 		return 0, fmt.Errorf("%s must be an integer between 1 and %d, got %q", name, maxValue, value)
+	}
+	return parsed, nil
+}
+
+func environmentOrDefaultNonNegativeInt(name string, defaultValue, maxValue int) (int, error) {
+	value, exists := os.LookupEnv(name)
+	if !exists {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 || parsed > maxValue {
+		return 0, fmt.Errorf("%s must be an integer between 0 and %d, got %q", name, maxValue, value)
 	}
 	return parsed, nil
 }

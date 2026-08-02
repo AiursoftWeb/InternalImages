@@ -141,6 +141,7 @@ class InferenceProcess:
             })
             result = self._wait_for_result(task_id, generation, result_queue)
         finally:
+            self.run_lock.release()
             if generation is not None:
                 with self.state_lock:
                     cancelled = self.generation != generation
@@ -150,7 +151,6 @@ class InferenceProcess:
                 if cancelled:
                     self._close_queue(command_queue)
                     self._close_queue(result_queue)
-            self.run_lock.release()
             if task_done is not None:
                 task_done.set()
 

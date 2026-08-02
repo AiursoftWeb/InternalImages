@@ -476,6 +476,83 @@ func TestProcessTaskWaitsForCancellationBeforeReleasingTranscriptionSlot(t *test
 	})
 }
 
+func TestCancellationFailureBlocksModelAdmissionUntilRetrySucceeds(t *testing.T) {
+	requestStarted := make(chan string, 1)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestStarted <- request.Header.Get("X-Task-Id")
+		writer.Header().Set("Content-Type", "application/json")
+		if _, err := writer.Write([]byte(`{"text":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer upstreamServer.Close()
+
+	models := map[string]upstream{
+		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+	}
+	manager := NewTaskManager(1, maxAudioFileSize, models)
+	failedTask := testTask("failed-cancellation", "whisperx", "")
+	if err := manager.Add(failedTask); err != nil {
+		t.Fatalf("add failed cancellation task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	cancelErr := errors.New("upstream cancellation failed")
+	found, err := manager.Cancel(failedTask.ID, func(_, _ string) error {
+		return cancelErr
+	})
+	if !found {
+		t.Fatal("expected running task cancellation to be found")
+	}
+	if !errors.Is(err, cancelErr) {
+		t.Fatalf("expected cancellation error %v, got %v", cancelErr, err)
+	}
+
+	nextTask := testTask("blocked-next-task", "whisperx", writeTestAudio(t, "next.wav"))
+	if err := manager.Add(nextTask); err != nil {
+		t.Fatalf("add next task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+	server := &service{
+		upstreams:   models,
+		client:      &http.Client{Timeout: time.Second},
+		taskManager: manager,
+	}
+	processResult := make(chan ASRTaskResult, 1)
+	go func() {
+		processResult <- server.processTask(nextTask)
+	}()
+
+	select {
+	case taskID := <-requestStarted:
+		t.Fatalf("task %s was admitted while model cancellation was unresolved", taskID)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	found, err = manager.Cancel(failedTask.ID, func(_, _ string) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retry cancellation: %v", err)
+	}
+	if !found {
+		t.Fatal("expected cancellation retry to be found")
+	}
+
+	select {
+	case taskID := <-requestStarted:
+		if taskID != nextTask.ID {
+			t.Fatalf("expected task %s after recovery, got %s", nextTask.ID, taskID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for task admission after cancellation retry")
+	}
+	result := <-processResult
+	if result.Err != nil {
+		t.Fatalf("process next task: %v", result.Err)
+	}
+}
+
 func TestConcurrentCancellationSharesUpstreamResult(t *testing.T) {
 	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")
@@ -1194,6 +1271,59 @@ func TestQueueWorkerContinuesAfterTranscriptionTimeout(t *testing.T) {
 	})
 }
 
+func TestProcessTaskCancelsUpstreamWhenResponseBodyTimesOut(t *testing.T) {
+	const taskID = "response-body-timeout"
+	cancelledTaskID := make(chan string, 1)
+	releaseResponse := make(chan struct{})
+	var releaseOnce sync.Once
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/cancel" {
+			cancelledTaskID <- request.Header.Get("X-Task-Id")
+			writer.WriteHeader(http.StatusAccepted)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+		writer.(http.Flusher).Flush()
+		<-releaseResponse
+	}))
+	defer upstreamServer.Close()
+	defer releaseOnce.Do(func() {
+		close(releaseResponse)
+	})
+
+	models := map[string]upstream{
+		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+	}
+	manager := NewTaskManager(1, maxAudioFileSize, models)
+	server := &service{
+		upstreams:            models,
+		client:               &http.Client{},
+		statusClient:         &http.Client{Timeout: time.Second},
+		transcriptionTimeout: 50 * time.Millisecond,
+		taskManager:          manager,
+	}
+	task := testTask(taskID, "whisperx", writeTestAudio(t, "body-timeout.wav"))
+
+	result := server.processTask(task)
+	if result.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected status %d, got %d", http.StatusGatewayTimeout, result.StatusCode)
+	}
+	if !errors.Is(result.Err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", result.Err)
+	}
+	select {
+	case actualTaskID := <-cancelledTaskID:
+		if actualTaskID != taskID {
+			t.Fatalf("expected cancelled task ID %q, got %q", taskID, actualTaskID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream cancellation")
+	}
+	releaseOnce.Do(func() {
+		close(releaseResponse)
+	})
+}
+
 func TestTransportFailureAndExternalCancellationShareUpstreamRequest(t *testing.T) {
 	const taskID = "shared-transport-failure"
 	cancelRequests := make(chan struct{}, 2)
@@ -1472,6 +1602,24 @@ func TestLoadServiceEnvironmentValidAndDefaults(t *testing.T) {
 	}
 	if env.transcriptionTimeoutSeconds != defaultTranscriptionTimeoutSeconds {
 		t.Fatalf("expected default transcription timeout %d, got %d", defaultTranscriptionTimeoutSeconds, env.transcriptionTimeoutSeconds)
+	}
+}
+
+func TestLoadServiceEnvironmentAllowsZeroSegmentOverlap(t *testing.T) {
+	t.Setenv("ASR_SEGMENT_OVERLAP_SECONDS", "0")
+
+	env, err := loadServiceEnvironment()
+	if err != nil {
+		t.Fatalf("load service environment: %v", err)
+	}
+	if env.segmentOverlapSeconds != 0 {
+		t.Fatalf("expected zero segment overlap, got %d", env.segmentOverlapSeconds)
+	}
+	svc := &service{
+		segmentOverlap: time.Duration(env.segmentOverlapSeconds) * time.Second,
+	}
+	if overlap := svc.configuredSegmentOverlap(); overlap != 0 {
+		t.Fatalf("expected configured zero segment overlap, got %s", overlap)
 	}
 }
 

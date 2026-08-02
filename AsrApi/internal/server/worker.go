@@ -87,16 +87,21 @@ func removeTemporaryFile(path string) {
 
 func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err := task.Ctx.Err(); err != nil {
-		s.waitForTaskCancellation(task.ID)
+		s.waitForTaskCancellation(task)
+		return cancelledTaskResult()
+	}
+
+	if !s.waitForModelAdmission(task) {
+		s.waitForTaskCancellation(task)
 		return cancelledTaskResult()
 	}
 
 	if !s.acquireTranscriptionSlot(task.Ctx) {
-		s.waitForTaskCancellation(task.ID)
+		s.waitForTaskCancellation(task)
 		return cancelledTaskResult()
 	}
 	defer func() {
-		s.waitForTaskCancellation(task.ID)
+		s.waitForTaskCancellation(task)
 		s.releaseTranscriptionSlot()
 	}()
 
@@ -146,11 +151,7 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err != nil {
 		if errors.Is(executionContext.Err(), context.DeadlineExceeded) {
 			s.cancelUpstreamAfterRequestFailure(task, backend)
-			return ASRTaskResult{
-				StatusCode: http.StatusGatewayTimeout,
-				Body:       []byte(`{"error":"transcription execution timed out"}`),
-				Err:        context.DeadlineExceeded,
-			}
+			return transcriptionTimeoutResult()
 		}
 		if task.Ctx.Err() == nil {
 			s.cancelUpstreamAfterRequestFailure(task, backend)
@@ -165,6 +166,13 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 
 	respBody, err := io.ReadAll(response.Body)
 	if err != nil {
+		if errors.Is(executionContext.Err(), context.DeadlineExceeded) {
+			s.cancelUpstreamAfterRequestFailure(task, backend)
+			return transcriptionTimeoutResult()
+		}
+		if task.Ctx.Err() == nil {
+			s.cancelUpstreamAfterRequestFailure(task, backend)
+		}
 		return ASRTaskResult{
 			StatusCode: http.StatusInternalServerError,
 			Body:       []byte(`{"error":"failed to read upstream response"}`),
@@ -179,6 +187,14 @@ func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	}
 }
 
+func transcriptionTimeoutResult() ASRTaskResult {
+	return ASRTaskResult{
+		StatusCode: http.StatusGatewayTimeout,
+		Body:       []byte(`{"error":"transcription execution timed out"}`),
+		Err:        context.DeadlineExceeded,
+	}
+}
+
 func (s *service) configuredSegmentDuration() time.Duration {
 	if s.segmentDuration > 0 {
 		return s.segmentDuration
@@ -187,10 +203,7 @@ func (s *service) configuredSegmentDuration() time.Duration {
 }
 
 func (s *service) configuredSegmentOverlap() time.Duration {
-	if s.segmentOverlap > 0 {
-		return s.segmentOverlap
-	}
-	return defaultSegmentOverlapSeconds * time.Second
+	return s.segmentOverlap
 }
 
 func (s *service) configuredTranscriptionTimeout() time.Duration {
@@ -215,10 +228,19 @@ func (s *service) cancelUpstreamAfterRequestFailure(task *ASRTask, backend upstr
 	}
 }
 
-func (s *service) waitForTaskCancellation(taskID string) {
+func (s *service) waitForTaskCancellation(task *ASRTask) {
 	if s.taskManager != nil {
-		s.taskManager.waitForTaskCancellation(taskID)
+		if err := s.taskManager.waitForTaskCancellation(task.ID); err != nil {
+			log.Printf("[Queue] Model %s admission remains blocked after task %s cancellation failed: %v", task.Model, task.ID, err)
+		}
 	}
+}
+
+func (s *service) waitForModelAdmission(task *ASRTask) bool {
+	if s.taskManager == nil {
+		return true
+	}
+	return s.taskManager.waitForModelAdmission(task.Ctx, task.Model)
 }
 
 func (s *service) acquireTranscriptionSlot(ctx context.Context) bool {
