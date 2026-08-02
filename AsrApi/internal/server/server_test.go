@@ -386,6 +386,96 @@ func TestCancelAndWaitDoesNotReturnBeforeRunningTaskCleanup(t *testing.T) {
 	}
 }
 
+func TestProcessTaskWaitsForCancellationBeforeReleasingTranscriptionSlot(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseUpstream := make(chan struct{})
+	var releaseUpstreamOnce sync.Once
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		close(requestStarted)
+		<-releaseUpstream
+	}))
+	defer upstreamServer.Close()
+	defer releaseUpstreamOnce.Do(func() {
+		close(releaseUpstream)
+	})
+
+	models := map[string]upstream{
+		"whisperx": {url: upstreamServer.URL, model: "large-v3", token: "token"},
+	}
+	manager := NewTaskManager(1, maxAudioFileSize, models)
+	task := testTask("cancelled-running-task", "whisperx", writeTestAudio(t, "cancelled.wav"))
+	if err := manager.Add(task); err != nil {
+		t.Fatalf("add running task: %v", err)
+	}
+	manager.waitForPendingTask(manager.queues["whisperx"])
+
+	server := &service{
+		upstreams:     models,
+		client:        &http.Client{Timeout: time.Second},
+		taskManager:   manager,
+		transcribeSem: make(chan struct{}, 1),
+	}
+	processResult := make(chan ASRTaskResult, 1)
+	go func() {
+		processResult <- server.processTask(task)
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transcription request")
+	}
+
+	cancelStarted := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() {
+			close(releaseCancel)
+		})
+	})
+	cancelResult := make(chan error, 1)
+	go func() {
+		_, err := manager.Cancel(task.ID, func(_, _ string) error {
+			close(cancelStarted)
+			<-releaseCancel
+			return nil
+		})
+		cancelResult <- err
+	}()
+
+	select {
+	case <-cancelStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for cancellation")
+	}
+	select {
+	case result := <-processResult:
+		t.Fatalf("task returned before cancellation completed: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if len(server.transcribeSem) != 1 {
+		t.Fatal("expected transcription slot to remain held during cancellation")
+	}
+
+	releaseOnce.Do(func() {
+		close(releaseCancel)
+	})
+	if err := <-cancelResult; err != nil {
+		t.Fatalf("cancel running task: %v", err)
+	}
+	result := <-processResult
+	if result.Err == nil {
+		t.Fatal("expected cancelled task result to contain an error")
+	}
+	if len(server.transcribeSem) != 0 {
+		t.Fatal("expected transcription slot to be released after cancellation")
+	}
+	releaseUpstreamOnce.Do(func() {
+		close(releaseUpstream)
+	})
+}
+
 func TestConcurrentCancellationSharesUpstreamResult(t *testing.T) {
 	manager := NewTaskManager(1, maxAudioFileSize, map[string]upstream{"whisperx": {}})
 	task := testTask("running-task", "whisperx", "")

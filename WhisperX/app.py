@@ -150,8 +150,9 @@ class InferenceProcess:
                 if cancelled:
                     self._close_queue(command_queue)
                     self._close_queue(result_queue)
-                task_done.set()
             self.run_lock.release()
+            if task_done is not None:
+                task_done.set()
 
         if cancelled:
             raise TranscriptionCancelled("transcription was cancelled")

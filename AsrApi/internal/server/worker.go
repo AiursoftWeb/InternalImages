@@ -87,13 +87,18 @@ func removeTemporaryFile(path string) {
 
 func (s *service) processTask(task *ASRTask) ASRTaskResult {
 	if err := task.Ctx.Err(); err != nil {
+		s.waitForTaskCancellation(task.ID)
 		return cancelledTaskResult()
 	}
 
 	if !s.acquireTranscriptionSlot(task.Ctx) {
+		s.waitForTaskCancellation(task.ID)
 		return cancelledTaskResult()
 	}
-	defer s.releaseTranscriptionSlot()
+	defer func() {
+		s.waitForTaskCancellation(task.ID)
+		s.releaseTranscriptionSlot()
+	}()
 
 	backend, ok := s.upstreams[task.Model]
 	if !ok {
@@ -207,6 +212,12 @@ func (s *service) cancelUpstreamAfterRequestFailure(task *ASRTask, backend upstr
 	}
 	if cancelErr != nil {
 		log.Printf("[Queue] Failed to stop upstream task %s after transcription request failure: %v", task.ID, cancelErr)
+	}
+}
+
+func (s *service) waitForTaskCancellation(taskID string) {
+	if s.taskManager != nil {
+		s.taskManager.waitForTaskCancellation(taskID)
 	}
 }
 
