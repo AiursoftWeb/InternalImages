@@ -25,11 +25,6 @@ deploy_anduinos_internal:
   variables:
     IMAGE_NAME: "anduinos-internal"
     CONTEXT: "./AnduinOS-Internal"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
 
 deploy_anduinos_internal_with_docker:
   extends: .deploy_template
@@ -39,23 +34,12 @@ deploy_anduinos_internal_with_docker:
   variables:
     IMAGE_NAME: "anduinos-with-docker"
     CONTEXT: "./AnduinOS-with-docker"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - AnduinOS-with-docker/**/*
 
 deploy_exp_ppa_mirror:
   extends: .deploy_template
   variables:
     IMAGE_NAME: "exp-ppa-mirror"
     CONTEXT: "./ExpPpaMirror"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - ExpPpaMirror/**/*
 
 deploy_lab:
   extends: .deploy_template
@@ -65,12 +49,6 @@ deploy_lab:
   variables:
     IMAGE_NAME: "lab"
     CONTEXT: "./Lab"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - Lab/**/*
 
 deploy_kiwix:
   extends: .deploy_template
@@ -80,12 +58,6 @@ deploy_kiwix:
   variables:
     IMAGE_NAME: "kiwix"
     CONTEXT: "./Kiwix"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - Kiwix/**/*
 
 deploy_dotnet:
   extends: .deploy_template
@@ -95,12 +67,6 @@ deploy_dotnet:
   variables:
     IMAGE_NAME: "dotnet"
     CONTEXT: "./Dotnet"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - Dotnet/**/*
 
 deploy_dotnet_only_runtime:
   extends: .deploy_template
@@ -110,23 +76,12 @@ deploy_dotnet_only_runtime:
   variables:
     IMAGE_NAME: "dotnetonlyruntime"
     CONTEXT: "./DotnetOnlyRuntime"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - DotnetOnlyRuntime/**/*
 
 deploy_gateway:
   extends: .deploy_template
   variables:
     IMAGE_NAME: "gateway"
     CONTEXT: "./Gateway"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - Gateway/**/*
 
 deploy_gitmirror:
   extends: .deploy_template
@@ -136,12 +91,6 @@ deploy_gitmirror:
   variables:
     IMAGE_NAME: "gitmirror"
     CONTEXT: "./GitMirror"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - GitMirror/**/*
 
 deploy_minecraft:
   extends: .deploy_template
@@ -151,12 +100,6 @@ deploy_minecraft:
   variables:
     IMAGE_NAME: "minecraft"
     CONTEXT: "./Minecraft"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - Minecraft/**/*
 
 deploy_nvidia:
   extends: .deploy_template
@@ -164,11 +107,6 @@ deploy_nvidia:
     IMAGE_NAME: "nvidia"
     CONTEXT: "./Nvidia"
     PLATFORMS: "linux/amd64"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - Nvidia/**/*
 
 deploy_swinir:
   extends: .deploy_template
@@ -179,12 +117,6 @@ deploy_swinir:
     IMAGE_NAME: "swinir"
     CONTEXT: "./SwinIR"
     PLATFORMS: "linux/amd64"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - Nvidia/**/*
-        - SwinIR/**/*
 
 deploy_youtubedl:
   extends: .deploy_template
@@ -194,12 +126,6 @@ deploy_youtubedl:
   variables:
     IMAGE_NAME: "youtubedl"
     CONTEXT: "./Youtubedl"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - Youtubedl/**/*
 
 deploy_reportertts:
   extends: .deploy_template
@@ -210,12 +136,6 @@ deploy_reportertts:
     IMAGE_NAME: "reportertts"
     CONTEXT: "./ReporterTTS"
     PLATFORMS: "linux/amd64"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - Nvidia/**/*
-        - ReporterTTS/**/*
 
 deploy_paddleocr:
   extends: .deploy_template
@@ -226,23 +146,12 @@ deploy_paddleocr:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
     PLATFORMS: "linux/amd64"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AnduinOS-Internal/**/*
-        - PaddleOCR/**/*
 
 deploy_asr_api:
   extends: .deploy_template
   variables:
     IMAGE_NAME: "asr-api"
     CONTEXT: "./AsrApi"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - AsrApi/**/*
 
 deploy_whisperx:
   extends: .deploy_template
@@ -254,12 +163,6 @@ deploy_whisperx:
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
     BUILD_ARGS: "--build-arg SINGLE_MODEL=true --build-arg USE_PYPI_MIRROR=true"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - Nvidia/**/*
-        - WhisperX/**/*
 
 deploy_funasr:
   extends: .deploy_template
@@ -271,12 +174,6 @@ deploy_funasr:
     IMAGE_NAME: "funasr"
     CONTEXT: "./FunASR"
     BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - FunASR/**/*
-        - Nvidia/**/*
 
 deploy_funasr_realtime:
   extends: .deploy_template
@@ -288,9 +185,3 @@ deploy_funasr_realtime:
     IMAGE_NAME: "funasr-realtime"
     CONTEXT: "./FunASRRealtime"
     BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "master"'
-      changes:
-        - .gitlab-ci.yml
-        - FunASRRealtime/**/*
-        - Nvidia/**/*
