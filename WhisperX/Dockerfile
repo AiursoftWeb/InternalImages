@@ -17,10 +17,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends aria2 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --timeout 600 --retries 10 --index-url https://download.pytorch.org/whl/cu124 "torch==2.6.0" "torchaudio==2.6.0"
+RUN aria2c --continue=true --max-connection-per-server=16 --max-tries=10 --min-split-size=1M --retry-wait=5 --split=16 \
+        --dir=/tmp --out=torch-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \
+        "https://download-r2.pytorch.org/whl/cu124/torch-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl" \
+    && echo "a393b506844035c0dac2f30ea8478c343b8e95a429f06f3b3cadfc7f53adb597  /tmp/torch-2.6.0+cu124-cp312-cp312-linux_x86_64.whl" | sha256sum --check \
+    && aria2c --continue=true --max-connection-per-server=16 --max-tries=10 --min-split-size=1M --retry-wait=5 --split=16 \
+        --dir=/tmp --out=torchaudio-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \
+        "https://download-r2.pytorch.org/whl/cu124/torchaudio-2.6.0%2Bcu124-cp312-cp312-linux_x86_64.whl" \
+    && echo "3e5ffa69606171c74f3e2b969785ead50b782ca657e746aaee1ee7cc88dcfc08  /tmp/torchaudio-2.6.0+cu124-cp312-cp312-linux_x86_64.whl" | sha256sum --check \
+    && pip install --timeout 600 --retries 10 --index-url https://download.pytorch.org/whl/cu124 \
+        /tmp/torch-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \
+        /tmp/torchaudio-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \
+    && rm /tmp/torch-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \
+        /tmp/torchaudio-2.6.0+cu124-cp312-cp312-linux_x86_64.whl
 RUN if [ "$USE_PYPI_MIRROR" = "true" ]; then \
         PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple; \
     else \
