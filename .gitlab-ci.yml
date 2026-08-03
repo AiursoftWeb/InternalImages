@@ -5,6 +5,7 @@ stages:
   stage: deploy
   variables:
     PLATFORMS: "linux/amd64,linux/arm64"
+    PUBLIC_IMAGE: ""
   before_script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
         echo "CI pipeline will only run for the Aiursoft namespace.";
@@ -15,8 +16,15 @@ stages:
     - docker buildx use aiur-global-builder
   script:
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
-    - docker buildx build $BUILD_ARGS $CONTEXT --platform $PLATFORMS -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
+    - INTERNAL_TARGET="hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
+    - TARGET_ARGS="-t $INTERNAL_TARGET"
+    - if [ -n "$PUBLIC_IMAGE" ]; then
+        echo "Logging in to Docker Hub...";
+        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin;
+        TARGET_ARGS="$TARGET_ARGS -t $PUBLIC_IMAGE:$TAG";
+      fi
+    - echo "Building image $INTERNAL_TARGET"
+    - docker buildx build $BUILD_ARGS $CONTEXT --platform $PLATFORMS $TARGET_ARGS --push
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
@@ -152,6 +160,22 @@ deploy_asr_api:
   variables:
     IMAGE_NAME: "asr-api"
     CONTEXT: "./AsrApi"
+
+deploy_markitdown:
+  extends: .deploy_template
+  needs:
+    - job: deploy_anduinos_internal
+      optional: true
+  variables:
+    IMAGE_NAME: "markitdown"
+    CONTEXT: "./MarkItDown"
+    PUBLIC_IMAGE: "aiursoft/markitdown"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - AnduinOS-Internal/**/*
+        - MarkItDown/**/*
 
 deploy_whisperx:
   extends: .deploy_template
