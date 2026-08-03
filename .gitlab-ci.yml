@@ -163,25 +163,3 @@ deploy_whisperx:
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
     BUILD_ARGS: "--build-arg SINGLE_MODEL=true --build-arg USE_PYPI_MIRROR=true"
-
-deploy_funasr:
-  extends: .deploy_template
-  needs:
-    - job: deploy_nvidia
-      optional: true
-  variables:
-    PLATFORMS: "linux/amd64"
-    IMAGE_NAME: "funasr"
-    CONTEXT: "./FunASR"
-    BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
-
-deploy_funasr_realtime:
-  extends: .deploy_template
-  needs:
-    - job: deploy_nvidia
-      optional: true
-  variables:
-    PLATFORMS: "linux/amd64"
-    IMAGE_NAME: "funasr-realtime"
-    CONTEXT: "./FunASRRealtime"
-    BUILD_ARGS: "--build-arg USE_PYPI_MIRROR=true"
