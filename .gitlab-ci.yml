@@ -5,6 +5,8 @@ stages:
   stage: deploy
   variables:
     PLATFORMS: "linux/amd64,linux/arm64"
+    INTERNAL_IMAGE: ""
+    PUBLIC_IMAGE: ""
   before_script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
         echo "CI pipeline will only run for the Aiursoft namespace.";
@@ -15,8 +17,16 @@ stages:
     - docker buildx use aiur-global-builder
   script:
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - echo "Building image hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
-    - docker buildx build $BUILD_ARGS $CONTEXT --platform $PLATFORMS -t hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG --push
+    - if [ -z "$INTERNAL_IMAGE" ]; then INTERNAL_IMAGE="hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME"; fi
+    - INTERNAL_TARGET="$INTERNAL_IMAGE:$TAG"
+    - TARGET_ARGS="-t $INTERNAL_TARGET"
+    - if [ -n "$PUBLIC_IMAGE" ]; then
+        echo "Logging in to Docker Hub...";
+        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin;
+        TARGET_ARGS="$TARGET_ARGS -t $PUBLIC_IMAGE:$TAG";
+      fi
+    - echo "Building image $INTERNAL_TARGET"
+    - docker buildx build $BUILD_ARGS $CONTEXT --platform $PLATFORMS $TARGET_ARGS --push
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
@@ -82,6 +92,8 @@ deploy_gateway:
   variables:
     IMAGE_NAME: "gateway"
     CONTEXT: "./Gateway"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/gateway"
+    PUBLIC_IMAGE: "aiursoft/gateway"
 
 deploy_gitmirror:
   extends: .deploy_template
@@ -152,6 +164,41 @@ deploy_asr_api:
   variables:
     IMAGE_NAME: "asr-api"
     CONTEXT: "./AsrApi"
+    PUBLIC_IMAGE: "aiursoft/asr-api"
+
+deploy_folder_agent:
+  extends: .deploy_template
+  needs:
+    - job: deploy_anduinos_internal
+      optional: true
+  variables:
+    IMAGE_NAME: "folderagent"
+    CONTEXT: "./FolderAgent"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/folderagent"
+    PUBLIC_IMAGE: "aiursoft/folderagent"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - AnduinOS-Internal/**/*
+        - FolderAgent/**/*
+
+deploy_markitdown:
+  extends: .deploy_template
+  needs:
+    - job: deploy_anduinos_internal
+      optional: true
+  variables:
+    IMAGE_NAME: "markitdown"
+    CONTEXT: "./MarkItDown"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/markitdown"
+    PUBLIC_IMAGE: "aiursoft/markitdown"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - AnduinOS-Internal/**/*
+        - MarkItDown/**/*
 
 deploy_whisperx:
   extends: .deploy_template
@@ -163,3 +210,4 @@ deploy_whisperx:
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
     BUILD_ARGS: "--build-arg SINGLE_MODEL=true --build-arg USE_PYPI_MIRROR=true"
+    PUBLIC_IMAGE: "aiursoft/whisperx"
