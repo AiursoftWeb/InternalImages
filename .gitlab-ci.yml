@@ -160,6 +160,22 @@ deploy_asr_api:
   variables:
     IMAGE_NAME: "asr-api"
     CONTEXT: "./AsrApi"
+    PUBLIC_IMAGE: "aiursoft/asr-api"
+
+deploy_folder_agent:
+  extends: .deploy_template
+  needs:
+    - job: deploy_anduinos_internal
+      optional: true
+  variables:
+    IMAGE_NAME: "folderagent"
+    CONTEXT: "./FolderAgent"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - AnduinOS-Internal/**/*
+        - FolderAgent/**/*
 
 deploy_markitdown:
   extends: .deploy_template
@@ -187,3 +203,4 @@ deploy_whisperx:
     IMAGE_NAME: "whisperx"
     CONTEXT: "./WhisperX"
     BUILD_ARGS: "--build-arg SINGLE_MODEL=true --build-arg USE_PYPI_MIRROR=true"
+    PUBLIC_IMAGE: "aiursoft/whisperx"
