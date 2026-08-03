@@ -5,6 +5,7 @@ stages:
   stage: deploy
   variables:
     PLATFORMS: "linux/amd64,linux/arm64"
+    INTERNAL_IMAGE: ""
     PUBLIC_IMAGE: ""
   before_script:
     - if [[ "$CI_PROJECT_NAMESPACE" != "aiursoft" ]]; then
@@ -16,7 +17,8 @@ stages:
     - docker buildx use aiur-global-builder
   script:
     - if [ "$CI_COMMIT_REF_NAME" = "master" ]; then TAG="latest"; else TAG="$CI_COMMIT_REF_NAME"; fi
-    - INTERNAL_TARGET="hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME:$TAG"
+    - if [ -z "$INTERNAL_IMAGE" ]; then INTERNAL_IMAGE="hub.aiursoft.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/$IMAGE_NAME"; fi
+    - INTERNAL_TARGET="$INTERNAL_IMAGE:$TAG"
     - TARGET_ARGS="-t $INTERNAL_TARGET"
     - if [ -n "$PUBLIC_IMAGE" ]; then
         echo "Logging in to Docker Hub...";
@@ -90,6 +92,7 @@ deploy_gateway:
   variables:
     IMAGE_NAME: "gateway"
     CONTEXT: "./Gateway"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/gateway"
     PUBLIC_IMAGE: "aiursoft/gateway"
 
 deploy_gitmirror:
@@ -171,6 +174,7 @@ deploy_folder_agent:
   variables:
     IMAGE_NAME: "folderagent"
     CONTEXT: "./FolderAgent"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/folderagent"
     PUBLIC_IMAGE: "aiursoft/folderagent"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
@@ -187,6 +191,7 @@ deploy_markitdown:
   variables:
     IMAGE_NAME: "markitdown"
     CONTEXT: "./MarkItDown"
+    INTERNAL_IMAGE: "hub.aiursoft.com/aiursoft/markitdown"
     PUBLIC_IMAGE: "aiursoft/markitdown"
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
