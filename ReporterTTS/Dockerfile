@@ -4,19 +4,21 @@ FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates tzdata python3 python-is-python3 python3-pip ffmpeg git wget \
         build-essential python3-dev libfst-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ENV PYTHONUNBUFFERED=1 \
     GPU_MEMORY_FRACTION=0.4 \
-    PIP_NO_CACHE_DIR=1 \
+	PIP_NO_CACHE_DIR=1 \
 	PIP_BREAK_SYSTEM_PACKAGES=1 \
+	UV_NO_CACHE=1 \
 	PATH="/root/.local/bin:${PATH}"
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /app
 
 ADD "https://api.github.com/repos/index-tts/index-tts/commits?per_page=1" latest_commit
-RUN git clone https://github.com/index-tts/index-tts.git
+RUN git clone --depth 1 https://github.com/index-tts/index-tts.git
 
 WORKDIR /app/index-tts
 

@@ -4,8 +4,9 @@ WORKDIR /root
 
 # 1. 安装依赖
 RUN apt-get update && \
-    apt install python3 python-is-python3 ffmpeg atomicparsley git sudo cron curl -y && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends python3 python-is-python3 ffmpeg atomicparsley git sudo cron curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 2. 设置环境变量 (至关重要！)
 # 解决 Cron 中文文件名乱码或报错的问题

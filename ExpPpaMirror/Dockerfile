@@ -5,9 +5,10 @@ FROM hub.aiursoft.com/aiursoft/static
 # RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y cron
 # 上面的命令可能会因为没有 sudo 而失败，根据基础镜像的配置，直接安装可能更有效
 RUN apt-get update && \
-    apt-get install -y cron && \
+    apt-get install -y --no-install-recommends cron && \
     # 清理 apt 缓存以减小镜像体积
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 创建数据目录
 RUN mkdir -p /data

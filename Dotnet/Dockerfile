@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
+FROM hub.aiursoft.com/aiursoft/anduinos:resolute
 
 # Configure environment variables
 ENV ASPNETCORE_ENVIRONMENT="Production" \
@@ -21,7 +21,8 @@ RUN apt-get update && \
     libatomic1 \
     dotnet10 \
     wget && \
-    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     touch /.dockerenv
 
 RUN mkdir -p /etc/apt/keyrings && \
@@ -30,7 +31,8 @@ RUN mkdir -p /etc/apt/keyrings && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN dotnet --info && echo $ASPNETCORE_ENVIRONMENT && \
     echo "Environment setup complete."

@@ -7,8 +7,10 @@ FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal AS minecraft-bui
 ARG VERSION
 WORKDIR /app
 
-RUN apt-get update
-RUN apt-get install -y curl wget jq unzip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl wget jq unzip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN mkdir -p /app/plugins && \
     mkdir -p /app/world && \
@@ -111,7 +113,8 @@ COPY entrypoint.sh /entrypoint.sh
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl wget jq unzip openjdk-25-jre-headless tmux && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN chmod +x /app/init-commands.sh /entrypoint.sh && \
     mkdir -p /var/log/mc && \

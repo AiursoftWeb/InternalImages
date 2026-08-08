@@ -1,7 +1,10 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal
 WORKDIR /
 COPY . .
-RUN apt-get update && apt install -y git jq cron curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git jq cron curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 RUN chmod +x /mirror.sh
 
 VOLUME /opt/Source/Repos/

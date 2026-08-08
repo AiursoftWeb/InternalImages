@@ -4,10 +4,12 @@ FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates python3 python3-pip python3-dev python3-venv \
     libgl1 libglib2.0-0 libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    UV_NO_CACHE=1
 
 # 安装 uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

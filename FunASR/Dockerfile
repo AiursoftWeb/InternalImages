@@ -17,7 +17,8 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends aria2 ffmpeg libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN aria2c --continue=true --max-connection-per-server=16 --max-tries=10 --min-split-size=1M --retry-wait=5 --split=16 \
         --dir=/tmp --out=torch-2.6.0+cu124-cp312-cp312-linux_x86_64.whl \

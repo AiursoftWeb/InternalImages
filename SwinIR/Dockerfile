@@ -1,14 +1,17 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/nvidia:latest
 WORKDIR /app
-RUN sudo apt update && sudo apt install -y git
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ADD "https://api.github.com/repos/JingyunLiang/SwinIR/commits?per_page=1" latest_commit
-RUN git clone https://github.com/JingyunLiang/SwinIR.git
+RUN git clone --depth 1 https://github.com/JingyunLiang/SwinIR.git
 
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_NO_CACHE_DIR=1
 
-RUN pip install opencv-python torch torchvision
-RUN pip install requests numpy timm
+RUN pip install --no-cache-dir opencv-python torch torchvision requests numpy timm
 
 # Download the model
 RUN mkdir -p model_zoo/swinir && \

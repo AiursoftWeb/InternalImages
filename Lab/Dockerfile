@@ -1,15 +1,16 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal
 
-RUN apt-get update
-RUN apt-get install -y ttyd sudo wget curl \
-iputils-ping net-tools vim tmux systemd \
-apt-transport-https ca-certificates \
-software-properties-common w3m git \
-python3 python-is-python3 python3-pip \
-tree aria2 iperf3 ffmpeg \
-unzip zip openssh-server openssh-client \
-build-essential bc jq dnsutils lsb-release \
-shellcheck pipx dotnet10
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ttyd sudo wget curl \
+        iputils-ping net-tools vim tmux systemd \
+        ca-certificates software-properties-common w3m git \
+        python3 python-is-python3 python3-pip \
+        tree aria2 iperf3 ffmpeg \
+        unzip zip openssh-server openssh-client \
+        build-essential bc jq dnsutils lsb-release \
+        shellcheck pipx dotnet10 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN useradd -p $(openssl passwd -1 demo) demo
 RUN usermod -aG sudo demo

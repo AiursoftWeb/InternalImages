@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
+FROM hub.aiursoft.com/aiursoft/anduinos:resolute
 
 # Configure environment variables
 ENV ASPNETCORE_ENVIRONMENT="Production" \
