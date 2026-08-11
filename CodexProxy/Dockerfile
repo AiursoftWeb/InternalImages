@@ -1,58 +1,68 @@
-# ==========================================
-# 第一阶段：构建阶段 (Builder)
-# ==========================================
-FROM hub.aiursoft.com/rust:latest AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        git pkg-config libssl-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
-# 【修复处】：将 latest_commit 下载到 /tmp 目录，保持 /build 目录为空
-ADD "https://api.github.com/repos/Securiteru/codex-openai-proxy/commits?per_page=1" /tmp/latest_commit
-
-# 现在 /build 是空的了，克隆就不会报错了
-RUN git clone --depth 1 https://github.com/Securiteru/codex-openai-proxy.git .
-
-RUN cargo build --release
-
-# ==========================================
-# 第二阶段：运行阶段 (Runtime)
-# ==========================================
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
 
-# 1. 安装基础依赖
+# 系统依赖安装（curl 供 uv 安装脚本 + 健康检查使用；git 用于拉取源码）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates tzdata libssl3 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    curl ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
 
-# 2. 创建普通用户
-RUN groupadd -g 1000 appgroup && \
-    useradd -u 1000 -g appgroup -s /usr/sbin/nologin -m appuser
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    # uv 独立安装的 Python 放到 /opt 而不是默认的 ~/.local（/root 下），
+    # 否则后面切到非 root 用户运行时，因为 /root 目录权限(700)
+    # 会读不到解释器，导致容器启动失败。
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python
+
+# 安装 uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
-# 3. 复制编译产物，并赋予权限
-COPY --from=builder --chown=appuser:appgroup /build/target/release/codex-openai-proxy /app/codex-openai-proxy
+# 创建并使用虚拟环境（锁定 Python 3.13；codex-proxy 要求 >=3.11）
+RUN uv python install 3.13 \
+    && uv venv --python 3.13 /opt/venv \
+    && chmod -R a+rX /opt/uv-python
+ENV PATH="/opt/venv/bin:${PATH}"
 
-# 4. 创建程序需要的配置目录
-RUN mkdir -p /home/appuser/.codex && \
-    chown -R appuser:appgroup /home/appuser/.codex
+# 拉取 codex-proxy 源码并安装。
+# 锁定到具体 commit 而不是浮动的 main 分支，保证可复现构建；
+# 该仓库目前没有打 tag/发过 Release，main 是唯一来源，
+# 但为了不让每次 build 都拉到不同代码，这里默认钉在下面这个 commit，
+# 需要跟新代码时手动更新 CODEX_PROXY_REF（或显式传 --build-arg）。
+ARG CODEX_PROXY_REPO=https://github.com/wowyuarm/codex-proxy.git
+ARG CODEX_PROXY_REF=0930fe6243cf97c6221e8588a9135161eaf27b24
+RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
+    && git -C /tmp/codex-proxy checkout "${CODEX_PROXY_REF}" \
+    && uv pip install /tmp/codex-proxy \
+    && rm -rf /tmp/codex-proxy
 
-# 5. 切换到非 root 用户
-USER appuser:appgroup
+# 启动适配层：把宿主机 Codex CLI 的 auth.json 首次导入为
+# codex-proxy 自己的 credentials.json，之后交给它自己刷新 token。
+COPY import_auth.py /usr/local/bin/import_auth.py
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENV TZ="UTC" \
-    RUST_LOG="info" \
-    HOME="/home/appuser"
+ENV CODEX_PROXY_PORT=8787 \
+    CODEX_PROXY_HOST=0.0.0.0 \
+    CODEX_HOME=/home/appuser/.codex \
+    CODEX_AUTH_JSON=/home/appuser/.codex/auth.json \
+    HOME=/home/appuser
 
-VOLUME /home/appuser/.codex
-EXPOSE 8080
+RUN useradd --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser \
+    && mkdir -p /home/appuser/.codex-proxy /home/appuser/.codex \
+    && chown -R appuser:appuser /home/appuser /opt/venv
 
-CMD ["./codex-openai-proxy", "--port", "8080"]
+USER appuser
+WORKDIR /home/appuser
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl --fail http://localhost:8080/v1/models || exit 1
+# 持久化卷：codex-proxy 自己维护/刷新的 token 存储，
+# 不做持久化的话每次重建容器都会重新触发一次 auth.json 导入。
+VOLUME ["/home/appuser/.codex-proxy"]
+
+EXPOSE 8787
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8787/health || exit 1
