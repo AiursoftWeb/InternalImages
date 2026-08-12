@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure our wrapper-level Python startup patches are always visible both to
+# the auth import helper and the upstream codex-proxy CLI.
+export PYTHONPATH="/opt/codex-proxy-patches${PYTHONPATH:+:${PYTHONPATH}}"
+
 # 1. First-run (or forced) import: copy tokens from the read-only-mounted
 #    Codex CLI auth.json into codex-proxy's own credential store. This is
 #    a no-op once codex-proxy already has credentials.json, so it's safe
