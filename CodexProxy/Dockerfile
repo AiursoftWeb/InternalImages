@@ -41,9 +41,11 @@ RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
 # codex-proxy 自己的 credentials.json，之后交给它自己刷新 token。
 COPY import_auth.py /usr/local/bin/import_auth.py
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY sitecustomize.py /opt/codex-proxy-patches/sitecustomize.py
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENV CODEX_PROXY_PORT=8787 \
+ENV PYTHONPATH=/opt/codex-proxy-patches \
+    CODEX_PROXY_PORT=8787 \
     CODEX_PROXY_HOST=0.0.0.0 \
     CODEX_HOME=/home/appuser/.codex \
     CODEX_AUTH_JSON=/home/appuser/.codex/auth.json \
