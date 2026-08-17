@@ -7,7 +7,14 @@ forking or editing the upstream codex-proxy source tree.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
+import threading
+import time
+import weakref
+from pathlib import Path
+from typing import Any
 
 log = logging.getLogger("codex-proxy.sitecustomize")
 
@@ -46,3 +53,108 @@ else:
         len(_OFFICIAL_MODELS),
         len(upstream_models),
     )
+
+
+_REFRESH_PATCH_MARKER = "_codex_proxy_serialized_refresh"
+
+try:
+    import codex_proxy.auth as _auth
+except Exception as exc:  # pragma: no cover - best effort bootstrap hook
+    log.warning("sitecustomize loaded but codex_proxy.auth import failed: %s", exc)
+else:
+    _current_ensure_credentials = _auth.ensure_credentials
+    if getattr(_current_ensure_credentials, _REFRESH_PATCH_MARKER, False):
+        _serialized_ensure_credentials = _current_ensure_credentials
+    else:
+        _upstream_ensure_credentials = _current_ensure_credentials
+        _refresh_locks_by_loop: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, dict[str, asyncio.Lock]
+        ] = weakref.WeakKeyDictionary()
+        _refresh_locks_guard = threading.Lock()
+
+        def _canonical_credentials_path(path: str | Path) -> Path:
+            return Path(path).expanduser().resolve(strict=False)
+
+        def _refresh_lock(path: Path) -> asyncio.Lock:
+            loop = asyncio.get_running_loop()
+            key = str(path)
+            with _refresh_locks_guard:
+                locks = _refresh_locks_by_loop.setdefault(loop, {})
+                lock = locks.get(key)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    locks[key] = lock
+                    log.debug("created token refresh lock path=%s", path)
+                return lock
+
+        async def _serialized_ensure_credentials(
+            path: str | Path = _auth.CREDENTIALS_FILE,
+        ) -> dict[str, Any]:
+            canonical_path = _canonical_credentials_path(path)
+            credentials = _auth.load_credentials(canonical_path)
+            if credentials is not None and not _auth.is_expired(credentials):
+                log.debug("credentials valid; refresh not needed path=%s", canonical_path)
+                return credentials
+
+            reason = "missing" if credentials is None else "expired_or_expiring"
+            lock = _refresh_lock(canonical_path)
+            contended = lock.locked()
+            wait_started = time.monotonic()
+            log.info(
+                "token refresh requested path=%s reason=%s contended=%s",
+                canonical_path,
+                reason,
+                contended,
+            )
+
+            async with lock:
+                wait_ms = (time.monotonic() - wait_started) * 1000
+                log.info(
+                    "token refresh lock acquired path=%s wait_ms=%.1f contended=%s",
+                    canonical_path,
+                    wait_ms,
+                    contended,
+                )
+                refresh_started = time.monotonic()
+                try:
+                    # The upstream function reloads and rechecks credentials
+                    # after waiting, so queued callers reuse the token written
+                    # by the first refresher instead of submitting the old one.
+                    result = await _upstream_ensure_credentials(canonical_path)
+                except asyncio.CancelledError:
+                    log.warning(
+                        "token refresh cancelled path=%s elapsed_ms=%.1f",
+                        canonical_path,
+                        (time.monotonic() - refresh_started) * 1000,
+                    )
+                    raise
+                except Exception as exc:
+                    log.exception(
+                        "token refresh failed path=%s elapsed_ms=%.1f error_type=%s",
+                        canonical_path,
+                        (time.monotonic() - refresh_started) * 1000,
+                        type(exc).__name__,
+                    )
+                    raise
+
+                log.info(
+                    "token refresh check completed path=%s elapsed_ms=%.1f",
+                    canonical_path,
+                    (time.monotonic() - refresh_started) * 1000,
+                )
+                return result
+
+        setattr(_serialized_ensure_credentials, _REFRESH_PATCH_MARKER, True)
+        setattr(
+            _serialized_ensure_credentials,
+            "_codex_proxy_upstream_ensure_credentials",
+            _upstream_ensure_credentials,
+        )
+        _auth.ensure_credentials = _serialized_ensure_credentials
+        log.warning("serialized token refreshes by credential path")
+
+    # server.py imports ensure_credentials by value. Normal startup imports it
+    # after this patch, but repair an existing binding for reload/test cases.
+    _server = sys.modules.get("codex_proxy.server")
+    if _server is not None:
+        _server.ensure_credentials = _serialized_ensure_credentials
