@@ -30,8 +30,8 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # 该仓库目前没有打 tag/发过 Release，main 是唯一来源，
 # 但为了不让每次 build 都拉到不同代码，这里默认钉在下面这个 commit，
 # 需要跟新代码时手动更新 CODEX_PROXY_REF（或显式传 --build-arg）。
-ARG CODEX_PROXY_REPO=https://github.com/wowyuarm/codex-proxy.git
-ARG CODEX_PROXY_REF=0930fe6243cf97c6221e8588a9135161eaf27b24
+ARG CODEX_PROXY_REPO=https://gitlab.aiursoft.com/ZeTian/codex-proxy.git
+ARG CODEX_PROXY_REF=425a379008ad13235a2ff69b06be72a10c80a587
 RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
     && git -C /tmp/codex-proxy checkout "${CODEX_PROXY_REF}" \
     && uv pip install /tmp/codex-proxy \
