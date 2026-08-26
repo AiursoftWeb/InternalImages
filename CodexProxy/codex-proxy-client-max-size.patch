@@ -1,14 +1,15 @@
 diff --git a/codex_proxy/server.py b/codex_proxy/server.py
-index 8fa54b2..e248903 100644
+index b9c27b2..3c0f65e 100644
 --- a/codex_proxy/server.py
 +++ b/codex_proxy/server.py
-@@ -27,0 +28,21 @@ _PUBLIC_PATHS = {"/health"}
-+_DEFAULT_CLIENT_MAX_SIZE_MIB = 64
+@@ -74 +74,24 @@ _UNSUPPORTED_RESPONSES_PARAMS = {
+-_CLIENT_MAX_SIZE = 32 * 1024 * 1024
++_DEFAULT_CLIENT_MAX_SIZE_MIB = 32
 +_CLIENT_MAX_SIZE_ENV_VAR = "CODEX_PROXY_CLIENT_MAX_SIZE_MIB"
 +
 +
 +def _get_client_max_size_bytes() -> int:
-+    """Read the bounded aiohttp request-body limit from the environment."""
++    """Read the aiohttp request-body limit from the environment."""
 +    raw_value = os.environ.get(
 +        _CLIENT_MAX_SIZE_ENV_VAR,
 +        str(_DEFAULT_CLIENT_MAX_SIZE_MIB),
@@ -24,11 +25,6 @@ index 8fa54b2..e248903 100644
 +            f"{_CLIENT_MAX_SIZE_ENV_VAR} must be a positive integer, got {raw_value!r}"
 +        )
 +    return max_size_mib * 1024 * 1024
-@@ -1106 +1127,6 @@ def create_app() -> web.Application:
--    app = web.Application(middlewares=middlewares)
-+    client_max_size = _get_client_max_size_bytes()
-+    app = web.Application(
-+        middlewares=middlewares,
-+        client_max_size=client_max_size,
-+    )
-+    log.info("Maximum client request body size set to %d bytes", client_max_size)
++
++
++_CLIENT_MAX_SIZE = _get_client_max_size_bytes()

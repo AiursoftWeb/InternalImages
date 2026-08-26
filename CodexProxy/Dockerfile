@@ -31,7 +31,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # 但为了不让每次 build 都拉到不同代码，这里默认钉在下面这个 commit，
 # 需要跟新代码时手动更新 CODEX_PROXY_REF（或显式传 --build-arg）。
 ARG CODEX_PROXY_REPO=https://gitlab.aiursoft.com/ZeTian/codex-proxy.git
-ARG CODEX_PROXY_REF=425a379008ad13235a2ff69b06be72a10c80a587
+ARG CODEX_PROXY_REF=a6dd9e90bd7747eb0508c7a2d959cc49e32ffa07
 COPY codex-proxy-client-max-size.patch /tmp/codex-proxy-client-max-size.patch
 RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
     && git -C /tmp/codex-proxy checkout "${CODEX_PROXY_REF}" \
