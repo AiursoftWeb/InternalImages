@@ -32,10 +32,13 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # 需要跟新代码时手动更新 CODEX_PROXY_REF（或显式传 --build-arg）。
 ARG CODEX_PROXY_REPO=https://gitlab.aiursoft.com/ZeTian/codex-proxy.git
 ARG CODEX_PROXY_REF=425a379008ad13235a2ff69b06be72a10c80a587
+COPY codex-proxy-client-max-size.patch /tmp/codex-proxy-client-max-size.patch
 RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
     && git -C /tmp/codex-proxy checkout "${CODEX_PROXY_REF}" \
+    && git -C /tmp/codex-proxy apply --check --unidiff-zero /tmp/codex-proxy-client-max-size.patch \
+    && git -C /tmp/codex-proxy apply --unidiff-zero /tmp/codex-proxy-client-max-size.patch \
     && uv pip install /tmp/codex-proxy \
-    && rm -rf /tmp/codex-proxy
+    && rm -rf /tmp/codex-proxy /tmp/codex-proxy-client-max-size.patch
 
 # 启动适配层：把宿主机 Codex CLI 的 auth.json 首次导入为
 # codex-proxy 自己的 credentials.json，之后交给它自己刷新 token。
@@ -47,9 +50,15 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/codex-proxy-patches \
     CODEX_PROXY_PORT=8787 \
     CODEX_PROXY_HOST=0.0.0.0 \
+    CODEX_PROXY_CLIENT_MAX_SIZE_MIB=64 \
     CODEX_HOME=/home/appuser/.codex \
     CODEX_AUTH_JSON=/home/appuser/.codex/auth.json \
     HOME=/home/appuser
+
+# Guard against silently regressing to aiohttp's 1 MiB default when the
+# upstream project or its application factory changes.
+RUN python -c "from codex_proxy.server import create_app; assert create_app()._client_max_size == 64 * 1024 * 1024" \
+    && CODEX_PROXY_CLIENT_MAX_SIZE_MIB=32 python -c "from codex_proxy.server import create_app; assert create_app()._client_max_size == 32 * 1024 * 1024"
 
 RUN useradd --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser \
     && mkdir -p /home/appuser/.codex-proxy /home/appuser/.codex \
