@@ -56,6 +56,13 @@ user_urls=(
     "https://www.youtube.com/@lucaas/videos"
     "https://www.youtube.com/@ramosxin2340/videos"
     "https://www.youtube.com/@DarkCarrot-%E9%BB%91%E8%90%9D%E5%8D%9C/videos"
+    # 精选长视频频道
+    "https://www.youtube.com/channel/UCdp4_l1vPmpN-gDbUwhaRUQ/videos"
+    "https://www.youtube.com/channel/UC1LpsuAUaKoMzzJSEt5WImw/videos"
+    "https://www.youtube.com/channel/UC9RM-iSvTu1uPJb8X5yp3EQ/videos"
+    "https://www.youtube.com/channel/UCwpHKudUkP5tNgmMdexB3ow/videos"
+    "https://www.youtube.com/channel/UCfCNU6LWB66VR48V58d2KOg/videos"
+    "https://www.youtube.com/channel/UCRcgy6GzDeccI7dkbbBna3Q/videos"
 )
 
 echo "Starting daily download job at $(date)"
