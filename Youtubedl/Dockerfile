@@ -4,7 +4,7 @@ WORKDIR /root
 
 # 1. 安装依赖
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python-is-python3 ffmpeg atomicparsley git sudo cron curl && \
+    apt-get install -y --no-install-recommends python3 python-is-python3 ffmpeg atomicparsley git sudo cron curl unzip && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -28,6 +28,22 @@ RUN ARCH=$(uname -m) && \
     ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp && \
     ln -sf /usr/local/bin/yt-dlp /usr/bin/youtube-dl && \
     yt-dlp --version
+
+# YouTube requires an external JavaScript runtime for signature and n-challenge solving.
+# Deno is enabled by default by yt-dlp and supports both target architectures.
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        DENO_TARGET="aarch64-unknown-linux-gnu"; \
+    else \
+        DENO_TARGET="x86_64-unknown-linux-gnu"; \
+    fi && \
+    curl -fL --retry 5 \
+        "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_TARGET}.zip" \
+        -o /tmp/deno.zip && \
+    unzip -q /tmp/deno.zip -d /usr/local/bin && \
+    chmod a+rx /usr/local/bin/deno && \
+    rm -f /tmp/deno.zip && \
+    deno --version
 
 COPY ./entry.sh /entry.sh
 RUN chmod +x /entry.sh
