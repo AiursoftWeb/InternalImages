@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -u
+
 # 锁文件
 LOCKFILE="/tmp/youtube_dl_job.lock"
 
@@ -54,7 +56,6 @@ user_urls=(
     "https://www.youtube.com/@1kdoc/videos"
     "https://www.youtube.com/@hippopotamus85/videos"
     "https://www.youtube.com/@hippo20251/videos"
-    "https://www.youtube.com/@xiao_lin_shuo/videos"
     "https://www.youtube.com/@lucaas/videos"
     "https://www.youtube.com/@ramosxin2340/videos"
     "https://www.youtube.com/@DarkCarrot-%E9%BB%91%E8%90%9D%E5%8D%9C/videos"
@@ -62,24 +63,32 @@ user_urls=(
 
 echo "Starting daily download job at $(date)"
 
-# 确保 cookies 存在，否则给个警告
-if [ ! -f "/mnt/data/youtube/cookies.txt" ]; then
-    echo "WARNING: Cookies file not found at /mnt/data/youtube/cookies.txt! Some downloads may fail."
+# Cookies 是登录下载和避免机器人验证所必需的。缺失时停止任务，避免反复请求加重限流。
+COOKIE_FILE="/mnt/data/youtube/cookies.txt"
+if [ ! -s "${COOKIE_FILE}" ]; then
+    echo "ERROR: Cookies file is missing or empty at ${COOKIE_FILE}."
+    exit 1
 fi
+chmod 600 "${COOKIE_FILE}"
+
+overall_status=0
 
 for url in "${user_urls[@]}"; do
     echo "----------------------------------------------------------------"
     echo "Processing: $url"
     
-    # 这里的 youtube-dl 实际上已经是 yt-dlp 了
-    # 参数完全正确，--sleep-interval 30 非常合适
-    youtube-dl \
+    # 这里的 youtube-dl 实际上已经是 yt-dlp 了。
+    # archive 中出现第一个旧视频后停止回溯，并限制每个频道最多检查最近 50 条，
+    # 避免每天枚举频道完整历史并触发 YouTube 的 HTTP 429 限流。
+    if youtube-dl \
         --ignore-errors \
         --no-progress \
         --format 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' \
         --merge-output-format mp4 \
         --download-archive '/mnt/data/youtube/archive.txt' \
-        --cookies '/mnt/data/youtube/cookies.txt' \
+        --cookies "${COOKIE_FILE}" \
+        --break-on-existing \
+        --playlist-end 50 \
         --match-filter "!is_live" \
         --write-description \
         --write-info-json \
@@ -89,12 +98,18 @@ for url in "${user_urls[@]}"; do
         --embed-subs \
         --embed-thumbnail \
         --add-metadata \
+        --sleep-requests 5 \
         --sleep-interval 30 \
         --max-sleep-interval 120 \
         -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' \
-        "$url"
-        
-    echo "Finished $url, resting for 10 seconds..."
+        "$url"; then
+        echo "Finished $url successfully, resting for 10 seconds..."
+    else
+        channel_status=$?
+        overall_status=1
+        echo "ERROR: $url failed with exit code ${channel_status}, resting for 10 seconds..."
+    fi
+
     sleep 10
 done
 
@@ -103,3 +118,4 @@ find /mnt/data/youtube/ -type f -name "*.webp" -delete
 find /mnt/data/youtube/ -type f -name "*.svg" -delete
 
 echo "Job finished at $(date)"
+exit "${overall_status}"

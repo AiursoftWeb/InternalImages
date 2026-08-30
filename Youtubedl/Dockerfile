@@ -52,10 +52,10 @@ RUN mkdir -p /mnt/data
 VOLUME /mnt/data
 
 # 4. 注册 Cron 任务
-# 增加了一个环境导入操作，确保 Cron 能读取到 Docker 的环境变量
-RUN touch /var/log/cron_job.log
+# 增加了一个环境导入操作，确保 Cron 能读取到 Docker 的环境变量。
+# 将任务输出写到容器标准输出，交给 Docker 统一保存和轮转日志。
 RUN echo "PYTHONIOENCODING=utf-8" >> /etc/environment
-RUN crontab -l | { cat; echo "0 6 * * * . /etc/environment; /entry.sh >> /var/log/cron_job.log 2>&1"; } | crontab -
+RUN crontab -l | { cat; echo "0 6 * * * . /etc/environment; /entry.sh >> /proc/1/fd/1 2>&1"; } | crontab -
 
 # 启动
 ENTRYPOINT ["cron", "-f", "-L 15"]
