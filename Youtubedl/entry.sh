@@ -80,7 +80,8 @@ for url in "${user_urls[@]}"; do
     # 这里的 youtube-dl 实际上已经是 yt-dlp 了。
     # archive 中出现第一个旧视频后停止回溯，并限制每个频道最多检查最近 50 条，
     # 避免每天枚举频道完整历史并触发 YouTube 的 HTTP 429 限流。
-    if youtube-dl \
+    channel_status=0
+    youtube-dl \
         --ignore-errors \
         --no-progress \
         --format 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' \
@@ -102,10 +103,13 @@ for url in "${user_urls[@]}"; do
         --sleep-interval 30 \
         --max-sleep-interval 120 \
         -o '/mnt/data/youtube/%(uploader)s/%(title)s.%(ext)s' \
-        "$url"; then
+        "$url" || channel_status=$?
+
+    if [ "${channel_status}" -eq 0 ]; then
         echo "Finished $url successfully, resting for 10 seconds..."
+    elif [ "${channel_status}" -eq 101 ]; then
+        echo "Finished $url at the existing archive boundary, resting for 10 seconds..."
     else
-        channel_status=$?
         overall_status=1
         echo "ERROR: $url failed with exit code ${channel_status}, resting for 10 seconds..."
     fi
