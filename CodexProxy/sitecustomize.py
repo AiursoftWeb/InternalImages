@@ -24,6 +24,7 @@ except Exception as exc:  # pragma: no cover - best effort bootstrap hook
     log.warning("sitecustomize loaded but codex_proxy.config import failed: %s", exc)
 else:
     _OFFICIAL_MODELS = [
+        {"id": "gpt-6-astra", "object": "model", "owned_by": "openai"},
         {"id": "gpt-5.6-sol", "object": "model", "owned_by": "openai"},
         {"id": "gpt-5.6-terra", "object": "model", "owned_by": "openai"},
         {"id": "gpt-5.6-luna", "object": "model", "owned_by": "openai"},
