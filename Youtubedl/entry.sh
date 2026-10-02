@@ -16,6 +16,7 @@ trap "rm -f ${LOCKFILE}" EXIT
 
 # 你的频道列表 (无需改动)
 user_urls=(
+    "https://www.youtube.com/@max737ifly/videos"
     "https://www.youtube.com/@yuan_zi_neng/videos"
     "https://www.youtube.com/@Kassiapiano/videos"
     "https://www.youtube.com/@rousseau/videos"
