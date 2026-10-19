@@ -1,8 +1,8 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
 
-# 系统依赖安装（curl 供 uv 安装脚本 + 健康检查使用；git 用于拉取源码）
+# curl is used by the uv installer and the health check.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git \
+    curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -25,20 +25,10 @@ RUN uv python install 3.13 \
     && chmod -R a+rX /opt/uv-python
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# 拉取 codex-proxy 源码并安装。
-# 锁定到具体 commit 而不是浮动的 main 分支，保证可复现构建；
-# 该仓库目前没有打 tag/发过 Release，main 是唯一来源，
-# 但为了不让每次 build 都拉到不同代码，这里默认钉在下面这个 commit，
-# 需要跟新代码时手动更新 CODEX_PROXY_REF（或显式传 --build-arg）。
-ARG CODEX_PROXY_REPO=https://gitlab.aiursoft.com/ZeTian/codex-proxy.git
-ARG CODEX_PROXY_REF=a6dd9e90bd7747eb0508c7a2d959cc49e32ffa07
-COPY codex-proxy-client-max-size.patch /tmp/codex-proxy-client-max-size.patch
-RUN git clone --filter=blob:none "${CODEX_PROXY_REPO}" /tmp/codex-proxy \
-    && git -C /tmp/codex-proxy checkout "${CODEX_PROXY_REF}" \
-    && git -C /tmp/codex-proxy apply --check --unidiff-zero /tmp/codex-proxy-client-max-size.patch \
-    && git -C /tmp/codex-proxy apply --unidiff-zero /tmp/codex-proxy-client-max-size.patch \
-    && uv pip install /tmp/codex-proxy \
-    && rm -rf /tmp/codex-proxy /tmp/codex-proxy-client-max-size.patch
+# Build from the checked-in source, including the existing request-size fix.
+COPY source/ /tmp/codex-proxy/
+RUN uv pip install /tmp/codex-proxy \
+    && rm -rf /tmp/codex-proxy
 
 # 启动适配层：把宿主机 Codex CLI 的 auth.json 首次导入为
 # codex-proxy 自己的 credentials.json，之后交给它自己刷新 token。
