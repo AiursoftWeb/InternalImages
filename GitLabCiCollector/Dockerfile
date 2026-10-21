@@ -1,5 +1,5 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
-RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates postgresql-client \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 RUN install -d -m 0755 /app
