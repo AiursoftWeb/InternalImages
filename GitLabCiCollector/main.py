@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy GitLab job lifecycle metadata from read-only PostgreSQL to ClickHouse."""
+"""Copy GitLab job lifecycle metadata through its HTTP APIs into ClickHouse."""
 import argparse
 import datetime as dt
 import json
@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import signal
-import subprocess
 import threading
 import time
 import urllib.error
@@ -60,7 +59,20 @@ class Collector:
         self.interval = setting('SYNC_INTERVAL_SECONDS', '60', 3600)
         self.days = setting('BACKFILL_DAYS', '30', 90)
         self.overlap = setting('RECHECK_SECONDS', '300', 86400)
-        self.batch = setting('BATCH_SIZE', '2000', 10000)
+        self.gitlab = os.environ.get('GITLAB_URL', 'https://gitlab.aiursoft.com').rstrip('/')
+        parsed = urllib.parse.urlsplit(self.gitlab)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError('Invalid GITLAB_URL')
+        self.token = os.environ.get('GITLAB_ACCESS_TOKEN', '')
+        self.groups = [x.strip() for x in os.environ.get('GITLAB_GROUPS', '').split(',') if x.strip()]
+        if any(not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', x) for x in self.groups):
+            raise ValueError('Invalid GITLAB_GROUPS')
+        self.rps = setting('API_REQUESTS_PER_SECOND', '2', 10)
+        self.next_request = 0
+        self.retry_after = 0
+        self.requests = 0
+        self.projects = None
+        self.projects_expire = 0
         self.opener = urllib.request.build_opener(NoRedirect())
 
     def sql(self, query, rows=None):
@@ -85,107 +97,199 @@ class Collector:
             if query.strip():
                 self.sql(query)
 
-    def progress(self):
-        raw = self.sql(f"SELECT maxOrNull(through) AS through FROM {self.database}.sync_windows "
-                       f"WHERE source='{self.source}' FORMAT JSONEachRow")
-        value = json.loads(raw)['through']
-        return utc(value) if value else None
-
-    def postgres(self, query):
-        env = dict(os.environ, PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15000 '
-                   '-c lock_timeout=1000 -c timezone=UTC', PGCONNECT_TIMEOUT='10')
+    def api(self, path, payload=None):
+        if not self.token:
+            raise CollectorError('GITLAB_ACCESS_TOKEN is required')
+        delay = self.next_request - time.monotonic()
+        if delay > 0 and STOP.wait(delay):
+            raise CollectorError('Collection interrupted')
+        self.next_request = time.monotonic() + 1 / self.rps
+        self.requests += 1
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {'PRIVATE-TOKEN': self.token, 'Content-Type': 'application/json'}
+        request = urllib.request.Request(self.gitlab + path, data=body, headers=headers,
+                                         method='POST' if body is not None else 'GET')
         try:
-            result = subprocess.run(['psql', '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1'], input=query,
-                                    text=True, capture_output=True, timeout=30, env=env, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            raise CollectorError('PostgreSQL request failed or timed out') from None
-        if result.returncode:
-            raise CollectorError('PostgreSQL query failed')
-        try:
-            return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        except (ValueError, TypeError):
-            raise CollectorError('Invalid PostgreSQL result') from None
+            with self.opener.open(request, timeout=45) as response:
+                return json.loads(response.read()), response.headers.get('X-Next-Page', '')
+        except urllib.error.HTTPError as error:
+            if error.code == 429:
+                value = error.headers.get('Retry-After', '60')
+                self.retry_after = min(3600, max(60, int(value) if value.isdecimal() else 60))
+            raise CollectorError(f'GitLab HTTP status {error.code}') from None
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+            raise CollectorError('GitLab request failed or returned invalid JSON') from None
 
-    def fetch(self, start, end, after=None, active=False):
-        # All interpolated values are validated identifiers, integers, or formatted UTC timestamps.
-        where = "b.type='Ci::Build' AND b.queued_at IS NOT NULL"
-        if active:
-            where += " AND b.status IN ('pending','running','preparing','canceling') AND b.finished_at IS NULL"
-            if after:
-                where += f' AND (b.id,b.partition_id)>({after[1]},{after[2]})'
-            order = 'b.id,b.partition_id'
-        else:
-            where += f" AND b.updated_at>='{stamp(start)}' AND b.updated_at<'{stamp(end)}'"
-            if after:
-                where += (f" AND (b.updated_at,b.id,b.partition_id)>"
-                          f"('{stamp(utc(after[0]))}',{after[1]},{after[2]})")
-            order = 'b.updated_at,b.id,b.partition_id'
-        query = f"""SELECT row_to_json(j) FROM (
-SELECT b.id AS job_id,b.partition_id,b.project_id,b.commit_id AS pipeline_id,
-b.name,b.status,b.runner_id,b.queued_at,b.started_at,b.finished_at,b.updated_at AS source_updated_at
-FROM p_ci_builds b WHERE {where} ORDER BY {order} LIMIT {self.batch}) j;"""
-        return self.postgres(query)
+    def graphql(self, query):
+        result, _ = self.api('/api/graphql', {'query': query})
+        if not isinstance(result, dict) or result.get('errors') or not isinstance(result.get('data'), dict):
+            raise CollectorError('GitLab GraphQL query failed')
+        return result['data']
 
-    def write(self, rows):
-        if not rows:
-            return
-        for row in rows:
-            q, s, f = [utc(row[k]) if row[k] else None for k in ('queued_at', 'started_at', 'finished_at')]
-            if q is None or (s and s < q) or (f and f < (s or q)):
-                raise CollectorError('Invalid source lifecycle timestamps')
-            if f is None and row['status'] in ('success', 'failed', 'canceled', 'skipped'):
-                raise CollectorError('Queued terminal job has no finish time')
-            row['source'] = self.source
-            for key in ('queued_at', 'started_at', 'finished_at', 'source_updated_at'):
-                row[key] = stamp(utc(row[key])) if row[key] else None
-        self.sql(f'INSERT INTO {self.database}.jobs FORMAT JSONEachRow', rows)
+    def discover(self):
+        if self.projects is not None and time.monotonic() < self.projects_expire:
+            return self.projects
+        if not self.groups:
+            raise CollectorError('GITLAB_GROUPS is required')
+        projects = {}
+        for group in self.groups:
+            page = '1'
+            while page:
+                query = urllib.parse.urlencode({'include_subgroups': 'true', 'with_shared': 'false',
+                                                'simple': 'true', 'per_page': 100, 'page': page})
+                rows, following = self.api('/api/v4/groups/' + urllib.parse.quote(group, safe='') + '/projects?' + query)
+                if not isinstance(rows, list):
+                    raise CollectorError('Invalid GitLab project list')
+                for row in rows:
+                    projects[int(row['id'])] = row['path_with_namespace']
+                if following and (not following.isdecimal() or int(following) <= int(page)):
+                    raise CollectorError('Invalid GitLab project pagination')
+                page = following
+        if not projects:
+            raise CollectorError('No visible projects in the configured groups')
+        self.projects, self.projects_expire = projects, time.monotonic() + 3600
+        return projects
 
-    def copy_window(self, start, end, active=False):
-        after = None
+    @staticmethod
+    def identifier(value, kind):
+        match = re.fullmatch(r'gid://gitlab/' + re.escape(kind) + r'/(\d+)', value)
+        if not match:
+            raise CollectorError('Invalid GitLab object identifier')
+        return int(match[1])
+
+    def sync_pipeline(self, project_id, path, pipeline_id):
         count = 0
-        while not STOP.is_set():
-            rows = self.fetch(start, end, after, active)
-            if not rows:
-                return count
-            last = rows[-1]
-            after = (last['source_updated_at'], int(last['job_id']), int(last['partition_id']))
-            self.write(rows)
-            count += len(rows)
-            if len(rows) < self.batch:
-                return count
-        raise CollectorError('Collection interrupted; progress not advanced')
+        # Query both retry states: prior attempts have their own IDs and must be retained.
+        for retried in ('false', 'true'):
+            after = None
+            seen = set()
+            while not STOP.is_set():
+                query = ('{project(fullPath:' + json.dumps(path) + '){pipeline(id:' +
+                         json.dumps('gid://gitlab/Ci::Pipeline/' + str(pipeline_id)) + '){id status '
+                         'jobs(jobKind:BUILD,retried:' + retried + ',first:100,after:' + json.dumps(after) + '){'
+                         'nodes{id name status queuedAt startedAt finishedAt webPath runner{id}} '
+                         'pageInfo{endCursor hasNextPage}}}}}')
+                project = self.graphql(query)['project']
+                pipeline = project['pipeline'] if project else None
+                if pipeline is None:
+                    raise CollectorError('Pipeline is no longer visible')
+                rows = []
+                observed = stamp(dt.datetime.now(UTC))
+                for job in pipeline['jobs']['nodes']:
+                    q, s, f = [utc(job[key]) if job[key] else None
+                               for key in ('queuedAt', 'startedAt', 'finishedAt')]
+                    if (s and (q is None or s < q)) or (f and (s or q) and f < (s or q)):
+                        raise CollectorError('Invalid API lifecycle timestamps')
+                    if q and not f and job['status'] in ('SUCCESS', 'FAILED', 'CANCELED', 'SKIPPED'):
+                        raise CollectorError('Queued terminal job has no finish time')
+                    rows.append({'source': self.source, 'project_id': project_id, 'project_path': path,
+                                 'pipeline_id': pipeline_id, 'pipeline_status': pipeline['status'].lower(),
+                                 'job_id': self.identifier(job['id'], 'Ci::Build'), 'name': job['name'],
+                                 'status': job['status'].lower(), 'web_path': job['webPath'],
+                                 'runner_id': self.identifier(job['runner']['id'], 'Ci::Runner') if job['runner'] else None,
+                                 'queued_at': stamp(q) if q else None, 'started_at': stamp(s) if s else None,
+                                 'finished_at': stamp(f) if f else None, 'observed_at': observed})
+                if rows:
+                    self.sql(f'INSERT INTO {self.database}.api_jobs FORMAT JSONEachRow', rows)
+                    count += len(rows)
+                info = pipeline['jobs']['pageInfo']
+                if not info['hasNextPage']:
+                    break
+                after = info['endCursor']
+                if not after or after in seen:
+                    raise CollectorError('Invalid GitLab job pagination')
+                seen.add(after)
+            if STOP.is_set():
+                raise CollectorError('Collection interrupted')
+        return count
 
     def sync(self, now=None):
-        # A short lag avoids racing ordinary source transactions; the overlap rechecks late commits.
         end = (now or dt.datetime.now(UTC)) - dt.timedelta(seconds=10)
-        cursor = self.progress()
         earliest = end - dt.timedelta(days=self.days)
-        if cursor and cursor > end:
-            raise CollectorError('Stored progress is ahead of the collection boundary')
-        if cursor and cursor < earliest:
-            LOG.warning('Source history gap exceeds configured backfill window')
-        start = max(earliest, cursor - dt.timedelta(seconds=self.overlap)) if cursor else earliest
-        # Refresh old active jobs too: their original queue/update time may precede the backfill window.
-        active_count = self.copy_window(start, end, active=True)
-        while start < end and not STOP.is_set():
-            stop = min(start + dt.timedelta(hours=1), end)
-            count = self.copy_window(start, stop)
+        requests_before = self.requests
+        projects = self.discover()
+        progress = {int(row['project_id']): utc(row['through']) for row in self.records(
+            f"SELECT project_id,max(through) AS through FROM {self.database}.api_project_sync "
+            f"WHERE source='{self.source}' GROUP BY project_id FORMAT JSONEachRow")}
+        active = {}
+        for row in self.records(f"SELECT DISTINCT project_id,pipeline_id FROM {self.database}.api_jobs_latest "
+                                f"WHERE source='{self.source}' AND pipeline_status IN "
+                                "('created','pending','running','preparing','waiting_for_resource','waiting_for_callback','canceling') "
+                                'FORMAT JSONEachRow'):
+            active.setdefault(int(row['project_id']), set()).add(int(row['pipeline_id']))
+        count = 0
+        # Batch lightweight change discovery, never nested jobs for every project.
+        items = list(projects.items())
+        for offset in range(0, len(items), 10):
+            pending = {}
+            checkpoints = []
+            for project_id, path in items[offset:offset + 10]:
+                cursor = progress.get(project_id)
+                if cursor and cursor > end:
+                    raise CollectorError('Stored progress is ahead of collection')
+                start = max(earliest, cursor - dt.timedelta(seconds=self.overlap)) if cursor else earliest
+                pending[project_id] = {'path': path, 'start': start, 'after': {}, 'seen': set(), 'done': set(), 'pipelines': set()}
+            while pending and not STOP.is_set():
+                fields = []
+                for project_id, entry in pending.items():
+                    connections = []
+                    for kind in ('regular', 'child'):
+                        if kind in entry['done']:
+                            continue
+                        source = 'source:"parent_pipeline",' if kind == 'child' else ''
+                        connections.append(kind + ':pipelines(' + source + 'updatedAfter:' +
+                                           json.dumps(entry['start'].isoformat()) + ',updatedBefore:' +
+                                           json.dumps(end.isoformat()) + ',first:20,after:' +
+                                           json.dumps(entry['after'].get(kind)) + '){nodes{id} pageInfo{endCursor hasNextPage}}')
+                    fields.append('p' + str(project_id) + ':project(fullPath:' +
+                                  json.dumps(entry['path']) + '){' + ' '.join(connections) + '}')
+                data = self.graphql('{' + ' '.join(fields) + '}')
+                for project_id, entry in list(pending.items()):
+                    project = data['p' + str(project_id)]
+                    if project is None:
+                        self.projects_expire = 0
+                        raise CollectorError('Project is no longer visible')
+                    for kind, page in project.items():
+                        for pipeline in page['nodes']:
+                            pipeline_id = self.identifier(pipeline['id'], 'Ci::Pipeline')
+                            if pipeline_id not in entry['pipelines']:
+                                count += self.sync_pipeline(project_id, entry['path'], pipeline_id)
+                                entry['pipelines'].add(pipeline_id)
+                        info = page['pageInfo']
+                        if info['hasNextPage']:
+                            after = info['endCursor']
+                            if not after or (kind, after) in entry['seen']:
+                                raise CollectorError('Invalid GitLab pipeline pagination')
+                            entry['seen'].add((kind, after))
+                            entry['after'][kind] = after
+                        else:
+                            entry['done'].add(kind)
+                    if len(entry['done']) == 2:
+                        for pipeline_id in active.get(project_id, set()) - entry['pipelines']:
+                            count += self.sync_pipeline(project_id, entry['path'], pipeline_id)
+                        if STOP.is_set():
+                            raise CollectorError('Collection interrupted')
+                        if project_id not in progress or entry['pipelines'] or active.get(project_id):
+                            checkpoints.append({'source': self.source, 'project_id': project_id, 'through': stamp(end)})
+                        del pending[project_id]
             if STOP.is_set():
-                raise CollectorError('Collection interrupted; progress not advanced')
-            self.sql(f'INSERT INTO {self.database}.sync_windows FORMAT JSONEachRow',
-                     [{'source': self.source, 'through': stamp(stop), 'collected_at': stamp(dt.datetime.now(UTC)),
-                       'rows': count}])
-            LOG.info('Copied %s jobs through %s; active refresh %s', count, stamp(stop), active_count)
-            start = stop
-            if start < end and STOP.wait(0.1):
                 raise CollectorError('Collection interrupted')
+            if checkpoints:
+                self.sql(f'INSERT INTO {self.database}.api_project_sync FORMAT JSONEachRow', checkpoints)
+        self.sql(f'INSERT INTO {self.database}.api_sync_runs FORMAT JSONEachRow',
+                 [{'source': self.source, 'through': stamp(end), 'collected_at': stamp(dt.datetime.now(UTC)),
+                   'project_ids': list(projects), 'groups': self.groups, 'requests': self.requests - requests_before}])
+        LOG.info('API synchronization complete: %s projects, %s observations, %s requests',
+                 len(projects), count, self.requests - requests_before)
+
+    def records(self, query):
+        return [json.loads(line) for line in self.sql(query).splitlines() if line.strip()]
 
     def health(self):
-        raw = self.sql(f"SELECT maxOrNull(collected_at) AS collected_at, maxOrNull(through) AS through FROM {self.database}.sync_windows "
-                       f"WHERE source='{self.source}' FORMAT JSONEachRow")
-        record = json.loads(raw)
+        rows = self.records(f"SELECT maxOrNull(collected_at) AS collected_at,maxOrNull(through) AS through "
+                            f"FROM {self.database}.api_sync_runs WHERE source='{self.source}' FORMAT JSONEachRow")
         limit = self.interval * 3 + 300
-        return all(record[key] and 0 <= (dt.datetime.now(UTC) - utc(record[key])).total_seconds() <= limit
+        return all(rows[0][key] and 0 <= (dt.datetime.now(UTC) - utc(rows[0][key])).total_seconds() <= limit
                    for key in ('collected_at', 'through'))
 
 
@@ -211,7 +315,9 @@ def main():
             LOG.error('Collection failed; unconfirmed progress is retained')
             if args.once:
                 return 1
-        if args.once or STOP.wait(collector.interval):
+        delay = max(collector.interval, collector.retry_after)
+        collector.retry_after = 0
+        if args.once or STOP.wait(delay):
             break
     return 0
 
