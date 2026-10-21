@@ -149,3 +149,12 @@ deploy_codexproxy:
     IMAGE_NAME: "codexproxy"
     CONTEXT: "./CodexProxy"
     PLATFORMS: "linux/amd64"
+
+deploy_gitlab_ci_collector:
+  extends: .deploy_template
+  needs:
+    - job: deploy_anduinos_internal
+      optional: true
+  variables:
+    IMAGE_NAME: "gitlab-ci-collector"
+    CONTEXT: "./GitLabCiCollector"
