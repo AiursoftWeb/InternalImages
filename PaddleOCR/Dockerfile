@@ -9,7 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
-    UV_NO_CACHE=1
+    UV_NO_CACHE=1 \
+    UV_HTTP_TIMEOUT=120 \
+    UV_HTTP_RETRIES=5
 
 # 安装 uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh

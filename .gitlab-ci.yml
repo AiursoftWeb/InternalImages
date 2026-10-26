@@ -123,6 +123,7 @@ deploy_youtubedl:
 
 deploy_reportertts:
   extends: .deploy_template
+  timeout: 3h
   needs:
     - job: deploy_nvidia
       optional: true
