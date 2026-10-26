@@ -158,3 +158,9 @@ deploy_gitlab_ci_collector:
   variables:
     IMAGE_NAME: "gitlab-ci-collector"
     CONTEXT: "./GitLabCiCollector"
+
+deploy_mcpo:
+  extends: .deploy_template
+  variables:
+    IMAGE_NAME: "mcpo"
+    CONTEXT: "./MCPO"
