@@ -12,6 +12,8 @@ ENV PYTHONUNBUFFERED=1 \
 	PIP_NO_CACHE_DIR=1 \
 	PIP_BREAK_SYSTEM_PACKAGES=1 \
 	UV_NO_CACHE=1 \
+    UV_HTTP_TIMEOUT=120 \
+    UV_HTTP_RETRIES=5 \
 	PATH="/root/.local/bin:${PATH}"
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -27,15 +29,18 @@ RUN uv --version \
 	&& . "tts/bin/activate" \
 	&& uv pip install uvicorn fastapi python-multipart \
 	&& if [ "$(uname -m)" = "x86_64" ]; then \
-		uv pip install torch torchaudio --index-strategy latest; \
 		uv pip install -e .; \
 	else \
 		uv pip install torch==2.8.0 torchaudio==2.8.0 \
 		&& uv pip install -e . --no-sources; \
 	fi
 
-RUN . "tts/bin/activate" \
-	&& hf download IndexTeam/IndexTTS-1.5 config.yaml bigvgan_discriminator.pth bigvgan_generator.pth bpe.model dvae.pth gpt.pth unigram_12000.vocab --local-dir checkpoints
+# Preserve incomplete downloads across failed builds; copy completed files into the image.
+RUN --mount=type=cache,id=reportertts-indextts-1.5,target=/model-cache,sharing=locked \
+    . "tts/bin/activate" \
+    && hf download IndexTeam/IndexTTS-1.5 config.yaml bigvgan_discriminator.pth bigvgan_generator.pth bpe.model dvae.pth gpt.pth unigram_12000.vocab --local-dir /model-cache \
+    && mkdir -p checkpoints \
+    && cp /model-cache/* checkpoints/
 
 COPY . .
 
