@@ -28,6 +28,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # Build from the checked-in source, including the existing request-size fix.
 COPY source/ /tmp/codex-proxy/
 RUN uv pip install /tmp/codex-proxy \
+    && install -D -m 644 /tmp/codex-proxy/LICENSE /usr/share/doc/codex-proxy/LICENSE \
     && rm -rf /tmp/codex-proxy
 
 # 启动适配层：把宿主机 Codex CLI 的 auth.json 首次导入为
