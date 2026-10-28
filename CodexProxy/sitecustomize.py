@@ -25,6 +25,7 @@ except Exception as exc:  # pragma: no cover - best effort bootstrap hook
 else:
     _OFFICIAL_MODELS = [
         {"id": "gpt-6.1-sol", "object": "model", "owned_by": "openai"},
+        {"id": "gpt-6.1-terra", "object": "model", "owned_by": "openai"},
         {"id": "gpt-6-sol", "object": "model", "owned_by": "openai"},
         {"id": "gpt-6-terra", "object": "model", "owned_by": "openai"},
         {"id": "gpt-6-luna", "object": "model", "owned_by": "openai"},
