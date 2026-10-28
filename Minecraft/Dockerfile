@@ -8,9 +8,22 @@ ARG VERSION
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl wget jq unzip && \
+    apt-get install -y --no-install-recommends aria2 curl jq unzip && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# aria2 does not retry every TLS failure internally; also bound whole-download retries.
+COPY --chmod=755 <<'EOF' /usr/local/bin/download
+#!/bin/sh
+for attempt in 1 2 3; do
+    aria2c --continue=true --max-connection-per-server=8 --split=8 --min-split-size=1M \
+        --max-tries=5 --retry-wait=5 --connect-timeout=20 --timeout=60 \
+        --lowest-speed-limit=16K --auto-file-renaming=false "$@" && exit 0
+    status=$?
+    [ "$attempt" -eq 3 ] && exit "$status"
+    sleep 5
+done
+EOF
 
 RUN mkdir -p /app/plugins && \
     mkdir -p /app/world && \
@@ -33,18 +46,20 @@ COPY ./papermc.jar /app/papermc.jar
 # Plugins
 # ================
 # Geyser-Spigot
-RUN wget -O /app/plugins/Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
+RUN download --dir=/app/plugins --out=Geyser-Spigot.jar "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
 
 # floodgate-spigot
-RUN wget -O /app/plugins/floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
+RUN download --dir=/app/plugins --out=floodgate-spigot.jar "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
 
 # ViaBackwards
-RUN viabUrl=$(curl https://api.github.com/repos/ViaVersion/ViaBackwards/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
-    wget -O /app/plugins/ViaBackwards.jar $viabUrl
+RUN release=$(curl --fail --silent --show-error --location --retry 5 --connect-timeout 20 --max-time 60 https://api.github.com/repos/ViaVersion/ViaBackwards/releases/latest) && \
+    viabUrl=$(printf '%s' "$release" | jq -er '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
+    download --dir=/app/plugins --out=ViaBackwards.jar "$viabUrl"
 
 # ViaVersion
-RUN viavUrl=$(curl https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest | jq -r '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
-    wget -O /app/plugins/ViaVersion.jar $viavUrl
+RUN release=$(curl --fail --silent --show-error --location --retry 5 --connect-timeout 20 --max-time 60 https://api.github.com/repos/ViaVersion/ViaVersion/releases/latest) && \
+    viavUrl=$(printf '%s' "$release" | jq -er '(.assets[] | select(.browser_download_url | contains(".jar"))).browser_download_url') && \
+    download --dir=/app/plugins --out=ViaVersion.jar "$viavUrl"
 
 # Dynmap
 #RUN wget -O /app/plugins/Dynmap.jar "https://dev.bukkit.org/projects/dynmap/files/latest"
@@ -69,7 +84,7 @@ COPY ./dungeon-now-loading-18.2-v1.19.4.zip /tmp/dnl.zip
 RUN unzip /tmp/dnl.zip -d /datapacks/dungeon-now-loading
 
 # BlazeandCave's Advancements Pack
-RUN wget -O /tmp/bap.zip "https://mediafilez.forgecdn.net/files/4366/827/BlazeandCave%27s Advancements Pack 1.15.3.zip"
+RUN download --dir=/tmp --out=bap.zip "https://mediafilez.forgecdn.net/files/4366/827/BlazeandCave%27s Advancements Pack 1.15.3.zip"
 RUN unzip /tmp/bap.zip -d /datapacks/BlazeandCavesAdvancementsPack
 
 # Keepin
@@ -77,19 +92,19 @@ RUN unzip /tmp/bap.zip -d /datapacks/BlazeandCavesAdvancementsPack
 #RUN unzip /tmp/kpin.zip -d /datapacks/kpin
 
 # Incendium
-RUN wget -O /tmp/inc.zip -L "https://www.stardustlabs.net/s/Incendium_1193_v516.zip"
+RUN download --dir=/tmp --out=inc.zip "https://www.stardustlabs.net/s/Incendium_1193_v516.zip"
 RUN unzip /tmp/inc.zip -d /datapacks/incendium
 
 # Nullscape
-RUN wget -O /tmp/nsp.zip -L "https://www.stardustlabs.net/s/Nullscape_1193_v122.zip"
+RUN download --dir=/tmp --out=nsp.zip "https://www.stardustlabs.net/s/Nullscape_1193_v122.zip"
 RUN unzip /tmp/nsp.zip -d /datapacks/nullscape
 
 # Terralith
-RUN wget -O /tmp/tra.zip -L "https://www.stardustlabs.net/s/Terralith_1193_v2312.zip"
+RUN download --dir=/tmp --out=tra.zip "https://www.stardustlabs.net/s/Terralith_1193_v2312.zip"
 RUN unzip /tmp/tra.zip -d /datapacks/terralith
 
 # Structory_1193_v131a
-RUN wget -O /tmp/sty.zip -L "https://www.stardustlabs.net/s/Structory_1193_v131a.zip"
+RUN download --dir=/tmp --out=sty.zip "https://www.stardustlabs.net/s/Structory_1193_v131a.zip"
 RUN unzip /tmp/sty.zip -d /datapacks/structory
 
 # Ships out of the ocean
