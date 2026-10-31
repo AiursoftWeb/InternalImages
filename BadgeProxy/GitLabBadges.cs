@@ -99,7 +99,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
             // Never log upstream response bodies, headers, URLs or credential-bearing exceptions.
             logger.LogWarning("GitLab badge lookup failed for {Project} ({ErrorType}).", project, error.GetType().Name);
         }
-        return new Snapshot(status, coverage, DateTimeOffset.UtcNow.AddMinutes(1), branch, found);
+        return new Snapshot(status, coverage, DateTimeOffset.UtcNow.AddMinutes(status == "unknown" ? 1 : 30), branch, found);
     }
 
     private async Task<JsonDocument> ReadAsync(string path, CancellationToken cancellationToken)
