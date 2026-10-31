@@ -1,5 +1,5 @@
 # GitLab Badge Proxy
 
-Public pipeline and coverage SVGs for explicitly allowed company projects, while GitLab stays internal.
+Public pipeline and coverage SVGs for company projects, while GitLab stays internal.
 
-Configure `GITLAB_URL`, `GITLAB_ACCESS_TOKEN` (read-only API access) and `ALLOWED_PROJECTS` (`template:master,kanban:master`). Requests use `/aiursoft/template/badges/master/pipeline.svg` or `coverage.svg`. Results share a one-minute cache; unavailable data displays `unknown`. `/health` checks service availability.
+Configure `GITLAB_URL` and `GITLAB_ACCESS_TOKEN` (read-only API access). Projects and default branches are discovered automatically under `aiursoft`; no project list is required. Use `/aiursoft/template/badges/master/pipeline.svg` or `coverage.svg`. Results share a one-minute bounded cache; unavailable data displays `unknown`. `/health` checks service availability.
