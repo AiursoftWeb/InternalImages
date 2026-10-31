@@ -86,7 +86,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
             }
             finally { upstreamSlots.Release(); }
         }
-        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound && branch is null)
         {
             status = "unknown";
             coverage = null;
