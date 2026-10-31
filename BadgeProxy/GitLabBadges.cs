@@ -1,38 +1,67 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 
 namespace BadgeProxy;
 
-public sealed record Snapshot(string Status, double? Coverage, DateTimeOffset Expires);
+public sealed record Snapshot(string Status, double? Coverage, DateTimeOffset Expires, string? DefaultBranch = null, bool Found = true);
 
-public sealed class GitLabBadges(HttpClient client, IEnumerable<string> projects, ILogger logger)
+public sealed class GitLabBadges(HttpClient client, ILogger logger)
 {
-    private sealed class Entry
+    private readonly Dictionary<string, Task<Snapshot>> entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object cacheLock = new();
+    private readonly SemaphoreSlim upstreamSlots = new(4, 4);
+    private DateTimeOffset windowStart = DateTimeOffset.UtcNow;
+    private int refreshes;
+
+    public Task<Snapshot> GetAsync(string project, CancellationToken cancellationToken)
     {
-        public readonly SemaphoreSlim Gate = new(1, 1);
-        public Snapshot? Snapshot;
+        Task<Snapshot> task;
+        lock (cacheLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (entries.TryGetValue(project, out var existing) &&
+                (!existing.IsCompleted || existing.IsCompletedSuccessfully && existing.Result.Expires > now))
+                return existing.WaitAsync(cancellationToken);
+            // Bound memory and anonymous refresh traffic without maintaining a project list.
+            foreach (var expired in entries.Where(e => e.Value.IsCompleted && (!e.Value.IsCompletedSuccessfully || e.Value.Result.Expires <= now)).Select(e => e.Key).ToArray())
+                entries.Remove(expired);
+            if (now - windowStart >= TimeSpan.FromMinutes(1))
+            {
+                windowStart = now;
+                refreshes = 0;
+            }
+            if (entries.Count >= 256 || refreshes >= 120)
+                return Task.FromResult(new Snapshot("unknown", null, now));
+            refreshes++;
+            task = RefreshAsync(project);
+            entries[project] = task;
+        }
+        return task.WaitAsync(cancellationToken);
     }
 
-    private readonly Dictionary<string, Entry> entries = projects.ToDictionary(p => p, _ => new Entry(), StringComparer.OrdinalIgnoreCase);
-    private readonly SemaphoreSlim upstreamSlots = new(4, 4);
-
-    public async Task<Snapshot> GetAsync(string project, string branch, CancellationToken cancellationToken)
+    private async Task<Snapshot> RefreshAsync(string project)
     {
-        var entry = entries[project];
-        await entry.Gate.WaitAsync(cancellationToken);
+        // Do not hold the cache lock during upstream IO or tie shared refreshes to one reader.
+        await Task.Yield();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var status = "unknown";
+        double? coverage = null;
+        string? branch = null;
+        var found = true;
         try
         {
-            if (entry.Snapshot is { } current && current.Expires > DateTimeOffset.UtcNow) return current;
-            // A disconnected reader must not cancel the refresh shared by other readers.
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var status = "unknown";
-            double? coverage = null;
+            await upstreamSlots.WaitAsync(deadline.Token);
             try
             {
-                await upstreamSlots.WaitAsync(deadline.Token);
-                try
+                var projectPath = $"projects/{Uri.EscapeDataString("aiursoft/" + project)}";
+                using var metadata = await ReadAsync(projectPath, deadline.Token);
+                if (!string.Equals(metadata.RootElement.GetProperty("path_with_namespace").GetString(), "aiursoft/" + project, StringComparison.OrdinalIgnoreCase))
+                    throw new JsonException("Unexpected project path.");
+                branch = metadata.RootElement.GetProperty("default_branch").GetString();
+                if (!string.IsNullOrEmpty(branch))
                 {
-                    var path = $"projects/{Uri.EscapeDataString("aiursoft/" + project)}/pipelines";
+                    var path = projectPath + "/pipelines";
                     using var list = await ReadAsync($"{path}?ref={Uri.EscapeDataString(branch)}&order_by=id&sort=desc&per_page=1", deadline.Token);
                     if (list.RootElement.GetArrayLength() > 0)
                     {
@@ -54,25 +83,30 @@ public sealed class GitLabBadges(HttpClient client, IEnumerable<string> projects
                             coverage = number;
                     }
                 }
-                finally { upstreamSlots.Release(); }
             }
-            catch (Exception error) when (error is HttpRequestException or OperationCanceledException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
-            {
-                status = "unknown";
-                coverage = null;
-                // Never log upstream response bodies, headers, URLs or credential-bearing exceptions.
-                logger.LogWarning("GitLab badge lookup failed for {Project} ({ErrorType}).", project, error.GetType().Name);
-            }
-            return entry.Snapshot = new Snapshot(status, coverage, DateTimeOffset.UtcNow.AddMinutes(1));
+            finally { upstreamSlots.Release(); }
         }
-        finally { entry.Gate.Release(); }
+        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        {
+            status = "unknown";
+            coverage = null;
+            found = false;
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        {
+            status = "unknown";
+            coverage = null;
+            // Never log upstream response bodies, headers, URLs or credential-bearing exceptions.
+            logger.LogWarning("GitLab badge lookup failed for {Project} ({ErrorType}).", project, error.GetType().Name);
+        }
+        return new Snapshot(status, coverage, DateTimeOffset.UtcNow.AddMinutes(1), branch, found);
     }
 
     private async Task<JsonDocument> ReadAsync(string path, CancellationToken cancellationToken)
     {
         using var response = await client.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
-        // API responses contain one pipeline only; bound both transfer size and JSON depth.
+        // API responses contain one project/pipeline only; bound transfer size and JSON depth.
         using var buffer = new MemoryStream();
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
         var block = new byte[8192];

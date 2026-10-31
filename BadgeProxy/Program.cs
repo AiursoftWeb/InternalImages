@@ -23,28 +23,28 @@ if (!Uri.TryCreate(upstream.TrimEnd('/') + "/api/v4/", UriKind.Absolute, out var
 var token = builder.Configuration["GITLAB_ACCESS_TOKEN"];
 if (string.IsNullOrWhiteSpace(token))
     throw new InvalidOperationException("GITLAB_ACCESS_TOKEN is required.");
-var projects = (builder.Configuration["ALLOWED_PROJECTS"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-    .Select(item => item.Split(':', 2)).ToArray();
-if (projects.Length == 0 || projects.Any(p => p.Length != 2 ||
-    !System.Text.RegularExpressions.Regex.IsMatch(p[0], "^[a-z0-9][a-z0-9_-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant) ||
-    string.IsNullOrWhiteSpace(p[1]) || p[1].Contains('/') || p[1].Contains('\\')))
-    throw new InvalidOperationException("ALLOWED_PROJECTS must contain project:default-branch entries.");
-var allowed = projects.ToDictionary(p => p[0], p => p[1], StringComparer.OrdinalIgnoreCase);
 using var client = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, MaxConnectionsPerServer = 4 })
     { BaseAddress = api, Timeout = Timeout.InfiniteTimeSpan };
 client.DefaultRequestHeaders.Add("PRIVATE-TOKEN", token);
 client.DefaultRequestHeaders.UserAgent.ParseAdd("Aiursoft-BadgeProxy/1.0");
 var app = builder.Build();
-var badges = new GitLabBadges(client, allowed.Keys, app.Logger);
+var badges = new GitLabBadges(client, app.Logger);
 app.MapGet("/health", () => Results.Text("healthy"));
-app.MapMethods("/aiursoft/{project}/badges/{branch}/{file}", ["GET", "HEAD"], async (HttpContext context, string project, string branch, string file) =>
+app.MapMethods("/aiursoft/{project}/badges/{**badgePath}", ["GET", "HEAD"], async (HttpContext context, string project, string? badgePath) =>
 {
-    if (!allowed.TryGetValue(project, out var defaultBranch) || branch != defaultBranch ||
-        file is not ("pipeline.svg" or "coverage.svg"))
+    context.Response.Headers.CacheControl = "no-store";
+    if (project.Length > 128 || !System.Text.RegularExpressions.Regex.IsMatch(project, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
         return Results.NotFound();
+    var slash = badgePath?.LastIndexOf('/') ?? -1;
+    if (slash < 1) return Results.NotFound();
+    var branch = badgePath![..slash];
+    var file = badgePath[(slash + 1)..];
+    if (file is not ("pipeline.svg" or "coverage.svg")) return Results.NotFound();
     if (context.Request.QueryString.HasValue)
         return Results.BadRequest();
-    var snapshot = await badges.GetAsync(project.ToLowerInvariant(), defaultBranch, context.RequestAborted);
+    var snapshot = await badges.GetAsync(project.ToLowerInvariant(), context.RequestAborted);
+    if (!snapshot.Found || snapshot.DefaultBranch is not null && branch != snapshot.DefaultBranch)
+        return Results.NotFound();
     var remaining = Math.Max(0, (int)(snapshot.Expires - DateTimeOffset.UtcNow).TotalSeconds);
     context.Response.Headers.CacheControl = $"public, max-age={remaining}, must-revalidate";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
