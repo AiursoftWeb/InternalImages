@@ -45,8 +45,6 @@ app.MapMethods("/aiursoft/{project}/badges/{**badgePath}", ["GET", "HEAD"], asyn
     var snapshot = await badges.GetAsync(project.ToLowerInvariant(), context.RequestAborted);
     if (!snapshot.Found || snapshot.DefaultBranch is not null && branch != snapshot.DefaultBranch)
         return Results.NotFound();
-    var remaining = Math.Max(0, (int)(snapshot.Expires - DateTimeOffset.UtcNow).TotalSeconds);
-    context.Response.Headers.CacheControl = $"public, max-age={remaining}, must-revalidate";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
     var coverage = file == "coverage.svg";
