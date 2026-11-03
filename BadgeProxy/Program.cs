@@ -33,7 +33,7 @@ app.MapGet("/health", () => Results.Text("healthy"));
 app.MapMethods("/aiursoft/{project}/badges/{**badgePath}", ["GET", "HEAD"], async (HttpContext context, string project, string? badgePath) =>
 {
     context.Response.Headers.CacheControl = "no-store";
-    if (project.Length > 128 || !System.Text.RegularExpressions.Regex.IsMatch(project, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+    if (project.Length > 128 || !System.Text.RegularExpressions.Regex.IsMatch(project, "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
         return Results.NotFound();
     var slash = badgePath?.LastIndexOf('/') ?? -1;
     if (slash < 1) return Results.NotFound();
