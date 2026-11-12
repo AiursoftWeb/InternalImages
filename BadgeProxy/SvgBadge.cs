@@ -18,8 +18,8 @@ public static class SvgBadge
             "unknown" or "canceled" or "skipped" or "created" or "preparing" => "#9f9f9f",
             _ => "#007ec6"
         };
-        label = SecurityElement.Escape(label)!;
-        value = SecurityElement.Escape(value)!;
+        label = SecurityElement.Escape(label);
+        value = SecurityElement.Escape(value);
         return $"""
             <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="20" role="img" aria-label="{label}: {value}">
               <title>{label}: {value}</title>
