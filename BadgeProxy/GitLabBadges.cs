@@ -8,41 +8,41 @@ public sealed record Snapshot(string Status, double? Coverage, DateTimeOffset Ex
 
 public sealed class GitLabBadges(HttpClient client, ILogger logger)
 {
-    private readonly Dictionary<string, Task<Snapshot>> entries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object cacheLock = new();
-    private readonly SemaphoreSlim upstreamSlots = new(4, 4);
-    private DateTimeOffset windowStart = DateTimeOffset.UtcNow;
-    private int refreshes;
+    private readonly Dictionary<string, Task<Snapshot>> _entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _cacheLock = new();
+    private readonly SemaphoreSlim _upstreamSlots = new(4, 4);
+    private DateTimeOffset _windowStart = DateTimeOffset.UtcNow;
+    private int _refreshes;
 
     public Task<Snapshot> GetAsync(string project, CancellationToken cancellationToken)
     {
         Task<Snapshot> task;
-        lock (cacheLock)
+        lock (_cacheLock)
         {
             var now = DateTimeOffset.UtcNow;
-            if (entries.TryGetValue(project, out var existing) &&
+            if (_entries.TryGetValue(project, out var existing) &&
                 (!existing.IsCompleted || existing.IsCompletedSuccessfully && existing.Result.Expires > now))
                 return existing.WaitAsync(cancellationToken);
             // Bound memory and anonymous refresh traffic without maintaining a project list.
-            foreach (var expired in entries.Where(e => e.Value.IsCompleted && (!e.Value.IsCompletedSuccessfully || e.Value.Result.Expires <= now)).Select(e => e.Key).ToArray())
-                entries.Remove(expired);
-            if (now - windowStart >= TimeSpan.FromMinutes(1))
+            foreach (var expired in _entries.Where(e => e.Value.IsCompleted && (!e.Value.IsCompletedSuccessfully || e.Value.Result.Expires <= now)).Select(e => e.Key).ToArray())
+                _entries.Remove(expired);
+            if (now - _windowStart >= TimeSpan.FromMinutes(1))
             {
-                windowStart = now;
-                refreshes = 0;
+                _windowStart = now;
+                _refreshes = 0;
             }
-            if (entries.Count >= 256 || refreshes >= 120)
+            if (_entries.Count >= 256 || _refreshes >= 120)
                 return Task.FromResult(new Snapshot("unknown", null, now));
-            refreshes++;
+            _refreshes++;
             task = RefreshAsync(project);
-            entries[project] = task;
+            _entries[project] = task;
         }
         return task.WaitAsync(cancellationToken);
     }
 
     private async Task<Snapshot> RefreshAsync(string project)
     {
-        // Do not hold the cache lock during upstream IO or tie shared refreshes to one reader.
+        // Do not hold the cache lock during upstream IO or tie shared _refreshes to one reader.
         await Task.Yield();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var status = "unknown";
@@ -51,7 +51,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
         var found = true;
         try
         {
-            await upstreamSlots.WaitAsync(deadline.Token);
+            await _upstreamSlots.WaitAsync(deadline.Token);
             try
             {
                 var projectPath = $"projects/{Uri.EscapeDataString("aiursoft/" + project)}";
@@ -84,7 +84,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
                     }
                 }
             }
-            finally { upstreamSlots.Release(); }
+            finally { _upstreamSlots.Release(); }
         }
         catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound && branch is null)
         {

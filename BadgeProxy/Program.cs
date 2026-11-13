@@ -3,7 +3,8 @@ using BadgeProxy;
 
 if (args.Contains("--healthcheck"))
 {
-    using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+    using var probe = new HttpClient();
+    probe.Timeout = TimeSpan.FromSeconds(3);
     try
     {
         using var response = await probe.GetAsync("http://127.0.0.1:5000/health");
@@ -23,8 +24,9 @@ if (!Uri.TryCreate(upstream.TrimEnd('/') + "/api/v4/", UriKind.Absolute, out var
 var token = builder.Configuration["GITLAB_ACCESS_TOKEN"];
 if (string.IsNullOrWhiteSpace(token))
     throw new InvalidOperationException("GITLAB_ACCESS_TOKEN is required.");
-using var client = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, MaxConnectionsPerServer = 4 })
-    { BaseAddress = api, Timeout = Timeout.InfiniteTimeSpan };
+using var client = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, MaxConnectionsPerServer = 4 });
+client.BaseAddress = api;
+client.Timeout = Timeout.InfiniteTimeSpan;
 client.DefaultRequestHeaders.Add("PRIVATE-TOKEN", token);
 client.DefaultRequestHeaders.UserAgent.ParseAdd("Aiursoft-BadgeProxy/1.0");
 var app = builder.Build();
@@ -50,7 +52,7 @@ app.MapMethods("/aiursoft/{project}/badges/{**badgePath}", ["GET", "HEAD"], asyn
     var coverage = file == "coverage.svg";
     var value = coverage ? snapshot.Coverage?.ToString("0.##", CultureInfo.InvariantCulture) + "%" : snapshot.Status;
     if (coverage && snapshot.Coverage is null) value = "unknown";
-    return Results.Text(SvgBadge.Render(coverage ? "coverage" : "pipeline", value ?? "unknown"), "image/svg+xml; charset=utf-8");
+    return Results.Text(SvgBadge.Render(coverage ? "coverage" : "pipeline", value), "image/svg+xml; charset=utf-8");
 });
 await app.RunAsync();
 return 0;
