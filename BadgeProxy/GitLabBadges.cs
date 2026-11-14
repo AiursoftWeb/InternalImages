@@ -77,10 +77,21 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
                             "failed" or "running" or "pending" or "canceled" or "skipped" or "manual" or "scheduled" or "created" or "preparing" or "waiting_for_resource" => state,
                             _ => "unknown"
                         };
-                        if (root.TryGetProperty("coverage", out var raw) && raw.ValueKind is JsonValueKind.String or JsonValueKind.Number &&
-                            double.TryParse(raw.ValueKind == JsonValueKind.String ? raw.GetString() : raw.GetRawText(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) &&
-                            double.IsFinite(number) && number is >= 0 and <= 100)
-                            coverage = number;
+                        if (state == "success")
+                            coverage = ReadCoverage(root);
+                        else
+                        {
+                            using var successful = await ReadAsync($"{path}?ref={Uri.EscapeDataString(branch)}&status=success&order_by=id&sort=desc&per_page=1", deadline.Token);
+                            if (successful.RootElement.GetArrayLength() > 0)
+                            {
+                                var successfulId = successful.RootElement[0].GetProperty("id").GetInt64();
+                                using var successfulDetail = await ReadAsync($"{path}/{successfulId}", deadline.Token);
+                                var successfulRoot = successfulDetail.RootElement;
+                                if (successfulRoot.GetProperty("ref").GetString() != branch || successfulRoot.GetProperty("status").GetString() != "success")
+                                    throw new JsonException("Unexpected successful pipeline.");
+                                coverage = ReadCoverage(successfulRoot);
+                            }
+                        }
                     }
                 }
             }
@@ -94,12 +105,20 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
         }
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         {
-            status = "unknown";
             coverage = null;
             // Never log upstream response bodies, headers, URLs or credential-bearing exceptions.
             logger.LogWarning("GitLab badge lookup failed for {Project} ({ErrorType}).", project, error.GetType().Name);
         }
         return new Snapshot(status, coverage, DateTimeOffset.UtcNow.AddMinutes(status == "unknown" || coverage is null ? 1 : 30), branch, found);
+    }
+
+    private static double? ReadCoverage(JsonElement root)
+    {
+        if (root.TryGetProperty("coverage", out var raw) && raw.ValueKind is JsonValueKind.String or JsonValueKind.Number &&
+            double.TryParse(raw.ValueKind == JsonValueKind.String ? raw.GetString() : raw.GetRawText(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) &&
+            double.IsFinite(number) && number is >= 0 and <= 100)
+            return number;
+        return null;
     }
 
     private async Task<JsonDocument> ReadAsync(string path, CancellationToken cancellationToken)
