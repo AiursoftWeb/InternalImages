@@ -14,3 +14,27 @@ image at `/usr/share/doc/codex-proxy/LICENSE`.
 Make future source changes here and run the existing tests in `source/tests/`.
 The image's authentication wrapper, startup patches, environment variables and
 persistent data paths are unchanged.
+
+## Copilot Responses 兼容补丁
+
+镜像构建时先运行 `patch_responses.py`，再安装包；不修改 `source/` 快照。
+补丁仅在 Responses 输入项的 `type` 为 `function_call`、`call_id` 为非空字符串，
+且可选 `id` 恰好等于 `"fc_" + call_id` 时省略该 `id`。
+保留 `call_id`、工具参数和结果，保留其他 ID，不依赖 ID 长度，也不修补响应输出。
+这是对已复现的 Copilot 合成 ID 与上游兼容性问题的规避，不代表已证实上游内部原因。
+补丁锚点缺失或不唯一时构建会失败，避免源码更新后静默失效。
+
+`test_responses_patch.py` 覆盖实际打补丁后的规范化和流式、非流式请求处理。
+运行时使用 `pytest -c CodexProxy/source/pyproject.toml CodexProxy/test_responses_patch.py`。
+原有 server/translator 测试应同时针对打补丁后的包运行，以验证回归。
+
+## CI 测试门禁
+
+`.gitlab-ci.yml` 的 `test_codexproxy` 在独立 Python 3.13 容器中执行测试：
+- 在临时源码副本上应用补丁，然后安装包，不修改仓库源码快照。
+- 确认加载的是已安装的包且补丁生效，再运行 server、translator 和 Responses 补丁测试。
+- 启动层测试在另一个 Python 进程运行，避免模块替换相互干扰。
+
+master、合并请求以及涉及 CodexProxy 或 CI 配置变更的分支会运行测试。
+`deploy_codexproxy` 必须等待该测试 job 成功后才能构建、推送镜像。
+测试依赖仅安装在测试容器，不进入发布镜像；Dockerfile 不包含测试阶段，本地直接构建不会运行这些测试。
