@@ -27,7 +27,10 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 # Build from the checked-in source, including the existing request-size fix.
 COPY source/ /tmp/codex-proxy/
-RUN uv pip install /tmp/codex-proxy \
+COPY patch_responses.py /tmp/patch_responses.py
+RUN python /tmp/patch_responses.py /tmp/codex-proxy/codex_proxy/server.py \
+    && rm /tmp/patch_responses.py \
+    && uv pip install /tmp/codex-proxy \
     && install -D -m 644 /tmp/codex-proxy/LICENSE /usr/share/doc/codex-proxy/LICENSE \
     && rm -rf /tmp/codex-proxy
 
