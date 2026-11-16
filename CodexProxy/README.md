@@ -27,3 +27,14 @@ persistent data paths are unchanged.
 `test_responses_patch.py` 覆盖实际打补丁后的规范化和流式、非流式请求处理。
 运行时使用 `pytest -c CodexProxy/source/pyproject.toml CodexProxy/test_responses_patch.py`。
 原有 server/translator 测试应同时针对打补丁后的包运行，以验证回归。
+
+## CI 测试门禁
+
+`.gitlab-ci.yml` 的 `test_codexproxy` 在独立 Python 3.13 容器中执行测试：
+- 在临时源码副本上应用补丁，然后安装包，不修改仓库源码快照。
+- 确认加载的是已安装的包且补丁生效，再运行 server、translator 和 Responses 补丁测试。
+- 启动层测试在另一个 Python 进程运行，避免模块替换相互干扰。
+
+master、合并请求以及涉及 CodexProxy 或 CI 配置变更的分支会运行测试。
+`deploy_codexproxy` 必须等待该测试 job 成功后才能构建、推送镜像。
+测试依赖仅安装在测试容器，不进入发布镜像；Dockerfile 不包含测试阶段，本地直接构建不会运行这些测试。

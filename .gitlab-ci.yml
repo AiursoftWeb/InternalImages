@@ -1,5 +1,32 @@
 stages:
+  - test
   - deploy
+
+test_codexproxy:
+  stage: test
+  script:
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/workspace:ro" \
+        -w /tmp python:3.13-slim sh -ec '
+          cp -r /workspace/CodexProxy/source /tmp/codex-proxy
+          python /workspace/CodexProxy/patch_responses.py /tmp/codex-proxy/codex_proxy/server.py
+          python -m pip install /tmp/codex-proxy pytest pytest-asyncio
+          cd /workspace
+          python -c '\''import sys; from pathlib import Path; import codex_proxy.server as server; assert Path(server.__file__).is_relative_to(Path(sys.prefix)); assert "id" not in server._normalize_responses_input([{"type": "function_call", "id": "fc_call_test", "call_id": "call_test"}])[0]'\''
+          python -m pytest -c CodexProxy/source/pyproject.toml \
+            CodexProxy/source/tests/test_server.py \
+            CodexProxy/source/tests/test_translator.py \
+            CodexProxy/test_responses_patch.py -q
+          python -m pytest -c CodexProxy/source/pyproject.toml CodexProxy/test_sitecustomize.py -q
+        '
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+      changes:
+        - CodexProxy/**/*
+        - .gitlab-ci.yml
 
 .deploy_template:
   stage: deploy
@@ -144,6 +171,7 @@ deploy_paddleocr:
 deploy_codexproxy:
   extends: .deploy_template
   needs:
+    - job: test_codexproxy
     - job: deploy_anduinos_internal
       optional: true
   variables:
