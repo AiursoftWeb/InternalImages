@@ -427,6 +427,17 @@ textarea{resize:vertical;min-height:100px}
     </details>
 
     <details>
+      <summary><span class="method method-post">POST</span> <code>/api/jobs</code> — 持久化合成任务</summary>
+      <p>发送 JSON：<code>{"voice":"broadcasting","text":"你好","response_format":"wav"}</code>。
+        返回 202 和任务 id；相同文本、声纹、参数和格式复用同一任务。</p>
+      <p><code>GET /api/jobs/{id}</code> 查询 queued、running、completed 或 failed 状态，
+        包含 queue_position 和 completed_segments/total_segments；完成后
+        <code>GET /api/jobs/{id}/audio</code> 下载音频。所有接口沿用 Bearer 认证。</p>
+      <p>队列满返回 429。任务随服务重启恢复；结果按保留时间清理，过期后可重新提交。
+        原有同步接口继续可用，超时后重试也会复用队列任务。</p>
+    </details>
+
+    <details>
       <summary><span class="method method-post">POST</span> <code>/api/tts</code> — 文字转语音（支持全部高级参数）</summary>
       <div class="api-desc">
         发送表单数据，返回 WAV 音频文件。除 <code>voice</code> 和 <code>text</code> 外，其余参数均为可选。
@@ -759,7 +770,7 @@ function resetDefaults() {
 }
 
 // ── System Info ──────────────────────────────────────────────────────────
-async function loadSystemInfo() {
+async function loadSystemInfo(applyDefaults = true) {
   try {
     const r = await apiFetch('/api/system');
     const d = await r.json();
@@ -767,7 +778,7 @@ async function loadSystemInfo() {
     let html = '';
 
     const isGPU = d.device && d.device.includes('GPU');
-    html += `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device}</span>`;
+    html += `<span class="badge"><span class="dot ${isGPU?'dot-green':'dot-yellow'}"></span>${d.device || '模型启动中'}</span>`;
     if (d.gpu_name) html += `<span class="badge"><span class="dot dot-blue"></span>${d.gpu_name}</span>`;
     if (d.gpu_memory) html += `<span class="badge"><span class="dot dot-blue"></span>显存 ${d.gpu_memory}</span>`;
     if (d.cuda_version) {
@@ -793,10 +804,11 @@ async function loadSystemInfo() {
     if (d.cache) updateCacheStatsUI(d.cache);
 
     // Update defaults from server
-    if (d.defaults) {
+    if (applyDefaults && d.defaults) {
       DEFAULTS = d.defaults;
       resetDefaults();
     }
+    if (d.state === 'starting') setTimeout(() => loadSystemInfo(false), 1500);
   } catch(e) {
     document.getElementById('sysBadges').innerHTML =
       '<span class="badge"><span class="dot dot-red"></span>无法连接服务</span>';
@@ -904,18 +916,35 @@ async function doTTS() {
     fd.append('bucket_size', document.getElementById('bucket_size').value);
     fd.append('speech_rate', document.getElementById('speech_rate').value);
 
-    const r = await apiFetch('/api/tts', { method: 'POST', body: fd });
+    const payload = Object.fromEntries(fd.entries());
+    payload.do_sample = document.getElementById('doSample').checked;
+    payload.fast_mode = document.getElementById('fastMode').checked;
+    let r = await apiFetch('/api/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
     if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
-
-    const cacheStatus = r.headers.get('X-TTS-Cache');
-    const isCacheHit = cacheStatus === 'hit';
+    let job = await r.json();
+    while (job.status === 'queued' || job.status === 'running') {
+      btn.textContent = job.status === 'queued'
+        ? `排队中，第 ${job.queue_position ?? '?'} 位…`
+        : `合成中 ${job.completed_segments}/${job.total_segments || '?'} 段…`;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      r = await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}`);
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || r.statusText); }
+      job = await r.json();
+    }
+    if (job.status !== 'completed') throw new Error(job.error || '任务失败或结果已过期，请重试');
+    r = await apiFetch(`/api/jobs/${encodeURIComponent(job.id)}/audio`);
+    if (!r.ok) throw new Error('读取音频失败，请重试');
+    const isCacheHit = job.cache_hit;
 
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
 
     const player = document.getElementById('audioPlayer');
+    if (player.src.startsWith('blob:')) URL.revokeObjectURL(player.src);
     player.src = url;
-    player.play();
+    player.play().catch(() => toast('请点击播放器开始播放', 'info'));
 
     const dl = document.getElementById('downloadBtn');
     dl.href = url;
