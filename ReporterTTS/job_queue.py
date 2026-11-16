@@ -86,9 +86,9 @@ class JobQueue:
             if count >= self.capacity and not (cached_source and cached_source.is_file()):
                 raise QueueFull()
             if old:
-                db.execute('''UPDATE jobs SET status='queued', updated=?, attempts=0, available=0,
+                db.execute('''UPDATE jobs SET status='queued', created=?, updated=?, attempts=0, available=0,
                     started=NULL, progress=0, total=0, output=NULL, error=NULL, cache_hit=0 WHERE id=?''',
-                           (now, old['id']))
+                           (now, now, old['id']))
                 ident = old['id']
             else:
                 ident = uuid.uuid4().hex
@@ -212,7 +212,18 @@ class JobQueue:
             return row[0]
 
 
-def run_worker(data_dir, settings, stop):
+class StopSignal:
+    def __init__(self, reader):
+        self.reader = reader
+
+    def is_set(self):
+        return self.reader.poll()
+
+    def wait(self, seconds):
+        return self.reader.poll(seconds)
+
+
+def run_worker(data_dir, settings, reader):
     """A file lock elects exactly one GPU worker for this local persistent volume."""
     # Linux containers must not retain a GPU-owning orphan after the HTTP process is killed.
     parent = os.getppid()
@@ -220,6 +231,7 @@ def run_worker(data_dir, settings, stop):
         raise OSError(ctypes.get_errno(), 'Cannot set worker parent-death signal.')
     if os.getppid() != parent:
         return
+    stop = StopSignal(reader)
     queue = JobQueue(data_dir, **settings)
     with (queue.root / 'worker.lock').open('a') as lock:
         try:
@@ -282,7 +294,7 @@ class WorkerSupervisor:
         self.data_dir, self.queue, self.settings = data_dir, queue, settings
         self.job_timeout, self.load_timeout = job_timeout, load_timeout
         self.process = None
-        self.stop_event = None
+        self.stop_sender = None
         self.task = None
         self.started = 0
         self.context = multiprocessing.get_context('spawn')
@@ -292,29 +304,47 @@ class WorkerSupervisor:
 
     async def monitor(self):
         while True:
-            if self.process is None or not self.process.is_alive():
-                if self.process is not None:
-                    self.process.join()
-                    self.process.close()
-                    self.stop_event = None
-                    await asyncio.sleep(5)
-                self.stop_event = self.context.Event()
-                self.process = self.context.Process(target=run_worker,
-                    args=(self.data_dir, self.settings, self.stop_event), daemon=True)
-                self.process.start()
-                self.started = time.time()
-            info = await asyncio.to_thread(self.queue.info)
-            active = await asyncio.to_thread(self.queue.active_started)
-            timed_out = (active is not None and time.time() - active > self.job_timeout) or (
-                info.get('state') != 'ready' and time.time() - self.started > self.load_timeout)
-            if timed_out:
-                logger.error('TTS worker exceeded its execution deadline; recovering queued work.')
-                self.process.terminate()
-                await asyncio.to_thread(self.process.join, 5)
-                if self.process.is_alive():
-                    self.process.kill()
-                    await asyncio.to_thread(self.process.join)
+            try:
+                await self.tick()
+            except Exception:
+                logger.exception('TTS worker supervision failed; retrying.')
+                await asyncio.sleep(5)
             await asyncio.sleep(1)
+
+    async def tick(self):
+        if self.process is None or not self.process.is_alive():
+            if self.process is not None:
+                self.process.join()
+                self.process.close()
+                self.process = None
+                self.stop_sender.close()
+                self.stop_sender = None
+                await asyncio.sleep(5)
+            reader, self.stop_sender = self.context.Pipe(duplex=False)
+            self.process = self.context.Process(target=run_worker,
+                args=(self.data_dir, self.settings, reader), daemon=False)
+            try:
+                self.process.start()
+            except BaseException:
+                self.process.close()
+                self.process = None
+                self.stop_sender.close()
+                self.stop_sender = None
+                raise
+            finally:
+                reader.close()
+            self.started = time.time()
+        info = await asyncio.to_thread(self.queue.info)
+        active = await asyncio.to_thread(self.queue.active_started)
+        timed_out = (active is not None and time.time() - active > self.job_timeout) or (
+            info.get('state') != 'ready' and time.time() - self.started > self.load_timeout)
+        if timed_out:
+            logger.error('TTS worker exceeded its execution deadline; recovering queued work.')
+            self.process.terminate()
+            await asyncio.to_thread(self.process.join, 5)
+            if self.process.is_alive():
+                self.process.kill()
+                await asyncio.to_thread(self.process.join)
 
     async def close(self):
         if self.task:
@@ -322,7 +352,8 @@ class WorkerSupervisor:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
         if self.process:
-            self.stop_event.set()
+            with contextlib.suppress(BrokenPipeError, OSError):
+                self.stop_sender.send(True)
             await asyncio.to_thread(self.process.join, 15)
             if self.process.is_alive():
                 self.process.terminate()
@@ -332,5 +363,6 @@ class WorkerSupervisor:
                 await asyncio.to_thread(self.process.join)
             self.process.close()
             self.process = None
-            self.stop_event = None
+            self.stop_sender.close()
+            self.stop_sender = None
         self.task = None
