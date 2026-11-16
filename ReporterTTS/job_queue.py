@@ -68,6 +68,11 @@ class JobQueue:
             for artifact in self.results.glob(row['id'] + '.*'):
                 artifact.unlink(missing_ok=True)
 
+    def prune(self):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._prune(db)
+
     def submit(self, fingerprint, payload, cached_source=None):
         now = time.time()
         with self.connect() as db:
@@ -125,6 +130,8 @@ class JobQueue:
     def get(self, ident):
         with self.connect() as db:
             row = db.execute('SELECT * FROM jobs WHERE id=?', (ident,)).fetchone()
+            if row and row['status'] in ('completed', 'failed') and row['updated'] < time.time() - self.retention:
+                return None
             return self.public(db, row) if row else None
 
     def audio(self, ident):
@@ -189,6 +196,7 @@ class JobQueue:
         with self.connect() as db:
             db.execute("""UPDATE jobs SET status='completed',output=?,cache_hit=?,updated=?,
                 progress=total,error=NULL WHERE id=?""", (output, int(cache_hit), time.time(), ident))
+            self._prune(db)
 
     def fail(self, job, retry=True):
         retry = retry and job['attempts'] < self.max_attempts
@@ -297,6 +305,7 @@ class WorkerSupervisor:
         self.stop_sender = None
         self.task = None
         self.started = 0
+        self.last_maintenance = 0
         self.context = multiprocessing.get_context('spawn')
 
     def start(self):
@@ -312,6 +321,9 @@ class WorkerSupervisor:
             await asyncio.sleep(1)
 
     async def tick(self):
+        if time.time() - self.last_maintenance >= 60:
+            await asyncio.to_thread(self.queue.prune)
+            self.last_maintenance = time.time()
         if self.process is None or not self.process.is_alive():
             if self.process is not None:
                 self.process.join()
