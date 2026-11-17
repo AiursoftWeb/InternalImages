@@ -11,6 +11,9 @@ Features:
 """
 
 import os
+import asyncio
+import math
+import fcntl
 import re
 import uuid
 import time
@@ -26,12 +29,12 @@ import subprocess
 import threading
 from typing import Optional, List
 from pathlib import Path
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request, Header, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from indextts.infer import IndexTTS
+from job_queue import JobQueue, QueueFull, WorkerSupervisor
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(asctime)s %(message)s")
@@ -57,7 +60,13 @@ CACHE_ENABLED = _env_flag("TTS_CACHE_ENABLED", True)
 CACHE_MAX_SIZE = max(1, int(os.getenv("TTS_CACHE_MAX_SIZE", "2000")))
 
 _LRU_INDEX_PATH = os.path.join(CACHE_DIR, "lru_index.json")
-_cache_lock = threading.Lock()
+@contextmanager
+def _locked_cache():
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(os.path.join(CACHE_DIR, '.lock'), 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
 
 # ── OpenAI Compatibility Models ───────────────────────────────────────────────
 class OpenAI_TTSRequest(BaseModel):
@@ -142,7 +151,7 @@ def _get_cached_audio(cache_key: str) -> Optional[str]:
     if not os.path.isfile(cached_path):
         return None
     # Promote to most-recently-used position
-    with _cache_lock:
+    with _locked_cache():
         keys = _load_lru_index()
         if cache_key in keys:
             keys.remove(cache_key)
@@ -158,12 +167,18 @@ def _store_in_cache(cache_key: str, source_path: str) -> Optional[str]:
     os.makedirs(CACHE_DIR, exist_ok=True)
     cached_path = os.path.join(CACHE_DIR, f"{cache_key}.wav")
     try:
-        shutil.copy2(source_path, cached_path)
+        temporary = cached_path + '.' + uuid.uuid4().hex + '.partial'
+        try:
+            shutil.copy2(source_path, temporary)
+            os.replace(temporary, cached_path)
+        finally:
+            if os.path.exists(temporary):
+                os.remove(temporary)
     except Exception as e:
         logger.warning("Failed to store TTS cache entry %s: %s", cache_key[:12], e)
         return None
 
-    with _cache_lock:
+    with _locked_cache():
         keys = _load_lru_index()
         # Remove if already present (overwrite scenario)
         if cache_key in keys:
@@ -175,6 +190,8 @@ def _store_in_cache(cache_key: str, source_path: str) -> Optional[str]:
             old_file = os.path.join(CACHE_DIR, f"{oldest}.wav")
             try:
                 os.remove(old_file)
+                for extension in ['mp3', 'opus', 'aac', 'flac', 'raw']:
+                    Path(old_file + '.' + extension).unlink(missing_ok=True)
                 logger.info("LRU evicted cache entry: %s", oldest[:12])
             except FileNotFoundError:
                 pass
@@ -457,15 +474,15 @@ def _concat_wav_files(wav_paths: list[str], output_path: str) -> None:
 
 
 # ── Application ──────────────────────────────────────────────────────────────
-tts_model: Optional[IndexTTS] = None
+tts_model: Optional[object] = None
 system_info: dict = {}
 model_runtime_device: Optional[str] = None
 cuda_fallback_to_cpu: bool = False
 model_init_error: Optional[str] = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def initialize_model():
+    from indextts.infer import IndexTTS
     global tts_model, system_info, model_runtime_device, cuda_fallback_to_cpu, model_init_error
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -541,7 +558,33 @@ async def lifespan(app: FastAPI):
         model_init_error = str(e)
         tts_model = None
 
-    yield
+
+
+QUEUE_SETTINGS = {
+    'capacity': max(1, int(os.getenv('TTS_QUEUE_CAPACITY', '100'))),
+    'attempts': max(1, int(os.getenv('TTS_JOB_MAX_ATTEMPTS', '3'))),
+    'retention': max(60, int(os.getenv('TTS_JOB_RETENTION_SECONDS', '604800'))),
+    'results_limit': max(1, int(os.getenv('TTS_JOB_RESULT_LIMIT', str(CACHE_MAX_SIZE)))),
+}
+MAX_TEXT_CHARS = max(1, int(os.getenv('TTS_MAX_TEXT_CHARS', '10000')))
+jobs: Optional[JobQueue] = None
+supervisor: Optional[WorkerSupervisor] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global jobs, supervisor
+    for directory in [OUTPUT_DIR, VOICES_DIR, CACHE_DIR]:
+        os.makedirs(directory, exist_ok=True)
+    jobs = JobQueue(DATA_DIR, **QUEUE_SETTINGS)
+    supervisor = WorkerSupervisor(DATA_DIR, jobs, QUEUE_SETTINGS,
+        job_timeout=max(1, int(os.getenv('TTS_JOB_TIMEOUT_SECONDS', '900'))),
+        load_timeout=max(1, int(os.getenv('TTS_MODEL_LOAD_TIMEOUT_SECONDS', '300'))))
+    supervisor.start()
+    try:
+        yield
+    finally:
+        await supervisor.close()
 
 
 app = FastAPI(title="ReporterTTS", lifespan=lifespan)
@@ -597,17 +640,10 @@ def web_portal():
 @app.get("/api/system")
 def api_system():
     """Return system / hardware information and default generation parameters."""
-    return {
-        **system_info,
-        "model_loaded": tts_model is not None,
-        "model_runtime_device": model_runtime_device,
-        "cuda_fallback_to_cpu": cuda_fallback_to_cpu,
-        "model_init_error": model_init_error,
-        "low_vram_mode": LOW_VRAM_MODE,
-        "auth_required": AUTH_REQUIRED,
-        "defaults": DEFAULTS,
-        "cache": _get_cache_stats(),
-    }
+    info = jobs.info()
+    return {**info, 'low_vram_mode': LOW_VRAM_MODE, 'auth_required': AUTH_REQUIRED,
+            'defaults': DEFAULTS, 'cache': _get_cache_stats()}
+
 
 
 # ── API: Voice Management ───────────────────────────────────────────────────
@@ -674,6 +710,7 @@ def _perform_tts(
     fast_mode: bool = DEFAULTS["fast_mode"],
     bucket_size: int = DEFAULTS["bucket_size"],
     speech_rate: float = DEFAULTS["speech_rate"],
+    progress=None,
 ) -> tuple[str, bool]:
     """Core TTS generation logic. Returns (path_to_WAV, cache_hit)."""
     if tts_model is None:
@@ -785,6 +822,8 @@ def _perform_tts(
         )
 
         start = time.perf_counter()
+        if progress:
+            progress(0, len(chunks))
 
         if len(chunks) <= 1:
             # Fast path: single chunk, write directly to output_path
@@ -799,6 +838,8 @@ def _perform_tts(
                     if not os.path.exists(chunk_path):
                         raise RuntimeError(f"Chunk {i} output file was not created: {chunk!r}")
                     chunk_paths.append(chunk_path)
+                    if progress:
+                        progress(i + 1, len(chunks))
                     logger.info(
                         "TTS chunk %d/%d OK: chars=%d file=%s",
                         i + 1, len(chunks), len(chunk), os.path.basename(chunk_path),
@@ -812,6 +853,8 @@ def _perform_tts(
                     except FileNotFoundError:
                         pass
 
+        if progress:
+            progress(len(chunks), len(chunks))
         duration = time.perf_counter() - start
 
         # speech_rate applied once on the final concatenated file
@@ -831,112 +874,148 @@ def _perform_tts(
         )
 
         # ── Store result in cache ────────────────────────────────────────
-        _store_in_cache(cache_key, output_path)
+        retained = _store_in_cache(cache_key, output_path)
 
-        return output_path, False
-    except HTTPException:
+        return retained or output_path, False
+    except (HTTPException, InterruptedError):
         raise
     except Exception as e:
         logger.error("TTS failed: %s", e, exc_info=True)
         raise HTTPException(500, f"Speech generation failed: {e}")
 
 
-@app.post("/api/tts")
-def api_tts(
-    background_tasks: BackgroundTasks,
-    # ── Required fields ──
-    voice: str = Form(...),
-    text: str = Form(...),
-    # ... rest of params ...
-    temperature: float = Form(default=DEFAULTS["temperature"]),
-    top_p: float = Form(default=DEFAULTS["top_p"]),
-    top_k: int = Form(default=DEFAULTS["top_k"]),
-    do_sample: bool = Form(default=DEFAULTS["do_sample"]),
-    num_beams: int = Form(default=DEFAULTS["num_beams"]),
-    repetition_penalty: float = Form(default=DEFAULTS["repetition_penalty"]),
-    length_penalty: float = Form(default=DEFAULTS["length_penalty"]),
-    max_mel_tokens: int = Form(default=DEFAULTS["max_mel_tokens"]),
-    # ── Text segmentation ──
-    max_text_tokens_per_segment: int = Form(default=DEFAULTS["max_text_tokens_per_segment"]),
-    # ── Inference mode ──
-    fast_mode: bool = Form(default=DEFAULTS["fast_mode"]),
-    bucket_size: int = Form(default=DEFAULTS["bucket_size"]),
-    speech_rate: float = Form(default=DEFAULTS["speech_rate"]),
-):
-    """
-    Generate speech from text using the selected voice and generation parameters.
-    Returns a WAV audio file.
-    """
-    background_tasks.add_task(cleanup_output_audios)
-    output_path, cache_hit = _perform_tts(
-        voice, text, temperature, top_p, top_k, do_sample, num_beams,
-        repetition_penalty, length_penalty, max_mel_tokens,
-        max_text_tokens_per_segment, fast_mode, bucket_size, speech_rate,
-    )
-    return FileResponse(
-        output_path,
-        media_type="audio/wav",
-        filename=f"tts_{voice}.wav",
-        headers={"X-TTS-Cache": "hit" if cache_hit else "miss"},
-    )
+class TTSJobRequest(BaseModel):
+    voice: str
+    text: str
+    response_format: str = 'wav'
+    temperature: float = DEFAULTS['temperature']
+    top_p: float = DEFAULTS['top_p']
+    top_k: int = DEFAULTS['top_k']
+    do_sample: bool = DEFAULTS['do_sample']
+    num_beams: int = DEFAULTS['num_beams']
+    repetition_penalty: float = DEFAULTS['repetition_penalty']
+    length_penalty: float = DEFAULTS['length_penalty']
+    max_mel_tokens: int = DEFAULTS['max_mel_tokens']
+    max_text_tokens_per_segment: int = DEFAULTS['max_text_tokens_per_segment']
+    fast_mode: bool = DEFAULTS['fast_mode']
+    bucket_size: int = DEFAULTS['bucket_size']
+    speech_rate: float = DEFAULTS['speech_rate']
 
 
-# ── API: OpenAI Compatible Speech ─────────────────────────────────────────────
-@app.post("/v1/audio/speech")
-async def openai_speech(request: OpenAI_TTSRequest, background_tasks: BackgroundTasks):
-    """
-    OpenAI-compatible TTS endpoint.
-    See: https://platform.openai.com/docs/api-reference/audio/createSpeech
-    """
-    background_tasks.add_task(cleanup_output_audios)
-    # 1. Voice mapping
-    available_voices = [f.stem for f in Path(VOICES_DIR).glob("*.wav")]
-    if not available_voices:
-        raise HTTPException(503, "No voice profiles available on this server.")
+def normalized_payload(request: TTSJobRequest):
+    values = request.model_dump()
+    voice = values['voice']
+    if not voice or any(not(c.isalnum() or c in '-_') for c in voice):
+        raise HTTPException(400, 'Invalid voice name.')
+    if not (Path(VOICES_DIR) / (voice + '.wav')).is_file():
+        raise HTTPException(404, 'Voice not found.')
+    values['text'] = values['text'].strip()
+    if not values['text'] or len(values['text']) > MAX_TEXT_CHARS:
+        raise HTTPException(400, f'Text must contain 1 to {MAX_TEXT_CHARS} characters.')
+    if values['response_format'] not in ['wav', 'mp3', 'opus', 'aac', 'flac', 'pcm']:
+        raise HTTPException(400, 'Unsupported audio format.')
+    ranges = {'temperature': (.05, 2), 'top_p': (0, 1), 'top_k': (0, 100),
+              'num_beams': (1, 10), 'repetition_penalty': (.1, 20),
+              'length_penalty': (-2, 2), 'max_mel_tokens': (50, 2000),
+              'max_text_tokens_per_segment': (20, 300), 'bucket_size': (1, 8),
+              'speech_rate': (.5, 2)}
+    for name, (low, high) in ranges.items():
+        if not math.isfinite(values[name]):
+            raise HTTPException(400, 'Generation parameters must be finite.')
+        values[name] = max(low, min(high, values[name]))
+    return values
 
-    selected_voice = request.voice
-    # If the requested voice doesn't exist, try case-insensitive or fallback
-    if selected_voice not in available_voices:
-        for v in available_voices:
-            if v.lower() == selected_voice.lower():
-                selected_voice = v
-                break
-        else:
-            selected_voice = available_voices[0]
-            logger.info("OpenAI API: Requested voice '%s' not found, using fallback: %s", request.voice, selected_voice)
 
-    # 2. Perform TTS (using defaults for parameters not in OpenAI spec)
-    wav_path, _cache_hit = _perform_tts(
-        voice=selected_voice,
-        text=request.input,
-        speech_rate=request.speed or 1.0,
-    )
-
-    # 3. Format conversion
-    fmt = (request.response_format or "mp3").lower()
-    if fmt == "wav":
-        return FileResponse(wav_path, media_type="audio/wav")
-
-    # For other formats, convert using ffmpeg
-    ext = fmt if fmt != "pcm" else "raw"
-    converted_path = f"{wav_path}.{ext}"
+def submit_job(request: TTSJobRequest):
+    values = normalized_payload(request)
+    fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+    parameters = {k: v for k, v in values.items() if k != 'response_format'}
+    cache_key = _build_cache_key(**parameters)
+    cached = _get_cached_audio(cache_key)
+    if cached and values['response_format'] != 'wav':
+        extension = 'raw' if values['response_format'] == 'pcm' else values['response_format']
+        cached = cached + '.' + extension
     try:
-        convert_audio(wav_path, converted_path, fmt)
-    except Exception as e:
-        logger.error("Format conversion failed: %s", e)
-        raise HTTPException(500, f"Audio conversion to {fmt} failed.")
+        return jobs.submit(fingerprint, values, cached_source=cached)
+    except QueueFull:
+        raise HTTPException(429, 'Synthesis queue is full. Please retry later.', headers={'Retry-After': '5'})
 
-    # MIME types
-    mime_map = {
-        "mp3": "audio/mpeg",
-        "opus": "audio/opus",
-        "aac": "audio/aac",
-        "flac": "audio/flac",
-        "pcm": "audio/l16",
-    }
-    media_type = mime_map.get(fmt, f"audio/{fmt}")
 
-    return FileResponse(converted_path, media_type=media_type)
+@app.post('/api/jobs', status_code=202)
+def create_job(request: TTSJobRequest):
+    return submit_job(request)
+
+
+@app.get('/api/jobs/{job_id}')
+def job_status(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, 'Job not found or retention expired.')
+    return job
+
+
+AUDIO_TYPES = {'wav': 'audio/wav', 'mp3': 'audio/mpeg', 'opus': 'audio/ogg',
+               'aac': 'audio/aac', 'flac': 'audio/flac', 'pcm': 'audio/l16'}
+
+
+@app.get('/api/jobs/{job_id}/audio')
+def job_audio(job_id: str):
+    job = job_status(job_id)
+    audio = jobs.audio(job_id)
+    if not audio:
+        raise HTTPException(410 if job['status'] == 'expired' else 409, 'Audio is not available.')
+    path, fmt = audio
+    return FileResponse(path, media_type=AUDIO_TYPES[fmt],
+                        headers={'X-TTS-Cache': 'hit' if job['cache_hit'] else 'miss'})
+
+
+async def wait_for_job(request: TTSJobRequest, http_request: Request):
+    # Legacy clients retain binary responses. Disconnecting only stops this waiter.
+    job = await asyncio.to_thread(submit_job, request)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        if await http_request.is_disconnected():
+            raise HTTPException(499, 'Client disconnected; queued work is retained.')
+        if job['status'] == 'completed':
+            return await asyncio.to_thread(job_audio, job['id'])
+        if job['status'] in ['failed', 'expired']:
+            raise HTTPException(502, job.get('error') or 'Audio has expired. Please retry.')
+        await asyncio.sleep(.5)
+        job = await asyncio.to_thread(job_status, job['id'])
+    raise HTTPException(504, 'Synthesis is still queued. Retry reuses the same job.',
+                        headers={'X-TTS-Job-Id': job['id'], 'Retry-After': '5'})
+
+
+@app.post('/api/tts')
+async def api_tts(
+    http_request: Request,
+    voice: str = Form(...), text: str = Form(...),
+    temperature: float = Form(default=DEFAULTS['temperature']),
+    top_p: float = Form(default=DEFAULTS['top_p']),
+    top_k: int = Form(default=DEFAULTS['top_k']),
+    do_sample: bool = Form(default=DEFAULTS['do_sample']),
+    num_beams: int = Form(default=DEFAULTS['num_beams']),
+    repetition_penalty: float = Form(default=DEFAULTS['repetition_penalty']),
+    length_penalty: float = Form(default=DEFAULTS['length_penalty']),
+    max_mel_tokens: int = Form(default=DEFAULTS['max_mel_tokens']),
+    max_text_tokens_per_segment: int = Form(default=DEFAULTS['max_text_tokens_per_segment']),
+    fast_mode: bool = Form(default=DEFAULTS['fast_mode']),
+    bucket_size: int = Form(default=DEFAULTS['bucket_size']),
+    speech_rate: float = Form(default=DEFAULTS['speech_rate']),
+):
+    parameters = dict(locals())
+    parameters.pop('http_request')
+    return await wait_for_job(TTSJobRequest(**parameters), http_request)
+
+
+@app.post('/v1/audio/speech')
+async def openai_speech(request: OpenAI_TTSRequest, http_request: Request):
+    available = [f.stem for f in Path(VOICES_DIR).glob('*.wav')]
+    if not available:
+        raise HTTPException(503, 'No voice profiles available.')
+    voice = next((v for v in available if v.lower() == request.voice.lower()), available[0])
+    return await wait_for_job(TTSJobRequest(voice=voice, text=request.input,
+        speech_rate=request.speed or 1.0, response_format=(request.response_format or 'mp3').lower()), http_request)
 
 
 # ── API: Cache Management ────────────────────────────────────────────────────
@@ -959,7 +1038,7 @@ def api_cache_clear():
             count += 1
         except Exception as e:
             logger.warning("Failed to delete cache file %s: %s", f.name, e)
-    with _cache_lock:
+    with _locked_cache():
         try:
             os.remove(_LRU_INDEX_PATH)
         except FileNotFoundError:
@@ -972,6 +1051,14 @@ def api_cache_clear():
 
 # ── API: Health ──────────────────────────────────────────────────────────────
 @app.get("/health")
-def health_check():
-    """Health check endpoint."""
-    return {"status": "ok" if tts_model is not None else "degraded"}
+async def health_check():
+    # Liveness never waits for a GPU, a thread-pool slot or SQLite.
+    return {'status': 'ok'}
+
+
+@app.get('/ready')
+def readiness():
+    info = jobs.info()
+    if info.get('state') != 'ready' or not supervisor.process or not supervisor.process.is_alive():
+        raise HTTPException(503, 'Synthesis worker is starting or recovering.')
+    return {'status': 'ready'}
