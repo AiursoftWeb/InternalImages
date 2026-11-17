@@ -32,28 +32,28 @@ The catalog below describes the configured release jobs, not a live registry ava
 
 ### Image catalog
 
-The release jobs in [`.gitlab-ci.yml`](.gitlab-ci.yml) define these image names and build platforms:
+The release jobs in [`.gitlab-ci.yml`](.gitlab-ci.yml) define these image names and build platforms. Image links open the corresponding build-context Dockerfile; all platforms below are Linux:
 
-| Build context | Image name | CI platforms | Purpose |
-| --- | --- | --- | --- |
-| [AnduinOS-Internal](AnduinOS-Internal/Dockerfile) | `anduinos-internal` | `linux/amd64,linux/arm64` | AnduinOS base with common command-line and package tools. |
-| [AnduinOS-with-docker](AnduinOS-with-docker/Dockerfile) | `anduinos-with-docker` | `linux/amd64,linux/arm64` | Internal AnduinOS base with the Docker CLI/package. |
-| [ExpPpaMirror](ExpPpaMirror/Dockerfile) | `exp-ppa-mirror` | `linux/amd64,linux/arm64` | Static mirror/cache service with scheduled APT metadata cleanup. |
-| [Lab](Lab/Dockerfile) | `lab` | `linux/amd64,linux/arm64` | Browser terminal with a demo account and passwordless sudo. |
-| [Kiwix](Kiwix/Dockerfile) | `kiwix` | `linux/amd64,linux/arm64` | Offline ZIM document server. |
-| [Dotnet](Dotnet/Dockerfile) | `dotnet` | `linux/amd64,linux/arm64` | .NET 10 SDK and Node.js 24 build environment. |
-| [DotnetOnlyRuntime](DotnetOnlyRuntime/Dockerfile) | `dotnetonlyruntime` | `linux/amd64,linux/arm64` | .NET 10 and ASP.NET Core runtime environment. |
-| [GitMirror](GitMirror/Dockerfile) | `gitmirror` | `linux/amd64,linux/arm64` | Scheduled GitLab-to-GitHub repository mirror. |
-| [Minecraft](Minecraft/Dockerfile) | `minecraft` | `linux/amd64,linux/arm64` | Paper server with bundled plugins and datapacks. |
-| [Nvidia](Nvidia/Dockerfile) | `nvidia` | `linux/amd64` | CUDA development base for GPU images. |
-| [SwinIR](SwinIR/Dockerfile) | `swinir` | `linux/amd64` | Batch image super-resolution with a baked model. |
-| [Youtubedl](Youtubedl/Dockerfile) | `youtubedl` | `linux/amd64,linux/arm64` | Scheduled yt-dlp downloads with persistent archive and cookies. |
-| [ReporterTTS](ReporterTTS/Dockerfile) | `reportertts` | `linux/amd64` | IndexTTS speech service with model weights and persistent data. |
-| [PaddleOCR](PaddleOCR/Dockerfile) | `paddleocr` | `linux/amd64` | CPU OCR service with warmed model cache. |
-| [CodexProxy](CodexProxy/Dockerfile) | `codexproxy` | `linux/amd64` | Packaged local proxy source with authentication/startup patches. |
-| [GitLabCiCollector](GitLabCiCollector/Dockerfile) | `gitlab-ci-collector` | `linux/amd64,linux/arm64` | GitLab CI event collection into ClickHouse. |
-| [MCPO](MCPO/Dockerfile) | `mcpo` | `linux/amd64,linux/arm64` | Open WebUI MCP-to-OpenAPI proxy with dependency/runtime updates. |
-| [BadgeProxy](BadgeProxy/Dockerfile) | `badge-proxy` | `linux/amd64,linux/arm64` | GitLab pipeline and coverage badge service. |
+| Image | CI platforms | Purpose |
+| --- | --- | --- |
+| [`anduinos-internal`](AnduinOS-Internal/Dockerfile) | amd64, arm64 | AnduinOS base with common command-line and package tools. |
+| [`anduinos-with-docker`](AnduinOS-with-docker/Dockerfile) | amd64, arm64 | Internal AnduinOS base with the Docker CLI/package. |
+| [`exp-ppa-mirror`](ExpPpaMirror/Dockerfile) | amd64, arm64 | Static mirror/cache service with scheduled APT metadata cleanup. |
+| [`lab`](Lab/Dockerfile) | amd64, arm64 | Browser terminal with a demo account and passwordless sudo. |
+| [`kiwix`](Kiwix/Dockerfile) | amd64, arm64 | Offline ZIM document server. |
+| [`dotnet`](Dotnet/Dockerfile) | amd64, arm64 | .NET 10 SDK and Node.js 24 build environment. |
+| [`dotnetonlyruntime`](DotnetOnlyRuntime/Dockerfile) | amd64, arm64 | .NET 10 and ASP.NET Core runtime environment. |
+| [`gitmirror`](GitMirror/Dockerfile) | amd64, arm64 | Scheduled GitLab-to-GitHub repository mirror. |
+| [`minecraft`](Minecraft/Dockerfile) | amd64, arm64 | Paper server with bundled plugins and datapacks. |
+| [`nvidia`](Nvidia/Dockerfile) | amd64 | CUDA development base for GPU images. |
+| [`swinir`](SwinIR/Dockerfile) | amd64 | Batch image super-resolution with a baked model. |
+| [`youtubedl`](Youtubedl/Dockerfile) | amd64, arm64 | Scheduled yt-dlp downloads with persistent archive and cookies. |
+| [`reportertts`](ReporterTTS/Dockerfile) | amd64 | IndexTTS speech service with model weights and persistent data. |
+| [`paddleocr`](PaddleOCR/Dockerfile) | amd64 | CPU OCR service with warmed model cache. |
+| [`codexproxy`](CodexProxy/Dockerfile) | amd64 | Packaged local proxy source with authentication/startup patches. |
+| [`gitlab-ci-collector`](GitLabCiCollector/Dockerfile) | amd64, arm64 | GitLab CI event collection into ClickHouse. |
+| [`mcpo`](MCPO/Dockerfile) | amd64, arm64 | Open WebUI MCP-to-OpenAPI proxy with dependency/runtime updates. |
+| [`badge-proxy`](BadgeProxy/Dockerfile) | amd64, arm64 | GitLab pipeline and coverage badge service. |
 
 [FunASR](FunASR/Dockerfile) and [FunASRRealtime](FunASRRealtime/Dockerfile) also have source build contexts, but no corresponding deploy jobs in the current pipeline. Their directories alone do not establish an automatically published image or a supported release-platform list.
 
