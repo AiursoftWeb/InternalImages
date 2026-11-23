@@ -53,7 +53,6 @@ The release jobs in [`.gitlab-ci.yml`](.gitlab-ci.yml) define these image names 
 | [`codexproxy`](CodexProxy/Dockerfile) | amd64 | Packaged local proxy source with authentication/startup patches. |
 | [`gitlab-ci-collector`](GitLabCiCollector/Dockerfile) | amd64, arm64 | GitLab CI event collection into ClickHouse. |
 | [`mcpo`](MCPO/Dockerfile) | amd64, arm64 | Open WebUI MCP-to-OpenAPI proxy with dependency/runtime updates. |
-| [`badge-proxy`](BadgeProxy/Dockerfile) | amd64, arm64 | GitLab pipeline and coverage badge service. |
 
 [FunASR](FunASR/Dockerfile) and [FunASRRealtime](FunASRRealtime/Dockerfile) also have source build contexts, but no corresponding deploy jobs in the current pipeline. Their directories alone do not establish an automatically published image or a supported release-platform list.
 
@@ -107,7 +106,6 @@ Other image-specific inputs include:
 | `paddleocr` | `OCR_ACCESS_TOKEN`, `MAX_PDF_PAGES` and OCR routes in [main.py](PaddleOCR/main.py). |
 | `codexproxy` | Authentication import, persistent login directory and startup patches; see [CodexProxy](CodexProxy/README.md) and [entry point](CodexProxy/docker-entrypoint.sh). |
 | `gitlab-ci-collector` | GitLab/ClickHouse credentials and source selection; see [collector configuration](GitLabCiCollector/README.md). |
-| `badge-proxy` | GitLab read-only API access and public badge endpoints; see [BadgeProxy](BadgeProxy/README.md). |
 | `mcpo` | Inherits the base proxy's command/configuration; [the Dockerfile](MCPO/Dockerfile) applies the dependency/runtime updates. |
 | `FunASR` / `FunASRRealtime` | Model, token, device and port inputs are declared in their [HTTP](FunASR/Dockerfile) and [WebSocket](FunASRRealtime/Dockerfile) build contexts; no release job is configured. |
 
@@ -143,7 +141,6 @@ Image publication and deployment to a running Box are separate steps. Do not cha
 
 ## Documentation
 
-- [BadgeProxy](BadgeProxy/README.md)
 - [CodexProxy](CodexProxy/README.md)
 - [GitLabCiCollector](GitLabCiCollector/README.md)
 
