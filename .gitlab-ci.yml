@@ -172,6 +172,7 @@ deploy_paddleocr:
     IMAGE_NAME: "paddleocr"
     CONTEXT: "./PaddleOCR"
     PLATFORMS: "linux/amd64"
+
 deploy_codexproxy:
   extends: .deploy_template
   needs:
@@ -197,9 +198,3 @@ deploy_mcpo:
   variables:
     IMAGE_NAME: "mcpo"
     CONTEXT: "./MCPO"
-
-deploy_badge_proxy:
-  extends: .deploy_template
-  variables:
-    IMAGE_NAME: "badge-proxy"
-    CONTEXT: "./BadgeProxy"
