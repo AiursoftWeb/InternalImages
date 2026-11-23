@@ -14,13 +14,14 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
     private DateTimeOffset _windowStart = DateTimeOffset.UtcNow;
     private int _refreshes;
 
-    public Task<Snapshot> GetAsync(string project, CancellationToken cancellationToken)
+    public Task<Snapshot> GetAsync(string project, string branch, CancellationToken cancellationToken)
     {
         Task<Snapshot> task;
+        var cacheKey = $"{project}@{branch}";
         lock (_cacheLock)
         {
             var now = DateTimeOffset.UtcNow;
-            if (_entries.TryGetValue(project, out var existing) &&
+            if (_entries.TryGetValue(cacheKey, out var existing) &&
                 (!existing.IsCompleted || existing.IsCompletedSuccessfully && existing.Result.Expires > now))
                 return existing.WaitAsync(cancellationToken);
             // Bound memory and anonymous refresh traffic without maintaining a project list.
@@ -34,13 +35,13 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
             if (_entries.Count >= 256 || _refreshes >= 120)
                 return Task.FromResult(new Snapshot("unknown", null, now));
             _refreshes++;
-            task = RefreshAsync(project);
-            _entries[project] = task;
+            task = RefreshAsync(project, branch);
+            _entries[cacheKey] = task;
         }
         return task.WaitAsync(cancellationToken);
     }
 
-    private async Task<Snapshot> RefreshAsync(string project)
+    private async Task<Snapshot> RefreshAsync(string project, string requestedBranch)
     {
         // Do not hold the cache lock during upstream IO or tie shared _refreshes to one reader.
         await Task.Yield();
@@ -49,6 +50,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
         double? coverage = null;
         string? branch = null;
         var found = true;
+        var projectFound = false;
         try
         {
             await _upstreamSlots.WaitAsync(deadline.Token);
@@ -56,19 +58,35 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
             {
                 var projectPath = $"projects/{Uri.EscapeDataString("aiursoft/" + project)}";
                 using var metadata = await ReadAsync(projectPath, deadline.Token);
+                projectFound = true;
                 if (!string.Equals(metadata.RootElement.GetProperty("path_with_namespace").GetString(), "aiursoft/" + project, StringComparison.OrdinalIgnoreCase))
                     throw new JsonException("Unexpected project path.");
-                branch = metadata.RootElement.GetProperty("default_branch").GetString();
-                if (!string.IsNullOrEmpty(branch))
+
+                if (metadata.RootElement.TryGetProperty("default_branch", out var defaultBranchProp) &&
+                    defaultBranchProp.ValueKind == JsonValueKind.String)
+                {
+                    branch = defaultBranchProp.GetString();
+                }
+
+                // If the project has an authoritative default_branch and it doesn't match the requested branch,
+                // do not query pipelines.
+                if (!string.IsNullOrEmpty(branch) && !string.Equals(branch, requestedBranch, StringComparison.Ordinal))
+                {
+                    return new Snapshot("unknown", null, DateTimeOffset.UtcNow.AddMinutes(1), branch, true);
+                }
+
+                // Use the project default_branch if available; otherwise fall back to requestedBranch (e.g. private repo under guest token).
+                var targetBranch = !string.IsNullOrEmpty(branch) ? branch : requestedBranch;
+                if (!string.IsNullOrEmpty(targetBranch))
                 {
                     var path = projectPath + "/pipelines";
-                    using var list = await ReadAsync($"{path}?ref={Uri.EscapeDataString(branch)}&order_by=id&sort=desc&per_page=1", deadline.Token);
+                    using var list = await ReadAsync($"{path}?ref={Uri.EscapeDataString(targetBranch)}&order_by=id&sort=desc&per_page=1", deadline.Token);
                     if (list.RootElement.GetArrayLength() > 0)
                     {
                         var id = list.RootElement[0].GetProperty("id").GetInt64();
                         using var detail = await ReadAsync($"{path}/{id}", deadline.Token);
                         var root = detail.RootElement;
-                        if (root.GetProperty("ref").GetString() != branch)
+                        if (root.GetProperty("ref").GetString() != targetBranch)
                             throw new JsonException("Unexpected pipeline ref.");
                         var state = root.GetProperty("status").GetString();
                         status = state switch
@@ -81,13 +99,13 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
                             coverage = ReadCoverage(root);
                         else
                         {
-                            using var successful = await ReadAsync($"{path}?ref={Uri.EscapeDataString(branch)}&status=success&order_by=id&sort=desc&per_page=1", deadline.Token);
+                            using var successful = await ReadAsync($"{path}?ref={Uri.EscapeDataString(targetBranch)}&status=success&order_by=id&sort=desc&per_page=1", deadline.Token);
                             if (successful.RootElement.GetArrayLength() > 0)
                             {
                                 var successfulId = successful.RootElement[0].GetProperty("id").GetInt64();
                                 using var successfulDetail = await ReadAsync($"{path}/{successfulId}", deadline.Token);
                                 var successfulRoot = successfulDetail.RootElement;
-                                if (successfulRoot.GetProperty("ref").GetString() != branch || successfulRoot.GetProperty("status").GetString() != "success")
+                                if (successfulRoot.GetProperty("ref").GetString() != targetBranch || successfulRoot.GetProperty("status").GetString() != "success")
                                     throw new JsonException("Unexpected successful pipeline.");
                                 coverage = ReadCoverage(successfulRoot);
                             }
@@ -97,7 +115,7 @@ public sealed class GitLabBadges(HttpClient client, ILogger logger)
             }
             finally { _upstreamSlots.Release(); }
         }
-        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound && branch is null)
+        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound && !projectFound)
         {
             status = "unknown";
             coverage = null;
