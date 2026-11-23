@@ -44,7 +44,7 @@ app.MapMethods("/aiursoft/{project}/badges/{**badgePath}", ["GET", "HEAD"], asyn
     if (file is not ("pipeline.svg" or "coverage.svg")) return Results.NotFound();
     if (context.Request.QueryString.HasValue)
         return Results.BadRequest();
-    var snapshot = await badges.GetAsync(project.ToLowerInvariant(), context.RequestAborted);
+    var snapshot = await badges.GetAsync(project.ToLowerInvariant(), branch, context.RequestAborted);
     if (!snapshot.Found || snapshot.DefaultBranch is not null && branch != snapshot.DefaultBranch)
         return Results.NotFound();
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
